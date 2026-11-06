@@ -5,6 +5,7 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.media.MediaMuxer
+import org.kineograph.media.export.ExportNotSupportedException
 import java.io.File
 import java.io.IOException
 
@@ -29,24 +30,7 @@ internal class H264Encoder(outputFile: File, private val width: Int, private val
         private set
 
     init {
-        val format =
-            MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
-                setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-                setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
-                setInteger(MediaFormat.KEY_FRAME_RATE, fps)
-                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEYFRAME_INTERVAL_SECONDS)
-                // Baseline has no B-frames, so frames leave the encoder in order and every frame is kept.
-                setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
-            }
-        try {
-            codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        } catch (e: IllegalStateException) {
-            codec.release()
-            throw IOException("The encoder refused ${width}x$height", e)
-        } catch (e: IllegalArgumentException) {
-            codec.release()
-            throw IOException("The encoder refused ${width}x$height", e)
-        }
+        configure(width, height, fps, bitrate)
         val inputSurface = codec.createInputSurface()
         try {
             renderer = EglSurfaceRenderer(inputSurface)
@@ -58,6 +42,56 @@ internal class H264Encoder(outputFile: File, private val width: Int, private val
             throw e
         }
     }
+
+    /**
+     * Configures the encoder, asking for Baseline when it offers that. Baseline has no B-frames, so frames leave the
+     * encoder in order. Older Android refuses a profile unless a level comes with it, so the level comes from what the
+     * encoder itself reports. Some encoders still refuse, and any encoder can make a fine video without being told.
+     */
+    private fun configure(width: Int, height: Int, fps: Int, bitrate: Int) {
+        val format =
+            MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
+                setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+                setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
+                setInteger(MediaFormat.KEY_FRAME_RATE, fps)
+                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEYFRAME_INTERVAL_SECONDS)
+            }
+        val baseline = baselineProfileLevel()
+        if (baseline != null) {
+            format.setInteger(MediaFormat.KEY_PROFILE, baseline.profile)
+            format.setInteger(MediaFormat.KEY_LEVEL, baseline.level)
+            if (tryConfigure(format)) return
+            codec.reset()
+            format.removeKey(MediaFormat.KEY_PROFILE)
+            format.removeKey(MediaFormat.KEY_LEVEL)
+        }
+        if (!tryConfigure(format)) {
+            codec.release()
+            throw ExportNotSupportedException("The encoder refused ${width}x$height")
+        }
+    }
+
+    private fun tryConfigure(format: MediaFormat): Boolean =
+        try {
+            codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            true
+        } catch (_: IllegalStateException) {
+            false
+        } catch (_: IllegalArgumentException) {
+            false
+        }
+
+    /** The encoder's own highest-level Baseline entry, or null if it does not list one. */
+    private fun baselineProfileLevel(): MediaCodecInfo.CodecProfileLevel? =
+        try {
+            codec.codecInfo
+                .getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC)
+                .profileLevels
+                .filter { it.profile == MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline }
+                .maxByOrNull { it.level }
+        } catch (_: IllegalArgumentException) {
+            null
+        }
 
     /** Sends one frame. [frame] must be exactly the video's size. */
     fun addFrame(frame: Bitmap, presentationTimeUs: Long) {

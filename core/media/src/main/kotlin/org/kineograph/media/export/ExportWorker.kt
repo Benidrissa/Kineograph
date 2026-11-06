@@ -76,6 +76,10 @@ public class ExportWorker(context: Context, parameters: WorkerParameters) : Coro
         } catch (_: ExportNotSupportedException) {
             output.delete()
             Result.failure(failure(ERROR_NOT_SUPPORTED))
+        } catch (_: IllegalStateException) {
+            // This is what MediaCodec throws when an encoder fails part-way through.
+            output.delete()
+            Result.failure(failure(ERROR_NOT_SUPPORTED))
         } catch (_: IOException) {
             output.delete()
             Result.failure(failure(ERROR_STORAGE))

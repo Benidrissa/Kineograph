@@ -139,7 +139,14 @@ class BouncingBallEndToEndTest {
         waitForTag(formatTag)
         compose.onNodeWithTag(formatTag).performScrollTo().performClick()
         compose.onNodeWithTag("start_export").performScrollTo().performClick()
-        waitForTag("export_done", EXPORT_WAIT_MS)
+        compose.waitUntil(EXPORT_WAIT_MS) {
+            compose.onAllNodes(hasTestTag("export_done")).fetchSemanticsNodes().isNotEmpty() ||
+                compose.onAllNodes(hasTestTag("export_failed")).fetchSemanticsNodes().isNotEmpty()
+        }
+        assertTrue(
+            "The $extension export failed: see the worker's logs",
+            compose.onAllNodes(hasTestTag("export_failed")).fetchSemanticsNodes().isEmpty(),
+        )
         compose.onNodeWithTag("export_done").performClick()
         compose.waitForIdle()
         val directory = File(compose.activity.cacheDir, "exports")

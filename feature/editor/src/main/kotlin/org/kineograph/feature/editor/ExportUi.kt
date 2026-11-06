@@ -249,7 +249,7 @@ internal fun ExportDialog(state: ExportUiState, onCancel: () -> Unit, onDismiss:
         is ExportStatus.Failed -> {
             AlertDialog(
                 onDismissRequest = onDismiss,
-                title = { Text(stringResource(R.string.export_failed_title)) },
+                title = { Text(stringResource(R.string.export_failed_title), Modifier.testTag("export_failed")) },
                 text = { Text(stringResource(failureText(status.code))) },
                 confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_ok)) } },
             )
