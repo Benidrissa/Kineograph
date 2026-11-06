@@ -1,0 +1,1 @@
+Première version : dessin, images, calques, pelure d’oignon, lecture, et exportation MP4 et GIF.

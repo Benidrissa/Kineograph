@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="action_back">Retour</string>
+    <string name="settings_title">Paramètres</string>
+    <string name="settings_section_appearance">Apparence</string>
+    <string name="settings_section_drawing">Dessin</string>
+    <string name="settings_theme">Thème</string>
+    <string name="settings_theme_system">Système</string>
+    <string name="settings_theme_light">Clair</string>
+    <string name="settings_theme_dark">Sombre</string>
+    <string name="settings_dynamic_color">Utiliser les couleurs de votre fond d’écran</string>
+    <string name="settings_toolbar_side">Côté de la barre d’outils</string>
+    <string name="settings_side_left">Gauche</string>
+    <string name="settings_side_right">Droite</string>
+    <string name="settings_toolbar_help">Si vous êtes gaucher, Droite éloigne les outils de la main qui dessine.</string>
+    <string name="settings_finger_pressure">Simuler la pression lors du dessin au doigt</string>
+    <string name="settings_default_smoothing">Lissage par défaut</string>
+    <string name="settings_low_latency">Dessin à faible latence</string>
+    <string name="settings_low_latency_help">Les traits apparaissent plus vite sur Android 10 et versions ultérieures. Désactivez cette option si les traits scintillent ou disparaissent sur votre appareil. Prend effet à la prochaine ouverture d’un projet.</string>
+    <string name="settings_about">À propos de Kineograph</string>
+    <string name="about_title">À propos</string>
+    <string name="about_app_name">Kineograph</string>
+    <string name="about_version">Version %1$s</string>
+    <string name="about_summary">Une application d’animation image par image gratuite, open source et sans publicité. Gratuite pour toujours, sans limite de calques, d’images ni d’exportations, et sans filigrane.</string>
+    <string name="about_privacy">Votre travail reste sur votre appareil. Kineograph n’a ni compte, ni statistiques, ni publicité, et n’a pas l’autorisation d’utiliser Internet.</string>
+    <string name="about_license">Publiée sous la licence publique générale GNU, version 3 ou ultérieure. Vous êtes libre de l’utiliser, de l’étudier, de la partager et de la modifier.</string>
+    <string name="about_third_party">Composants open source</string>
+</resources>

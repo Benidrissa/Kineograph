@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Finished exports, for sharing and opening. -->
+    <cache-path name="exports" path="exports/" />
+    <!-- A photo taken for a project background. -->
+    <cache-path name="camera" path="camera/" />
+</paths>

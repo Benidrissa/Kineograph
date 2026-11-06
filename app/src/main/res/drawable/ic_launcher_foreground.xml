@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An original mark: a stack of flipbook pages with a ball caught mid-bounce. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#7FD6D2"
+        android:pathData="M40,34h36a2,2 0,0 1,2 2v36a2,2 0,0 1,-2 2h-36a2,2 0,0 1,-2 -2v-36a2,2 0,0 1,2 -2z" />
+    <path
+        android:fillColor="#BFF0ED"
+        android:pathData="M36,38h36a2,2 0,0 1,2 2v36a2,2 0,0 1,-2 2h-36a2,2 0,0 1,-2 -2v-36a2,2 0,0 1,2 -2z" />
+    <path
+        android:fillColor="#FBF8F1"
+        android:pathData="M32,42h36a2,2 0,0 1,2 2v36a2,2 0,0 1,-2 2h-36a2,2 0,0 1,-2 -2v-36a2,2 0,0 1,2 -2z" />
+    <path
+        android:fillColor="#0B5454"
+        android:pathData="M37,74h26v2.5h-26z" />
+    <path
+        android:fillColor="#F3BE5F"
+        android:pathData="M42,50a2.5,2.5 0,1 1,0 5a2.5,2.5 0,1 1,0 -5z" />
+    <path
+        android:fillColor="#F3BE5F"
+        android:pathData="M58,50a2.5,2.5 0,1 1,0 5a2.5,2.5 0,1 1,0 -5z" />
+    <path
+        android:fillColor="#E4572E"
+        android:pathData="M50,57c6,0 9.5,4 9.5,8.5c0,4.5 -3.5,7.5 -9.5,7.5c-6,0 -9.5,-3 -9.5,-7.5c0,-4.5 3.5,-8.5 9.5,-8.5z" />
+</vector>

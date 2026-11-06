@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="color_opacity">Opacity</string>
+    <string name="color_recent">Recent colors</string>
+    <string name="color_hue_ring">Color: hue ring around a saturation and brightness square</string>
+    <string name="color_hex">Hex color</string>
+</resources>

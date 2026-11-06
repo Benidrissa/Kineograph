@@ -1,0 +1,131 @@
+name: Android
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Lint, test and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Code style
+        run: ./gradlew ktlintCheck checkNoBangBangInEngine
+      - name: Unit and UI tests
+        run: ./gradlew :core:model:test testDebugUnitTest
+      - name: Lint and permission check
+        run: ./gradlew :app:lintDebug :app:checkDebugPermissions
+      - name: Build the debug APK
+        run: ./gradlew :app:assembleDebug
+      - name: Upload the debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: debug-apk
+          path: app/build/outputs/apk/debug/*universal*.apk
+          retention-days: 30
+      - name: Upload the reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reports
+          path: |
+            **/build/reports/**
+            **/build/test-results/**
+          retention-days: 7
+
+  acceptance:
+    # The bouncing-ball test from start to finish, on the oldest supported Android and a recent one.
+    name: Bouncing ball on API ${{ matrix.api }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 26
+            target: google_apis
+            arch: x86
+          - api: 34
+            target: google_apis
+            arch: x86_64
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run the acceptance test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: ${{ matrix.target }}
+          arch: ${{ matrix.arch }}
+          ram-size: 2048M
+          heap-size: 256M
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect
+          script: ./gradlew :app:connectedDebugAndroidTest :core:data:connectedDebugAndroidTest
+      - name: Upload the reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: acceptance-reports-api-${{ matrix.api }}
+          path: |
+            **/build/reports/androidTests/**
+            **/build/outputs/androidTest-results/**
+          retention-days: 7
+
+  release:
+    # Only tags build a release. Signing keys come from repository secrets and never enter the repository.
+    name: Signed release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, acceptance]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Restore the signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KINEOGRAPH_KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+      - name: Build the signed APKs and bundle
+        env:
+          KINEOGRAPH_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
+          KINEOGRAPH_KEYSTORE_PASSWORD: ${{ secrets.KINEOGRAPH_KEYSTORE_PASSWORD }}
+          KINEOGRAPH_KEY_ALIAS: ${{ secrets.KINEOGRAPH_KEY_ALIAS }}
+          KINEOGRAPH_KEY_PASSWORD: ${{ secrets.KINEOGRAPH_KEY_PASSWORD }}
+        run: ./gradlew :app:assembleRelease :app:bundleRelease :app:checkReleasePermissions
+      - name: Upload the release
+        uses: actions/upload-artifact@v7
+        with:
+          name: release
+          path: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/bundle/release/*.aab

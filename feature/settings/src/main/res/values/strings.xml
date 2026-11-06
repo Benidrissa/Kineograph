@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="action_back">Back</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_section_appearance">Appearance</string>
+    <string name="settings_section_drawing">Drawing</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_theme_system">System</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_dynamic_color">Use colors from your wallpaper</string>
+    <string name="settings_toolbar_side">Tool bar side</string>
+    <string name="settings_side_left">Left</string>
+    <string name="settings_side_right">Right</string>
+    <string name="settings_toolbar_help">If you are left-handed, Right keeps the tools away from your drawing hand.</string>
+    <string name="settings_finger_pressure">Simulate pressure when drawing with a finger</string>
+    <string name="settings_default_smoothing">Default smoothing</string>
+    <string name="settings_low_latency">Low-latency drawing</string>
+    <string name="settings_low_latency_help">Makes lines appear faster on Android 10 and up. Turn it off if strokes flicker or vanish on your device. Takes effect the next time you open a project.</string>
+    <string name="settings_about">About Kineograph</string>
+    <string name="about_title">About</string>
+    <string name="about_app_name">Kineograph</string>
+    <string name="about_version">Version %1$s</string>
+    <string name="about_summary">A free, open-source, ad-free frame-by-frame animation app. Free forever, with no limits on layers, frames or exports, and no watermark.</string>
+    <string name="about_privacy">Your work stays on your device. Kineograph has no accounts, no analytics and no ads, and does not have permission to use the internet.</string>
+    <string name="about_license">Released under the GNU General Public License, version 3 or later. You are free to use, study, share and change it.</string>
+    <string name="about_third_party">Open-source components</string>
+</resources>

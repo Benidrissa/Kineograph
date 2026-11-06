@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="color_opacity">Opacité</string>
+    <string name="color_recent">Couleurs récentes</string>
+    <string name="color_hue_ring">Couleur : anneau de teinte autour d’un carré de saturation et de luminosité</string>
+    <string name="color_hex">Couleur hexadécimale</string>
+</resources>

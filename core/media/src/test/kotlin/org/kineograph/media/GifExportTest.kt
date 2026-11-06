@@ -1,0 +1,181 @@
+package org.kineograph.media
+
+import android.content.Context
+import android.graphics.Color
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import org.junit.runner.RunWith
+import org.kineograph.data.ProjectRepository
+import org.kineograph.data.SampleProject
+import org.kineograph.data.db.AppDatabase
+import org.kineograph.data.files.CelFileStore
+import org.kineograph.data.files.ProjectFiles
+import org.kineograph.media.export.ExportConfig
+import org.kineograph.media.export.ExportFormat
+import org.kineograph.media.export.ProjectExporter
+import org.kineograph.model.Background
+import org.kineograph.model.Project
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+
+/** Exports the real sample project through the real flattener, then decodes the result independently. */
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34])
+class GifExportTest {
+    @get:Rule
+    val temp = TemporaryFolder()
+
+    private lateinit var database: AppDatabase
+    private lateinit var repository: ProjectRepository
+    private lateinit var project: Project
+    private lateinit var store: CelFileStore
+
+    @Before
+    fun setUp() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        database = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).allowMainThreadQueries().build()
+        val files = ProjectFiles(temp.newFolder(), temp.newFolder())
+        repository = ProjectRepository(database.projects(), files, 16L * 1024 * 1024, Dispatchers.IO)
+        val id = runBlocking { SampleProject.create(repository, "Bouncing Ball", "Ball", 0) }
+        val opened = runBlocking { repository.open(id) } ?: error("no sample")
+        project = opened.loaded.project
+        store = opened.store
+    }
+
+    @After
+    fun tearDown() {
+        store.close()
+        database.close()
+    }
+
+    private fun export(config: ExportConfig): TestGifDecoder {
+        val output = temp.newFile("out.gif")
+        runBlocking { ProjectExporter(store).export(project, config, output) { } }
+        return TestGifDecoder(output.readBytes())
+    }
+
+    private val config get() = ExportConfig(project.id, ExportFormat.GIF, scale = 0.25f, gifDither = false)
+
+    @Test
+    fun `the bouncing ball exports as twelve frames lasting one second`() {
+        val gif = export(config)
+        assertEquals(320, gif.width)
+        assertEquals(180, gif.height)
+        assertEquals(12, gif.frames.size)
+        assertEquals(100, gif.frames.sumOf { it.delay })
+        assertEquals(0, gif.loopCount)
+    }
+
+    @Test
+    fun `the ball is where it should be in each frame`() {
+        val gif = export(config)
+        val firstFrameBallColor = gif.frames[0].pixels[28 * 320 + 60]
+        assertTrue(
+            "ball red, got ${Integer.toHexString(firstFrameBallColor)}",
+            Color.red(firstFrameBallColor) > 200 && Color.blue(firstFrameBallColor) < 80,
+        )
+        // Frames differ from one another, since the ball moves.
+        assertFalse(gif.frames[0].pixels.contentEquals(gif.frames[5].pixels))
+    }
+
+    @Test
+    fun `no watermark - only ball and shadow differ from the paper`() {
+        val gif = export(config)
+        val paper = gif.frames[0].pixels[0]
+        // A watermark would sit in a corner. Every corner region of every frame must be untouched paper.
+        val width = gif.width
+        val height = gif.height
+        for (frame in gif.frames) {
+            for (y in 0 until 12) {
+                for (x in 0 until 40) {
+                    assertEquals(paper, frame.pixels[y * width + x])
+                    assertEquals(paper, frame.pixels[y * width + width - 1 - x])
+                    assertEquals(paper, frame.pixels[(height - 1 - y) * width + x])
+                    assertEquals(paper, frame.pixels[(height - 1 - y) * width + width - 1 - x])
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `a transparent background stays transparent`() {
+        project = project.copy(background = Background.Transparent)
+        val gif = export(config)
+        assertEquals(0, gif.frames[0].pixels[0])
+    }
+
+    @Test
+    fun `leaving the background out makes it transparent`() {
+        val gif = export(config.copy(includeBackground = false))
+        assertEquals(0, gif.frames[0].pixels[0])
+    }
+
+    @Test
+    fun `background is opaque when included`() {
+        val gif = export(config)
+        assertNotEquals(0, gif.frames[0].pixels[0])
+    }
+
+    @Test
+    fun `a frame range exports only those frames`() {
+        val gif = export(config.copy(rangeStart = 2, rangeEnd = 4))
+        assertEquals(3, gif.frames.size)
+    }
+
+    @Test
+    fun `holds extend how long a frame shows`() {
+        project = project.copy(frames = project.frames.mapIndexed { i, slot -> if (i == 0) slot.copy(hold = 4) else slot })
+        val gif = export(config)
+        assertEquals(12, gif.frames.size)
+        assertEquals(125, gif.frames.sumOf { it.delay })
+        assertTrue(gif.frames[0].delay >= 33)
+    }
+
+    @Test
+    fun `playing a set number of times is written into the file`() {
+        val gif = export(config.copy(gifLoopForever = false, repeatCount = 2))
+        assertEquals(1, gif.loopCount)
+    }
+
+    @Test
+    fun `progress reaches the end`() {
+        val output = temp.newFile("progress.gif")
+        val seen = ArrayList<Float>()
+        runBlocking { ProjectExporter(store).export(project, config, output) { seen += it } }
+        assertEquals(1f, seen.last(), 0f)
+        assertEquals(seen.sorted(), seen)
+    }
+
+    @Test
+    fun `cancelling stops the export`() {
+        val output = temp.newFile("cancel.gif")
+        var progressCalls = 0
+        try {
+            runBlocking {
+                val job = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
+                ProjectExporter(store).export(project, config, output) {
+                    progressCalls++
+                    if (progressCalls == 3) job?.cancel()
+                }
+            }
+            fail("should have been cancelled")
+        } catch (_: CancellationException) {
+            assertTrue(progressCalls in 3..4)
+        }
+    }
+}

@@ -1,0 +1,1 @@
+First version: drawing, frames, layers, onion skin, playback, and MP4 and GIF export.

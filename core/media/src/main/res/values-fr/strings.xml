@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="export_channel_name">Exportations</string>
+    <string name="export_notification_title">Exportation de votre animation</string>
+    <string name="export_cancel">Annuler</string>
+</resources>

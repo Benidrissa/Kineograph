@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Kineograph</string>
+    <string name="sample_project_name">Balle rebondissante</string>
+    <string name="sample_layer_name">Balle</string>
+    <string name="default_layer_name">Calque 1</string>
+</resources>

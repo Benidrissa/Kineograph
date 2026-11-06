@@ -1,0 +1,20 @@
+Kineograph is a free, open-source app for drawing frame-by-frame animation on your phone, like an old-fashioned flipbook.
+
+<b>Free forever</b>
+No ads, no subscriptions and no watermark. Layers and frames are limited only by your device.
+
+<b>Private</b>
+No account and no analytics. Your work stays on your device; the app does not even have permission to use the internet.
+
+<b>Made for every phone</b>
+A small download that runs on inexpensive phones from Android 8 on, and works well with a finger or a stylus.
+
+<b>What you can do</b>
+• Draw with low latency using Pen, Pencil and Marker brushes, with pressure support
+• Fill shapes, even when an outline has small gaps
+• Move, scale and rotate parts of a drawing with the lasso
+• Add, duplicate and reorder frames
+• Use as many layers as you like
+• See your previous frame with onion skin
+• Play back at any frame rate from 1 to 60
+• Export MP4 video and GIF, ready to share

@@ -1,0 +1,20 @@
+Kineograph est une application gratuite et open source pour dessiner des animations image par image sur votre téléphone, comme un folioscope d’autrefois.
+
+<b>Gratuite pour toujours</b>
+Pas de publicité, pas d’abonnement et pas de filigrane. Les calques et les images ne sont limités que par votre appareil.
+
+<b>Respect de la vie privée</b>
+Ni compte ni statistiques. Votre travail reste sur votre appareil ; l’application n’a même pas l’autorisation d’utiliser Internet.
+
+<b>Pour tous les téléphones</b>
+Un petit téléchargement qui fonctionne sur les téléphones abordables à partir d’Android 8, au doigt comme au stylet.
+
+<b>Ce que vous pouvez faire</b>
+• Dessiner à faible latence avec les pinceaux Stylo, Crayon et Marqueur, avec prise en charge de la pression
+• Remplir des formes, même si le contour présente de petits trous
+• Déplacer, redimensionner et faire pivoter des parties d’un dessin avec le lasso
+• Ajouter, dupliquer et réorganiser des images
+• Utiliser autant de calques que vous voulez
+• Voir l’image précédente grâce à la pelure d’oignon
+• Lire à n’importe quelle cadence de 1 à 60 images par seconde
+• Exporter en vidéo MP4 et en GIF, prêts à partager
