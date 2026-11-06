@@ -23,37 +23,40 @@ public class Tip(public val bitmap: Bitmap, public val diameter: Float) {
  * edges clean: scaling one big image far down with bilinear filtering would alias badly on thin lines.
  */
 public object TipFactory {
-    /** Computes the alpha mask of a tip, [size] pixels square. Pure, so it can be tested without a device. */
+    /**
+     * Computes the alpha mask of a tip, [size] pixels square. Pure, so it can be tested without a device.
+     *
+     * A tip whose narrow side is only a few pixels is measured by true coverage, because sampling just the centre of each
+     * pixel misses a shape that small altogether: a 1.2 px disc falls between the pixel centres and comes out blank.
+     */
     public fun alphaMask(shape: TipShape, size: Int, diameter: Float, hardness: Float, roundness: Float, grain: Float): ByteArray {
         val mask = ByteArray(size * size)
         val center = size / 2f
         val radius = maxOf(diameter / 2f, 0.5f)
         val squash = roundness.coerceIn(0.05f, 1f)
-        // The soft zone is at least one pixel wide, so even a hard edge is anti-aliased.
-        val softZone = maxOf(1f / radius, 1f - hardness.coerceIn(0f, 1f)).coerceAtMost(1f)
-        val solidUntil = 1f - softZone
+        val hardnessClamped = hardness.coerceIn(0f, 1f)
+        val isThin = radius * 2f * squash < THIN_TIP_PX
+        // For sampling at pixel centres, the soft zone is at least one pixel wide, so even a hard edge is anti-aliased.
+        // A band that narrow is centred on the true edge; if it sat entirely inside, hard brushes would come out too thin.
+        val isHardEdge = (1f - hardnessClamped) * radius <= 1f
+        val edgeRadius = if (isHardEdge) radius + 0.5f else radius
+        val softZone = maxOf(1f / edgeRadius, 1f - hardnessClamped).coerceAtMost(1f)
         for (py in 0 until size) {
-            val dy = (py + 0.5f - center) / squash
             for (px in 0 until size) {
-                val dx = px + 0.5f - center
                 val coverage =
-                    if (shape == TipShape.SQUARE) {
-                        1f
-                    } else {
-                        val distance = sqrt(dx * dx + dy * dy) / radius
-                        when {
-                            distance >= 1f -> {
-                                0f
-                            }
+                    when {
+                        shape == TipShape.SQUARE -> {
+                            1f
+                        }
 
-                            distance <= solidUntil -> {
-                                1f
-                            }
+                        isThin -> {
+                            supersampledCoverage(px, py, center, radius, squash, 1f - hardnessClamped)
+                        }
 
-                            else -> {
-                                val t = (1f - distance) / softZone
-                                t * t * (3f - 2f * t)
-                            }
+                        else -> {
+                            val dx = px + 0.5f - center
+                            val dy = (py + 0.5f - center) / squash
+                            edgeProfile(sqrt(dx * dx + dy * dy) / edgeRadius, softZone)
                         }
                     }
                 val textured = if (grain > 0f && coverage > 0f) coverage * (1f - grain * (1f - noise(px, py))) else coverage
@@ -62,6 +65,32 @@ public object TipFactory {
         }
         return mask
     }
+
+    /** How much of one pixel the shape covers, by averaging a grid of points across it. */
+    private fun supersampledCoverage(px: Int, py: Int, center: Float, radius: Float, squash: Float, softZone: Float): Float {
+        var total = 0f
+        for (j in 0 until SUBSAMPLES) {
+            val dy = (py + (j + 0.5f) / SUBSAMPLES - center) / squash
+            for (i in 0 until SUBSAMPLES) {
+                val dx = px + (i + 0.5f) / SUBSAMPLES - center
+                total += edgeProfile(sqrt(dx * dx + dy * dy) / radius, softZone)
+            }
+        }
+        return total / (SUBSAMPLES * SUBSAMPLES)
+    }
+
+    /** Opacity at a distance from the centre, where 1 is the edge of the shape. */
+    private fun edgeProfile(distance: Float, softZone: Float): Float {
+        if (distance >= 1f) return 0f
+        if (softZone <= 0f) return 1f
+        val solidUntil = 1f - softZone
+        if (distance <= solidUntil) return 1f
+        val t = (1f - distance) / softZone
+        return t * t * (3f - 2f * t)
+    }
+
+    private const val THIN_TIP_PX = 8f
+    private const val SUBSAMPLES = 8
 
     /** Stable value noise in 0..1, mixing fine speckle with a coarser tooth like paper's. */
     private fun noise(x: Int, y: Int): Float {

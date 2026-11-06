@@ -21,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -63,8 +64,10 @@ public fun FpsWheel(fps: Int, onFpsChange: (Int) -> Unit, modifier: Modifier = M
             layout.visibleItemsInfo.minByOrNull { abs(it.offset + it.size / 2 - middle) }?.let { values[it.index] }
         }
     }
+    val latestFps by rememberUpdatedState(fps)
+    val latestChange by rememberUpdatedState(onFpsChange)
     LaunchedEffect(listState) {
-        snapshotFlow { centered }.collect { value -> if (value != null && value != fps) onFpsChange(value) }
+        snapshotFlow { centered }.collect { value -> if (value != null && value != latestFps) latestChange(value) }
     }
     LaunchedEffect(fps) {
         if (centered != fps && !listState.isScrollInProgress) listState.scrollToItem(fps - MIN_FPS)

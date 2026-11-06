@@ -13,7 +13,7 @@ public object PlatformEncoder {
         val candidates =
             infos
                 .filter { it.isEncoder && it.supportedTypes.any { type -> type.equals(MediaFormat.MIMETYPE_VIDEO_AVC, ignoreCase = true) } }
-                .sortedByDescending { info -> if (info.isHardwareAccelerated) 1 else 0 }
+                .sortedByDescending { info -> if (info.isHardwareEncoder) 1 else 0 }
         val best = candidates.firstOrNull() ?: return null
         val capabilities = best.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).videoCapabilities ?: return null
         return RealLimits(capabilities)
@@ -28,7 +28,11 @@ public object PlatformEncoder {
 
     private const val DEFAULT_CHECK_FPS = 24
 
-    private val MediaCodecInfo.isHardwareAccelerated: Boolean
+    /**
+     * MediaCodecInfo gained isHardwareAccelerated in Android 10. This must not share that name: a member always wins over
+     * an extension, so the version check would silently never run and older phones would crash.
+     */
+    private val MediaCodecInfo.isHardwareEncoder: Boolean
         get() =
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                 isHardwareAccelerated

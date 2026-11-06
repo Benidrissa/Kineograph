@@ -335,6 +335,7 @@ internal class KineographCanvasView(
             Mode.GESTURE -> {
                 tapClassifier.onPointerCount(event.pointerCount)
                 anchorGesture(event, -1)
+                rebaselineGesture()
             }
 
             Mode.SELECTION_DRAG -> {
@@ -353,6 +354,11 @@ internal class KineographCanvasView(
         mode = Mode.GESTURE
         tapClassifier.begin(event.eventTime, event.pointerCount)
         anchorGesture(event, -1)
+        rebaselineGesture()
+    }
+
+    /** A finger landing or lifting moves the centroid by itself, which must not count as the fingers having moved. */
+    private fun rebaselineGesture() {
         gestureStartCentroidX = gestureCentroidX
         gestureStartCentroidY = gestureCentroidY
         gestureStartSpan = gestureSpan
@@ -518,6 +524,7 @@ internal class KineographCanvasView(
             return
         }
         anchorGesture(event, event.actionIndex)
+        rebaselineGesture()
     }
 
     private fun onUp(event: MotionEvent) {

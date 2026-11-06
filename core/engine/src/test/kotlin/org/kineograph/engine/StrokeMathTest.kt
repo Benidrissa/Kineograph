@@ -368,6 +368,26 @@ class StrokeMathTest {
     }
 
     @Test
+    fun `thin tips keep their true area and never come out blank`() {
+        // These are the sizes real tips are built at, including the 1.19 and 1.42 px ones that used to be empty.
+        var diameter = 1f
+        while (diameter < 12f) {
+            val size = kotlin.math.ceil(diameter).toInt() + 2
+            val mask = TipFactory.alphaMask(TipShape.ROUND, size, diameter, 1f, 1f, 0f)
+            val area = mask.sumOf { (it.toInt() and 0xFF) / 255.0 }
+            val expected = Math.PI * diameter * diameter / 4.0
+            assertTrue("diameter $diameter has area $area, expected about $expected", abs(area - expected) / expected < 0.2)
+            diameter *= 1.19f
+        }
+    }
+
+    @Test
+    fun `a thin chisel tip is not blank`() {
+        val mask = TipFactory.alphaMask(TipShape.ROUND, 8, 5.4f, 0.92f, 0.45f, 0f)
+        assertTrue(mask.any { (it.toInt() and 0xFF) > 100 })
+    }
+
+    @Test
     fun `square tips are entirely solid`() {
         val mask = TipFactory.alphaMask(TipShape.SQUARE, 4, 4f, 1f, 1f, 0f)
         assertTrue(mask.all { it.toInt() and 0xFF == 255 })

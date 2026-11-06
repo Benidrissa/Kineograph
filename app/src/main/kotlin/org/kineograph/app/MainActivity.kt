@@ -16,6 +16,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -73,7 +74,10 @@ private fun KineographNavHost(app: KineographApp, settings: AppSettings, wideLay
                 previewSource = app.projectRepository,
                 actions =
                     GalleryActions(
-                        onOpen = { id -> nav.navigate("editor/$id") },
+                        // A double tap must not open two editors on one project: the older would overwrite the newer's work.
+                        onOpen = { id ->
+                            if (nav.currentBackStackEntry?.destination?.route == ROUTE_GALLERY) nav.navigate("editor/$id")
+                        },
                         onCreate = { request ->
                             model.create(request, layerName, context.contentResolver) { id -> nav.navigate("editor/$id") }
                         },
@@ -85,7 +89,7 @@ private fun KineographNavHost(app: KineographApp, settings: AppSettings, wideLay
                         onQuery = model::setQuery,
                         onSort = model::setSort,
                         onFilter = model::setFilter,
-                        onOpenSettings = { nav.navigate(ROUTE_SETTINGS) },
+                        onOpenSettings = dropUnlessResumed { nav.navigate(ROUTE_SETTINGS) },
                     ),
             )
         }
@@ -113,13 +117,18 @@ private fun KineographNavHost(app: KineographApp, settings: AppSettings, wideLay
                 app.lowMemoryListeners += listener
                 onDispose { app.lowMemoryListeners -= listener }
             }
-            EditorRoute(model, wideLayout, onBack = { nav.popBackStack() })
+            EditorRoute(model, wideLayout, onBack = dropUnlessResumed { nav.popBackStack() })
         }
         composable(ROUTE_SETTINGS) {
-            SettingsScreen(settings, app.settings, onBack = { nav.popBackStack() }, onOpenAbout = { nav.navigate(ROUTE_ABOUT) })
+            SettingsScreen(
+                settings,
+                app.settings,
+                onBack = dropUnlessResumed { nav.popBackStack() },
+                onOpenAbout = dropUnlessResumed { nav.navigate(ROUTE_ABOUT) },
+            )
         }
         composable(ROUTE_ABOUT) {
-            AboutScreen(BuildConfig.VERSION_NAME, onBack = { nav.popBackStack() })
+            AboutScreen(BuildConfig.VERSION_NAME, onBack = dropUnlessResumed { nav.popBackStack() })
         }
     }
 }

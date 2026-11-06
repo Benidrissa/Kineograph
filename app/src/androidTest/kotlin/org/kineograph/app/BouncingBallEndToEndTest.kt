@@ -1,11 +1,10 @@
 package org.kineograph.app
 
 import android.Manifest
-import android.graphics.Bitmap
-import android.graphics.Color
+import android.media.Image
+import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
-import android.media.MediaMetadataRetriever
 import android.os.Build
 import android.os.SystemClock
 import android.view.MotionEvent
@@ -235,41 +234,90 @@ class BouncingBallEndToEndTest {
         assertNoWatermark(file)
     }
 
-    /** With a plain white background, every corner of every frame has to stay plain white, and the drawing must be there. */
+    /**
+     * Decodes every frame of the video. With a plain white background, each corner of each frame has to stay plain white,
+     * and the drawing must be there. MediaMetadataRetriever is not used, because it returns nothing for some frames on Android 8.
+     */
     private fun assertNoWatermark(file: File) {
-        val retriever = MediaMetadataRetriever()
-        retriever.setDataSource(file.path)
+        val extractor = MediaExtractor()
+        extractor.setDataSource(file.path)
+        val track = (0 until extractor.trackCount).first {
+            extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("video/") ==
+                true
+        }
+        extractor.selectTrack(track)
+        val format = extractor.getTrackFormat(track)
+        val decoder = MediaCodec.createDecoderByType(checkNotNull(format.getString(MediaFormat.KEY_MIME)))
+        decoder.configure(format, null, null, 0)
+        decoder.start()
+        val info = MediaCodec.BufferInfo()
+        var inputDone = false
+        var outputDone = false
+        var decoded = 0
         var sawInk = false
-        for (n in 0 until FRAME_COUNT) {
-            val time = n * ONE_SECOND_US / FRAME_COUNT
-            val image: Bitmap = checkNotNull(retriever.getFrameAtTime(time, MediaMetadataRetriever.OPTION_CLOSEST))
-            val w = image.width
-            val h = image.height
-            val cornerW = w / CORNER_FRACTION
-            val cornerH = h / CORNER_FRACTION
-            for (y in 2 until cornerH step CORNER_STEP) {
-                for (x in 2 until cornerW step CORNER_STEP) {
-                    assertNearWhite(image.getPixel(x, y))
-                    assertNearWhite(image.getPixel(w - 1 - x, y))
-                    assertNearWhite(image.getPixel(x, h - 1 - y))
-                    assertNearWhite(image.getPixel(w - 1 - x, h - 1 - y))
+        while (!outputDone) {
+            if (!inputDone) {
+                val input = decoder.dequeueInputBuffer(DECODE_TIMEOUT_US)
+                if (input >= 0) {
+                    val size = extractor.readSampleData(checkNotNull(decoder.getInputBuffer(input)), 0)
+                    if (size < 0) {
+                        decoder.queueInputBuffer(input, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                        inputDone = true
+                    } else {
+                        decoder.queueInputBuffer(input, 0, size, extractor.sampleTime, 0)
+                        extractor.advance()
+                    }
                 }
             }
-            for (y in 0 until h step SAMPLE_STEP) {
-                for (x in 0 until w step SAMPLE_STEP) {
-                    if (Color.red(image.getPixel(x, y)) < INK_THRESHOLD) sawInk = true
+            val output = decoder.dequeueOutputBuffer(info, DECODE_TIMEOUT_US)
+            if (output >= 0) {
+                if (info.size > 0) {
+                    val image = checkNotNull(decoder.getOutputImage(output))
+                    if (assertCornersWhiteAndFindInk(image)) sawInk = true
+                    image.close()
+                    decoded++
                 }
+                decoder.releaseOutputBuffer(output, false)
+                if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
             }
         }
-        retriever.release()
+        decoder.stop()
+        decoder.release()
+        extractor.release()
+        assertEquals("frames decoded from the video", FRAME_COUNT, decoded)
         assertTrue("the drawing never appeared in the video", sawInk)
     }
 
-    private fun assertNearWhite(color: Int) {
-        assertTrue(
-            "expected white, got #${Integer.toHexString(color)}",
-            Color.red(color) > WHITE_THRESHOLD && Color.green(color) > WHITE_THRESHOLD && Color.blue(color) > WHITE_THRESHOLD,
-        )
+    /** Checks brightness, which is the Y plane of a decoded frame. Returns whether the frame contains dark ink. */
+    private fun assertCornersWhiteAndFindInk(image: Image): Boolean {
+        val plane = image.planes[0]
+        val buffer = plane.buffer
+        val w = image.width
+        val h = image.height
+        fun brightness(x: Int, y: Int): Int = buffer.get(y * plane.rowStride + x * plane.pixelStride).toInt() and 0xFF
+        val cornerW = w / CORNER_FRACTION
+        val cornerH = h / CORNER_FRACTION
+        for (y in 2 until cornerH step CORNER_STEP) {
+            for (x in 2 until cornerW step CORNER_STEP) {
+                for (value in intArrayOf(
+                    brightness(x, y),
+                    brightness(w - 1 - x, y),
+                    brightness(x, h - 1 - y),
+                    brightness(
+                        w - 1 - x,
+                        h - 1 - y,
+                    ),
+                )) {
+                    assertTrue("expected a white corner, got brightness $value", value > WHITE_THRESHOLD)
+                }
+            }
+        }
+        for (y in 0 until h step SAMPLE_STEP) {
+            for (x in 0 until w step SAMPLE_STEP) {
+                if (brightness(x, y) < INK_THRESHOLD) return true
+            }
+        }
+        return false
     }
 
     private fun findCanvas(): View {
@@ -309,5 +357,6 @@ class BouncingBallEndToEndTest {
         const val SAMPLE_STEP = 4
         const val WHITE_THRESHOLD = 235
         const val INK_THRESHOLD = 80
+        const val DECODE_TIMEOUT_US = 10_000L
     }
 }

@@ -441,6 +441,51 @@ class CanvasInputTest {
     }
 
     @Test
+    fun `a two-finger tap still counts when a move arrives between the fingers lifting`() {
+        drawLine(100f, 300f, 200f)
+        val down = clock
+        val a = 200f to 200f
+        val b = 400f to 200f
+        send(touch(MotionEvent.ACTION_DOWN, a, downTime = down))
+        clock += 10
+        send(touch(MotionEvent.ACTION_POINTER_DOWN, a, b, downTime = down, actionIndex = 1))
+        clock += 40
+        send(touch(MotionEvent.ACTION_POINTER_UP, a, b, downTime = down, actionIndex = 1))
+        clock += 10
+        // The remaining finger reports a move. It has not gone anywhere, but it is far from the old two-finger centre.
+        send(touch(MotionEvent.ACTION_MOVE, a, downTime = down))
+        send(touch(MotionEvent.ACTION_UP, a, downTime = down))
+        clock += 2000
+        idleFor(400)
+        assertFalse("undo should have fired", session.state.value.canUndo)
+    }
+
+    @Test
+    fun `a three-finger tap still counts when a move arrives after the third finger lands`() {
+        drawLine(100f, 300f, 200f)
+        session.undo()
+        idle()
+        val down = clock
+        val a = 200f to 200f
+        val b = 300f to 200f
+        val c = 700f to 200f
+        send(touch(MotionEvent.ACTION_DOWN, a, downTime = down))
+        clock += 5
+        send(touch(MotionEvent.ACTION_POINTER_DOWN, a, b, downTime = down, actionIndex = 1))
+        clock += 5
+        send(touch(MotionEvent.ACTION_POINTER_DOWN, a, b, c, downTime = down, actionIndex = 2))
+        clock += 5
+        send(touch(MotionEvent.ACTION_MOVE, a, b, c, downTime = down))
+        clock += 30
+        send(touch(MotionEvent.ACTION_POINTER_UP, a, b, c, downTime = down, actionIndex = 2))
+        send(touch(MotionEvent.ACTION_POINTER_UP, a, b, downTime = down, actionIndex = 1))
+        send(touch(MotionEvent.ACTION_UP, a, downTime = down))
+        clock += 2000
+        idle()
+        assertFalse("redo should have fired", session.state.value.canRedo)
+    }
+
+    @Test
     fun `after a pan, strokes land where the finger is on the moved canvas`() {
         val down = clock
         send(touch(MotionEvent.ACTION_DOWN, 300f to 300f, downTime = down))
