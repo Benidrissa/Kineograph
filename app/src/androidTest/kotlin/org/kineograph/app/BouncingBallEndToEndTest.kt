@@ -22,6 +22,8 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -364,9 +366,19 @@ class BouncingBallEndToEndTest {
         return false
     }
 
+    /** Looks in whichever activity is showing, because the system may have recreated the one the test started with. */
     private fun findCanvas(): View {
         var found: View? = null
-        instrumentation.runOnMainSync { found = search(compose.activity.window.decorView) }
+        compose.waitUntil(DEFAULT_WAIT_MS) {
+            instrumentation.runOnMainSync {
+                found =
+                    ActivityLifecycleMonitorRegistry
+                        .getInstance()
+                        .getActivitiesInStage(Stage.RESUMED)
+                        .firstNotNullOfOrNull { search(it.window.decorView) }
+            }
+            found != null
+        }
         return checkNotNull(found) { "no canvas view" }
     }
 

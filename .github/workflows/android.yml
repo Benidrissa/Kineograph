@@ -68,8 +68,10 @@ jobs:
           - api: 26
             target: google_apis
             arch: x86
+          # Plain Android, as the app uses no Google services. The Google image updates itself after boot and recreated the activity
+          # mid-test twice in four runs.
           - api: 34
-            target: google_apis
+            target: default
             arch: x86_64
     steps:
       - uses: actions/checkout@v7
