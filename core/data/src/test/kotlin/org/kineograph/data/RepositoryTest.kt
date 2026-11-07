@@ -1746,13 +1746,13 @@ class RepositoryTest {
         val project = create()
         val retrying = java.util.concurrent.CountDownLatch(1)
         val letGo = java.util.concurrent.CountDownLatch(1)
-        val calls = java.util.concurrent.atomic
-            .AtomicInteger()
+        val holdNext = java.util.concurrent.atomic
+            .AtomicBoolean(false)
         val full = java.util.concurrent.atomic
             .AtomicBoolean(true)
         val store =
             CelFileStore(files.projectDirectory(project.id), 1024 * 1024, Dispatchers.IO) { bitmap, _ ->
-                if (calls.incrementAndGet() == 3) {
+                if (holdNext.compareAndSet(true, false)) {
                     retrying.countDown()
                     letGo.await(5, java.util.concurrent.TimeUnit.SECONDS)
                 }
@@ -1763,6 +1763,8 @@ class RepositoryTest {
             }
         val name = store.write(image())
         assertTrue(runCatching { runBlocking { store.awaitWrites() } }.exceptionOrNull() is IOException)
+        // How many tries that took depends on whether the first had ended by the time it looked, so this goes by the next try, not by a count.
+        holdNext.set(true)
         val saving = CoroutineScope(Dispatchers.Default).async { runCatching { store.awaitWrites() } }
         assertTrue(retrying.await(5, java.util.concurrent.TimeUnit.SECONDS))
         val givingUp = CoroutineScope(Dispatchers.Default).async { store.discard(listOf(name)) }

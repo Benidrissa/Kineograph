@@ -28,7 +28,7 @@ jobs:
       - name: Code style
         run: ./gradlew ktlintCheck checkNoBangBangInEngine
       - name: Unit and UI tests
-        run: ./gradlew :core:model:test testDebugUnitTest
+        run: ./gradlew :core:model:test testDebugUnitTest --continue
       - name: Lint and permission check
         # The app's lint covers every module: see checkDependencies in app/build.gradle.kts.
         run: ./gradlew :app:lintDebug :app:checkDebugPermissions
