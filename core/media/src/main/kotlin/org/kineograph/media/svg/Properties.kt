@@ -53,7 +53,23 @@ internal val PROPERTIES: Map<String, PropDef> =
         add(PropKind.LENGTH, true, true, "stroke-width", "stroke-dashoffset", "letter-spacing", "word-spacing")
         add(PropKind.FONT_SIZE, true, true, "font-size")
         add(PropKind.LENGTH, false, true, "cx", "cy", "r", "rx", "ry", "width", "height")
-        add(PropKind.LENGTH, false, false, "x1", "y1", "x2", "y2", "fx", "fy", "fr", "refX", "refY", "markerWidth", "markerHeight")
+        add(
+            PropKind.LENGTH,
+            false,
+            false,
+            "x1",
+            "y1",
+            "x2",
+            "y2",
+            "fx",
+            "fy",
+            "fr",
+            "refX",
+            "refY",
+            "markerWidth",
+            "markerHeight",
+            "startOffset",
+        )
         add(PropKind.LENGTHS, false, true, "x", "y")
         add(PropKind.LENGTHS, false, false, "dx", "dy")
         add(PropKind.DASH, true, true, "stroke-dasharray")
@@ -86,6 +102,7 @@ internal val PROPERTIES: Map<String, PropDef> =
             "text-transform",
             "font-variant",
             "font-kerning",
+            "color-interpolation",
         )
         add(
             PropKind.KEYWORD,
@@ -159,6 +176,15 @@ internal fun parseProperty(name: String, raw: String, css: Boolean = false): Svg
         if (name !in NUMBERS_ALLOWED_IN_CSS && def.kind in LENGTH_KINDS && splitList(text).any { !hasCssUnit(it) }) return null
     }
     return parseKind(def.kind, text)
+}
+
+/**
+ * Turns `rem` into pixels in a property's text, before it is read. Only where lengths can be: any text can contain those letters, and
+ * the picture in a `data:` address is full of accidental matches.
+ */
+internal fun resolveRemIn(name: String, text: String, rootFontSize: Double): String {
+    val kind = PROPERTIES[name]?.kind
+    return if (kind == null || kind == PropKind.RAW || kind == PropKind.KEYWORD) text else resolveRem(text, rootFontSize)
 }
 
 /** The kinds holding lengths, which in CSS must have units, along with the properties that browsers exempt from that rule. */

@@ -229,7 +229,7 @@ internal class SvgModelBuilder(
             // An empty attribute says nothing, so there is nothing to warn about.
             if (rawValue.isBlank()) return
             // A plain presentation attribute may not use var(), but real files do, and browsers treat it as a declaration.
-            val text = resolveRem(if ("var(" in rawValue) substitute(rawValue, custom) ?: return else rawValue, rootFontSize)
+            val text = resolveRemIn(name, if ("var(" in rawValue) substitute(rawValue, custom) ?: return else rawValue, rootFontSize)
             val value = parsedValue(name, text, fromCss)
             if (value == null) {
                 warnings += SvgWarning.INVALID_CONTENT_IGNORED
@@ -427,7 +427,7 @@ internal class SvgModelBuilder(
                 val def = PROPERTIES[declaration.name] ?: continue
                 if (!def.css) continue
                 val text = substitute(declaration.value, state.custom) ?: continue
-                val value = parsedValue(declaration.name, resolveRem(text, rootFontSize), css = true) ?: continue
+                val value = parsedValue(declaration.name, resolveRemIn(declaration.name, text, rootFontSize), css = true) ?: continue
                 // inherit in a keyframe would need the parent at each frame. Reading it as "the underlying value" looks the same.
                 val entry = CssFrame(frame.offset, value.takeUnless { it === InheritValue || it === InitialValue }, easing)
                 val list = perProperty.getOrPut(declaration.name) { ArrayList(4) }

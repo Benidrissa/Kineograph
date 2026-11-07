@@ -443,7 +443,7 @@ class SvgRobustnessTest {
     }
 
     @Test
-    fun `text on a path warns and keeps its words`() {
+    fun `text on a path draws its words, and with no path it draws nothing`() {
         val document =
             parse(
                 svg(
@@ -451,8 +451,10 @@ class SvgRobustnessTest {
                     <text font-size="20" y="50"><textPath href="#p">Hello</textPath></text>""",
                 ),
             )
-        assertTrue(SvgWarning.UNSUPPORTED_FEATURE_IGNORED in document.warnings)
+        assertEquals(emptySet<SvgWarning>(), document.warnings)
         assertTrue(document.frame().paintedPixels() > 0)
+        val lost = parse(svg("""<text font-size="20" y="50"><textPath href="#nothing">Hello</textPath></text>"""))
+        assertEquals(0, lost.frame().paintedPixels())
     }
 
     @Test

@@ -95,6 +95,20 @@ internal class SvgModel(
     val glyphs: GlyphCache = GlyphCache()
 
     private val basicShapes = HashMap<String, BasicShape?>()
+    private val motionMeasures = HashMap<PathData, MotionMeasure>()
+
+    /**
+     * Kept between frames, since finding positions along a path takes measuring it first. A path whose `d` is animated is a new one on
+     * every frame, so this cannot be left to grow.
+     */
+    fun motionMeasure(data: PathData): MotionMeasure {
+        if (motionMeasures.size >= MAX_MOTION_MEASURES) motionMeasures.clear()
+        return motionMeasures.getOrPut(data) { MotionMeasure(data) }
+    }
 
     fun basicShape(text: String): BasicShape? = basicShapes.getOrPut(text) { parseBasicShape(text) }
+
+    private companion object {
+        const val MAX_MOTION_MEASURES = 64
+    }
 }

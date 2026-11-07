@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Fewer numbers in some values, centres that come and go, a type that does not exist, and a missing type. -->
+  <rect x="80" y="10" width="40" height="10" fill="#cc3333"><animateTransform attributeName="transform" type="rotate" values="0;10 100 15;20 100 15" dur="2s" fill="freeze"/></rect>
+  <rect x="10" y="40" width="20" height="20" fill="#3366cc"><animateTransform attributeName="transform" type="translate" from="0 0" to="50" dur="2s" fill="freeze"/></rect>
+  <rect x="10" y="70" width="20" height="20" fill="#33aa33"><animateTransform attributeName="transform" type="scale" from="1 1" to="2" dur="2s" fill="freeze"/></rect>
+  <rect x="10" y="100" width="20" height="20" fill="#cc9900"><animateTransform attributeName="transform" type="nonsense" from="0" to="50" dur="2s" fill="freeze"/></rect>
+  <rect x="10" y="130" width="20" height="20" fill="#990099"><animateTransform attributeName="transform" from="0" to="50" dur="2s" fill="freeze"/></rect>
+  <rect x="10" y="160" width="20" height="20" fill="#00aaaa"><animateTransform attributeName="x" type="translate" from="0" to="50" dur="2s" fill="freeze"/></rect>
+  <rect x="100" y="100" width="20" height="20" fill="#555555"><animateTransform attributeName="transform" type="translate" from="bad" to="50" dur="2s" fill="freeze"/></rect>
+  <rect x="100" y="130" width="20" height="20" fill="#ff6600"><animateTransform attributeName="transform" type="translate" from="1 2 3" to="50" dur="2s" fill="freeze"/></rect>
+</svg>

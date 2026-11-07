@@ -763,6 +763,7 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
         if (stops.isEmpty()) return null
         if (stops.size == 1) return ResolvedPaint(stops[0].color, null)
         val fontSize = styleOf(el).fontSize
+        val linearColors = styleOf(el).linearColors
         var matrix = Mat2D.IDENTITY
         if (objectUnits && box != null) matrix = Mat2D.translate(box.x, box.y) * Mat2D.scale(box.w, box.h)
         val gradientTransform = (attributeOf(chain, "gradientTransform") as? TransformValue)?.ops
@@ -791,7 +792,7 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
                 val y2 = yOf("y2", Length.ZERO)
                 // Per the specification, a gradient with no length paints with its last colour.
                 if (x1 == x2 && y1 == y2) return ResolvedPaint(stops.last().color, null)
-                GradientShaders.linear(x1, y1, x2, y2, stops, spread, matrix)
+                GradientShaders.linear(x1, y1, x2, y2, stops, spread, matrix, linearColors)
             } else {
                 val cx = xOf("cx", half)
                 val cy = yOf("cy", half)
@@ -800,7 +801,7 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
                 val fx = lengthOf(chain, "fx")?.let { if (objectUnits) it.fraction() else it.resolve(vp.w, fontSize) } ?: cx
                 val fy = lengthOf(chain, "fy")?.let { if (objectUnits) it.fraction() else it.resolve(vp.h, fontSize) } ?: cy
                 val fr = radiusOf("fr", Length.ZERO).coerceAtLeast(0.0)
-                GradientShaders.radial(cx, cy, r, fx, fy, fr, stops, spread, matrix, box)
+                GradientShaders.radial(cx, cy, r, fx, fy, fr, stops, spread, matrix, box, linearColors)
             }
         return ResolvedPaint(Rgba.BLACK, shader)
     }
@@ -1303,7 +1304,21 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
     }
 
     private fun layoutText(el: SvgElement, view: PropView, style: Style, vp: Viewport): TextLayout =
-        TextLayouter(model.glyphs, vp) { child, parent -> viewFor(child, parent) }.layout(el, view, style)
+        TextLayouter(
+            model.glyphs,
+            vp,
+            { child, parent -> viewFor(child, parent) },
+            { path -> textPathOf(path, vp) },
+        ).layout(el, view, style)
+
+    private fun textPathOf(view: PropView, vp: Viewport): TextOnPath? {
+        val target = targetOf(view)?.takeIf { it.tag == "path" } ?: return null
+        val targetView = viewOf(target)
+        val data = (targetView["d"] as? PathValue)?.data?.takeUnless { it.isEmpty } ?: return null
+        // A transform on the path it follows counts, unlike with animateMotion.
+        val matrix = localTransform(target, targetView, styleOf(target), vp, null) ?: Mat2D.IDENTITY
+        return TextOnPath(model.motionMeasure(data), matrix)
+    }
 
     private companion object {
         val BASE_STYLE = Style()

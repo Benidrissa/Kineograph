@@ -11,8 +11,6 @@ internal abstract class Track(val property: String, val documentOrder: Int) {
 
     open fun beginAt(time: Double): Double = 0.0
 
-    open val syncDepth: Int get() = 0
-
     /** The value at [time], given what lies beneath it in the stack. Null means no effect at this moment. */
     abstract fun evaluate(time: Double, underlying: SvgValue?, current: Rgba): SvgValue?
 
@@ -42,8 +40,6 @@ internal class SmilValueTrack(
     private val accumulate: Boolean,
     private val isToAnimation: Boolean,
 ) : Track(property, documentOrder) {
-    override val syncDepth: Int get() = timing.syncDepth
-
     override fun beginAt(time: Double): Double = timing.currentBegin(time)
 
     /** Segment boundaries for paced mode, worked out once from the distances between the values. */
@@ -142,8 +138,6 @@ internal class SmilMotionTrack(
     private val additive: Boolean,
     private val accumulate: Boolean,
 ) : Track(MOTION_PROPERTY, documentOrder) {
-    override val syncDepth: Int get() = timing.syncDepth
-
     override fun beginAt(time: Double): Double = timing.currentBegin(time)
 
     private val measure: MotionMeasure by lazy(LazyThreadSafetyMode.NONE) { MotionMeasure(path) }

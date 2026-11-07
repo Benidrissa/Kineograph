@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 50 50">
+  <!-- Everything at four pixels to the unit: lines stay sharp, and nothing is drawn small and stretched. -->
+  <defs>
+    <linearGradient id="g"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/></linearGradient>
+    <radialGradient id="r" cx=".3" fx=".2"><stop offset="0" stop-color="#ffff00"/><stop offset="1" stop-color="#008800"/></radialGradient>
+    <pattern id="p" patternUnits="userSpaceOnUse" width="4" height="4"><circle cx="2" cy="2" r="1" fill="#cc3333"/></pattern>
+    <clipPath id="c"><circle cx="37" cy="12" r="9"/></clipPath>
+    <mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="50" height="50"><circle cx="12" cy="37" r="9" fill="#ffffff"/></mask>
+    <marker id="k" markerWidth="3" markerHeight="3" refX="1.5" refY="1.5"><circle cx="1.5" cy="1.5" r="1.5" fill="#990099"/></marker>
+  </defs>
+  <rect x="2" y="2" width="20" height="8" fill="url(#g)"/>
+  <rect x="2" y="12" width="20" height="10" fill="url(#p)"/>
+  <rect x="26" y="2" width="22" height="22" fill="url(#r)" clip-path="url(#c)"/>
+  <rect x="2" y="26" width="22" height="22" fill="#3366cc" mask="url(#m)"/>
+  <path d="M28 30 h16 l-4 6" fill="none" stroke="#000000" stroke-width=".5" marker-mid="url(#k)" marker-end="url(#k)"/>
+  <path d="M28 40 h18" fill="none" stroke="#00aaaa" stroke-width="1" stroke-dasharray="2 1"/>
+  <circle cx="30" cy="46" r="2" fill="none" stroke="#000000" stroke-width=".25"/>
+  <rect x="36" y="44" width="10" height="4" rx="1" fill="#ffcc66" stroke="#663300" stroke-width=".5" opacity=".75"/>
+</svg>

@@ -50,8 +50,6 @@ internal class SmilTiming(
         private set
     private var foldFrom = Double.POSITIVE_INFINITY
 
-    var syncDepth: Int = 0
-
     /** Whether this element leads, through its references, to a loop, so that its intervals never stop coming. */
     var inLoop: Boolean = false
 
@@ -299,7 +297,6 @@ internal class SmilTimeline(private val timings: List<SmilTiming>) {
             val timing = ready.removeFirst()
             settled += timing
             dependents[timing]?.forEach { dependent ->
-                dependent.syncDepth = maxOf(dependent.syncDepth, timing.syncDepth + 1)
                 val left = (remaining[dependent] ?: 0) - 1
                 remaining[dependent] = left
                 if (left == 0) ready.addLast(dependent)

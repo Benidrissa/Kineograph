@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 96 96">
+  <defs>
+    <symbol id="i1" viewBox="0 0 24 24"><path d="M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i2" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" fill="currentColor"/></symbol>
+    <symbol id="i3" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor"/><path d="M12 6v6l4 2" fill="none" stroke="currentColor" stroke-linecap="round"/></symbol>
+    <symbol id="i4" viewBox="0 0 512 512"><path d="M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm0 448c-110.5 0-200-89.5-200-200S145.500 56 256 56s200 89.500 200 200-89.500 200-200 200zm61.800-104.400l-84.900-61.700c-3.100-2.300-4.900-5.900-4.900-9.700V116c0-6.600 5.400-12 12-12h32c6.600 0 12 5.400 12 12v141.700l66.800 48.600c5.400 3.900 6.500 11.400 2.600 16.800L334.600 349c-3.900 5.300-11.400 6.500-16.800 2.600z" fill="currentColor"/></symbol>
+  </defs>
+  <g color="#3366cc"><use href="#i1" x="0" y="0" width="48" height="48"/></g>
+  <use xlink:href="#i2" x="48" y="0" width="48" height="48" color="#cc3333"/>
+  <use href="#i3" x="0" y="48" width="48" height="48" color="#33aa33" style="stroke-width: 3"/>
+  <use href="#i4" x="48" y="48" width="48" height="48" color="#990099"/>
+</svg>

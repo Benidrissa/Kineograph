@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="s"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#00ff00"/></linearGradient>
+    <linearGradient id="l" color-interpolation="linearRGB"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#00ff00"/></linearGradient>
+    <!-- It reaches a gradient by inheritance as well, and also with several stops and opacity. -->
+    <g color-interpolation="linearRGB"><radialGradient id="r"><stop offset="0" stop-color="#ffffff"/><stop offset=".5" stop-color="#000000"/><stop offset="1" stop-color="#0000ff" stop-opacity="0"/></radialGradient></g>
+    <linearGradient id="lh" href="#l" x2="0" y2="1"/>
+  </defs>
+  <rect x="10" y="100" width="80" height="80" fill="url(#r)"/>
+  <rect x="110" y="100" width="80" height="80" fill="url(#lh)"/>
+  <rect x="10" y="10" width="180" height="30" fill="url(#s)"/>
+  <rect x="10" y="50" width="180" height="30" fill="url(#l)"/>
+</svg>

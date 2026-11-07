@@ -29,6 +29,7 @@ internal class Style {
     var textAnchor: Int = ANCHOR_START
     var baseline: String = "auto"
     var textTransform: String = "none"
+    var linearColors: Boolean = false
     var fontFeatures: String = ""
     var visible: Boolean = true
     var crispEdges: Boolean = false
@@ -63,6 +64,7 @@ internal class Style {
         s.textAnchor = textAnchor
         s.baseline = baseline
         s.textTransform = textTransform
+        s.linearColors = linearColors
         s.fontFeatures = fontFeatures
         s.visible = visible
         s.crispEdges = crispEdges
@@ -194,6 +196,7 @@ internal fun deriveStyle(parent: Style, view: PropView): Style {
     }
     keywordOf(view, "dominant-baseline")?.let { style.baseline = it }
     keywordOf(view, "text-transform")?.let { style.textTransform = it }
+    keywordOf(view, "color-interpolation")?.let { style.linearColors = it == "linearrgb" }
     val variant = keywordOf(view, "font-variant")
     val kerning = keywordOf(view, "font-kerning")
     if (variant != null || kerning != null) {
@@ -248,6 +251,7 @@ private val INITIAL_KEYWORDS =
         "text-anchor" to "start",
         "dominant-baseline" to "auto",
         "text-transform" to "none",
+        "color-interpolation" to "srgb",
         "font-variant" to "normal",
         "font-kerning" to "auto",
         "visibility" to "visible",

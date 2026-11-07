@@ -77,7 +77,7 @@ private fun parseCircle(inner: String): ((Box, Double) -> Path)? {
     if (sizes.size > 1) return null
     val place = positionOf(position) ?: return null
     val word = sizes.firstOrNull()?.lowercase() ?: "closest-side"
-    val length = if (word == "closest-side" || word == "farthest-side") null else parseLengthOrNull(word) ?: return null
+    val length = if (isSideWord(word)) null else parseLengthOrNull(word) ?: return null
     return { box, fontSize ->
         val (cx, cy) = place(box, fontSize)
         val r =
@@ -96,20 +96,21 @@ private fun parseEllipse(inner: String): ((Box, Double) -> Path)? {
     val (sizes, position) = splitAt(inner)
     if (sizes.size != 0 && sizes.size != 2) return null
     val place = positionOf(position) ?: return null
+    val xWord = sizes.getOrNull(0)?.lowercase() ?: "closest-side"
+    val yWord = sizes.getOrNull(1)?.lowercase() ?: "closest-side"
+    if (!isSideWord(xWord) && parseLengthOrNull(xWord) == null) return null
+    if (!isSideWord(yWord) && parseLengthOrNull(yWord) == null) return null
 
-    fun radius(word: String?, resolve: (Double, Double, Length) -> Double): ((Double, Double) -> Double)? {
-        val lower = word?.lowercase() ?: "closest-side"
-        if (lower == "closest-side") return { near, far -> min(near, far) }
-        if (lower == "farthest-side") return { near, far -> max(near, far) }
-        val length = parseLengthOrNull(lower) ?: return null
-        return { near, far -> resolve(near, far, length) }
-    }
+    fun radius(word: String, size: Double, near: Double, far: Double, fontSize: Double): Double =
+        when (word) {
+            "closest-side" -> min(near, far)
+            "farthest-side" -> max(near, far)
+            else -> parseLengthOrNull(word)?.resolve(size, fontSize) ?: 0.0
+        }
     return { box, fontSize ->
         val (cx, cy) = place(box, fontSize)
-        val rxOf = radius(sizes.getOrNull(0)) { _, _, length -> length.resolve(box.w, fontSize) }
-        val ryOf = radius(sizes.getOrNull(1)) { _, _, length -> length.resolve(box.h, fontSize) }
-        val rx = rxOf?.invoke(abs(cx - box.x), abs(box.right - cx)) ?: 0.0
-        val ry = ryOf?.invoke(abs(cy - box.y), abs(box.bottom - cy)) ?: 0.0
+        val rx = radius(xWord, box.w, abs(cx - box.x), abs(box.right - cx), fontSize)
+        val ry = radius(yWord, box.h, abs(cy - box.y), abs(box.bottom - cy), fontSize)
         Path().apply {
             if (rx > 0.0 && ry > 0.0) {
                 addOval(RectF((cx - rx).toFloat(), (cy - ry).toFloat(), (cx + rx).toFloat(), (cy + ry).toFloat()), Path.Direction.CW)
@@ -117,6 +118,8 @@ private fun parseEllipse(inner: String): ((Box, Double) -> Path)? {
         }
     }
 }
+
+private fun isSideWord(word: String): Boolean = word == "closest-side" || word == "farthest-side"
 
 private fun parseInset(inner: String): ((Box, Double) -> Path)? {
     val tokens = splitList(inner)

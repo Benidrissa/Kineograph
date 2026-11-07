@@ -134,3 +134,6 @@ bytes  ->  XmlReader  ->  tree of SvgElement  ->  SvgModelBuilder  ->  SvgDocume
   was read, except for input too large to hold at all, which is refused with a reason the UI can translate.
 - **Nothing here reaches outside the file.** There is no code that could run a script or open a URL. What was skipped is reported
   in `SvgDocument.warnings`, as enum values, so that the screen showing them can pick a translated sentence.
+- **A real browser is what it is checked against.** `SvgBrowserComparisonTest` compares it with what Chromium drew for several hundred
+  moments of the fixtures, and `tools/svg-reference` makes those pictures. See [decisions.md](decisions.md) for where it follows Chromium, and
+  for where it knowingly does not.

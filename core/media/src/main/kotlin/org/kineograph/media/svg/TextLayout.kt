@@ -4,9 +4,11 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.os.Build
 import java.util.Locale
+import kotlin.math.atan2
 import kotlin.math.ceil
 import kotlin.math.round
 
@@ -26,6 +28,8 @@ internal class PlacedRun(
     val glyphs: GlyphRun,
     val letterSpacingEm: Float,
     val decorations: List<ActiveDecoration>,
+    /** Where this run follows a path, [x] says how far along it. [y] says how far away from it, as with any baseline. */
+    val onPath: TextOnPath?,
 ) {
     var path: Path? = null
 
@@ -34,6 +38,19 @@ internal class PlacedRun(
      * placed by this much relative to [x], so that the first letter of a run stays on its position.
      */
     val glyphShift: Double get() = -letterSpacingEm * style.fontSize / 2.0
+}
+
+/** The path a `textPath` follows, placed in the coordinates of the text. */
+internal class TextOnPath(val measure: MotionMeasure, val matrix: Mat2D) {
+    val length: Double get() = measure.total
+
+    /** The position and direction at a distance along the path. */
+    fun at(distance: Double): MotionPosition {
+        val position = measure.at(distance)
+        if (matrix.isIdentity) return position
+        val turn = Math.toDegrees(atan2(matrix.b, matrix.a))
+        return MotionPosition(matrix.mapX(position.x, position.y), matrix.mapY(position.x, position.y), position.degrees + turn)
+    }
 }
 
 /** A `text-decoration` in force, with the element that asked for it. Its paint is that element's, whatever is written beneath. */
@@ -150,6 +167,7 @@ internal class TextLayouter(
     private val cache: GlyphCache,
     private val vp: Viewport,
     private val viewFor: (SvgElement, Style) -> PropView,
+    private val pathFor: (PropView) -> TextOnPath?,
 ) {
     private class Level(
         val xs: List<Double>,
@@ -174,6 +192,9 @@ internal class TextLayouter(
     private var penY = 0.0
     private var chunkStart = 0
     private var chunkOriginX = 0.0
+
+    /** Set while inside a `textPath`, where the pen's x is a distance along the path and its y a distance away from it. */
+    private var onPath: TextOnPath? = null
 
     /** Starting true is what drops the whitespace at the start of a text element. */
     private var lastWasSpace = true
@@ -202,11 +223,38 @@ internal class TextLayouter(
                     if (node.tag !in TEXT_CHILD_TAGS || !node.conditionsPass) continue
                     val childView = viewFor(node, style)
                     if (childView.keyword("display") == "none") continue
-                    visit(node, childView, deriveStyle(style, childView))
+                    val childStyle = deriveStyle(style, childView)
+                    if (node.tag == "textPath") {
+                        visitTextPath(node, childView, childStyle)
+                    } else {
+                        visit(node, childView, childStyle)
+                    }
                 }
             }
         }
         levels.removeAt(levels.lastIndex)
+    }
+
+    /** Without a path to follow, its words are not drawn at all, as in browsers. */
+    private fun visitTextPath(el: SvgElement, view: PropView, style: Style) {
+        val path = pathFor(view) ?: return
+        flush(trimEnd = false)
+        finishChunk()
+        onPath = path
+        penX = view.length("startOffset")?.resolve(path.length, style.fontSize) ?: 0.0
+        penY = 0.0
+        chunkStart = runs.size
+        chunkOriginX = penX
+        visit(el, view, style)
+        flush(trimEnd = false)
+        finishChunk()
+        onPath = null
+        // Text after it carries on from where this ended.
+        val end = path.at(penX)
+        penX = end.x
+        penY = end.y
+        chunkStart = runs.size
+        chunkOriginX = penX
     }
 
     private fun readLevel(el: SvgElement, view: PropView, style: Style): Level =
@@ -314,6 +362,11 @@ internal class TextLayouter(
             if (dy == null) dy = level.dys.getOrNull(level.index)
         }
         for (level in levels) level.index++
+        // On a path, places come from the path. Only the nudges mean anything there.
+        if (onPath != null) {
+            x = null
+            y = null
+        }
         if (owedWordSpacing != 0.0) {
             flush(trimEnd = false)
             penX += owedWordSpacing
@@ -353,7 +406,7 @@ internal class TextLayouter(
         val glyphs = cache.get(style, spacingEm, text)
         val scale = style.fontSize / TextSupport.NOMINAL_SIZE
         val y = penY + pendingShift + baselineOffset(style.baseline, glyphs, scale)
-        runs += PlacedRun(style, text, penX, y, glyphs, spacingEm, pendingDecorations)
+        runs += PlacedRun(style, text, penX, y, glyphs, spacingEm, pendingDecorations, onPath)
         penX += glyphs.advance * scale
     }
 
@@ -394,6 +447,18 @@ internal class TextLayouter(
         for (run in runs) {
             val scale = run.style.fontSize / TextSupport.NOMINAL_SIZE
             val glyphs = run.glyphs
+            val along = run.onPath
+            if (along != null) {
+                val placed = placeAlong(run, along, scale)
+                run.path = placed
+                val bounds = RectF()
+                placed.computeBounds(bounds, true)
+                if (!bounds.isEmpty) {
+                    val cell = Box(bounds.left.toDouble(), bounds.top.toDouble(), bounds.width().toDouble(), bounds.height().toDouble())
+                    box = box?.union(cell) ?: cell
+                }
+                continue
+            }
             if (glyphs.hasOutline) {
                 val placed = Path()
                 matrix.setScale(scale.toFloat(), scale.toFloat())
@@ -406,6 +471,32 @@ internal class TextLayouter(
             for (decoration in run.decorations) placedDecorations += placeDecoration(run, decoration, scale)
         }
         return box
+    }
+
+    /** Each letter stands at the middle of its own width on the path, turned to the path's direction there. What falls off the ends goes. */
+    private fun placeAlong(run: PlacedRun, along: TextOnPath, scale: Double): Path {
+        val placed = Path()
+        val paint = TextSupport.paintFor(run.style, run.letterSpacingEm)
+        val text = run.text
+        val matrix = Matrix()
+        var i = 0
+        while (i < text.length) {
+            val next = i + Character.charCount(text.codePointAt(i))
+            // Measured with what comes before it, so that the pairs of letters a font tucks together stay that way.
+            val before = paint.measureText(text, 0, i) * scale
+            val width = paint.measureText(text, 0, next) * scale - before
+            val middle = run.x + before + width / 2.0
+            if (middle in 0.0..along.length) {
+                val position = along.at(middle)
+                matrix.setScale(scale.toFloat(), scale.toFloat())
+                matrix.postTranslate((-width / 2.0).toFloat(), run.y.toFloat())
+                matrix.postRotate(position.degrees.toFloat())
+                matrix.postTranslate(position.x.toFloat(), position.y.toFloat())
+                placed.addPath(cache.get(run.style, 0f, text.substring(i, next)).path, matrix)
+            }
+            i = next
+        }
+        return placed
     }
 
     /** Sizes and places a line the way browsers do: its thickness is a tenth of the font size, set off from the baseline by half that. */

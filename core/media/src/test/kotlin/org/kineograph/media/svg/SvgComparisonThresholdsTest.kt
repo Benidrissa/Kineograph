@@ -101,6 +101,35 @@ class SvgComparisonThresholdsTest {
     }
 
     @Test
+    fun `a picture drawn somewhere else on the canvas comes out the same, shifted`() {
+        // These all keep something tied to the destination: a layer, a tile, a clip, or a stroke measured on screen.
+        for (name in listOf("mask-effects", "pattern-transforms", "clip-chain", "stroke-transforms", "marker-units", "grad-radial-focal")) {
+            val document = SvgParser.parse(fixture("$name.svg"))
+            val atOrigin = Bitmap.createBitmap(300, 300, Bitmap.Config.ARGB_8888)
+            document.render(Canvas(atOrigin), 0.0, RectF(0f, 0f, 200f, 200f))
+            val shifted = Bitmap.createBitmap(300, 300, Bitmap.Config.ARGB_8888)
+            document.render(Canvas(shifted), 0.0, RectF(30f, 40f, 230f, 240f))
+            val moved = Bitmap.createBitmap(300, 300, Bitmap.Config.ARGB_8888)
+            Canvas(moved).drawBitmap(atOrigin, 30f, 40f, null)
+            val difference = comparePictures(shifted, moved)
+            assertTrue("$name: $difference", difference.isClose)
+        }
+    }
+
+    @Test
+    fun `gradients computed by hand for phones before API 31 match the browser too`() {
+        GradientShaders.forceSoftwareFocal = true
+        try {
+            for (name in listOf("grad-radial-focal", "grad-radial-spread", "grad-radial-transform")) {
+                val difference = comparePictures(drawn(fixture("$name.svg")), reference("$name@0"))
+                assertTrue("$name: $difference", difference.isClose)
+            }
+        } finally {
+            GradientShaders.forceSoftwareFocal = false
+        }
+    }
+
+    @Test
     fun `a line of text that is missing is caught, for all that it covers so little`() {
         val reference = reference("text-anchor@0")
         val source = String(fixture("text-anchor.svg")).replace(">Middle<", "><").toByteArray()

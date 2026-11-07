@@ -604,7 +604,7 @@ class SvgSmilTest {
     }
 
     @Test
-    fun `a discrete to animation flips half way, as both Chromium and Firefox do`() {
+    fun `a discrete to animation flips half way, as Chromium does`() {
         val doc = opacityProbe("""<animate attributeName="opacity" to="0.5" dur="2s" calcMode="discrete"/>""", base = "0.2")
         assertAlpha(doc, 0.5, 0.2)
         assertAlpha(doc, 1.5, 0.5)

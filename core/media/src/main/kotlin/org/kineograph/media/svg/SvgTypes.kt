@@ -20,7 +20,7 @@ public enum class SvgWarning {
     /** An animation waits for a click or another event. Nobody can click during an import, so it never starts. */
     EVENT_TRIGGER_IGNORED,
 
-    /** A recognised SVG or CSS feature that this renderer does not implement, such as text on a path or blend modes. */
+    /** A recognised SVG or CSS feature that this renderer does not implement, such as blend modes, or a turn for each letter of a text. */
     UNSUPPORTED_FEATURE_IGNORED,
 
     /** A value was malformed. The rest of the file still draws, following the SVG rule of using what came before the error. */

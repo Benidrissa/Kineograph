@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Begins that never come, and ends that do not matter. -->
+  <rect x="10" y="10" width="20" height="20" fill="#cc3333"><animate attributeName="x" from="10" to="170" begin="indefinite" dur="2s" fill="freeze"/></rect>
+  <rect x="10" y="40" width="20" height="20" fill="#3366cc"><animate attributeName="x" from="10" to="170" end="indefinite" dur="2s" fill="freeze"/></rect>
+  <rect x="10" y="70" width="20" height="20" fill="#33aa33"><animate attributeName="x" from="10" to="170" begin="wallclock(2000-01-01T00:00:00Z)" dur="2s" fill="freeze"/></rect>
+  <rect x="10" y="100" width="20" height="20" fill="#cc9900"><animate attributeName="x" from="10" to="170" begin="soon" dur="2s" fill="freeze"/></rect>
+  <rect x="10" y="130" width="20" height="20" fill="#990099"><animate attributeName="x" from="10" to="170" begin="" dur="2s" fill="freeze"/></rect>
+  <rect x="10" y="160" width="20" height="20" fill="#00aaaa"><animate attributeName="x" from="10" to="170" begin="1s" end="" dur="2s" fill="freeze"/></rect>
+  <rect x="60" y="185" width="10" height="10" fill="#555555"><animate attributeName="x" from="60" to="170" dur="2s" repeatCount="soon" fill="freeze"/></rect>
+  <rect x="90" y="185" width="10" height="10" fill="#ff6600"><animate attributeName="x" from="90" to="170" dur="2s" fill="sometimes"/></rect>
+  <rect x="120" y="185" width="10" height="10" fill="#0066ff"><animate attributeName="x" from="120" to="170" dur="2s" additive="maybe" accumulate="maybe"/></rect>
+</svg>

@@ -17,6 +17,9 @@ internal class GradientStop(val offset: Double, val color: Rgba)
 internal object GradientShaders {
     /** Stops added per span where colour and alpha both change. See [expand] for why. Enough that the steps cannot be seen. */
     private const val SUBDIVISIONS = 16
+
+    /** More for linear light, whose curve is steepest right next to a stop, near black. */
+    private const val LINEAR_SUBDIVISIONS = 64
     private const val SOFTWARE_FOCAL_SIZE = 256
 
     /** The focal gradient before API 31 is computed by hand. Tests turn this on to exercise that path on a newer runtime. */
@@ -31,8 +34,9 @@ internal object GradientShaders {
         stops: List<GradientStop>,
         spread: Shader.TileMode,
         matrix: Mat2D,
+        linearColors: Boolean,
     ): Shader {
-        val expanded = expand(stops)
+        val expanded = expand(stops, linearColors)
         val shader =
             LinearGradient(
                 x1.toFloat(),
@@ -58,8 +62,9 @@ internal object GradientShaders {
         spread: Shader.TileMode,
         matrix: Mat2D,
         box: Box?,
+        linearColors: Boolean,
     ): Shader {
-        val expanded = expand(stops)
+        val expanded = expand(stops, linearColors)
         // A focal point outside the circle is not moved back in. As SVG 2 says, the gradient then becomes a cone, with nothing outside it.
         val isPlain = fx == cx && fy == cy && fr == 0.0
         if (isPlain) return plainRadial(cx, cy, r, expanded, spread, matrix)
@@ -104,26 +109,31 @@ internal object GradientShaders {
 
     /**
      * Android blends gradient colours after multiplying them by alpha, while SVG blends them before, so `red` to transparent `blue`
-     * comes out with no purple in it. Extra stops computed the SVG way pin the result to the right curve.
+     * comes out with no purple in it. Extra stops computed the SVG way pin the result to the right curve. Android also only blends in
+     * sRGB, so `color-interpolation: linearRGB` goes the same way.
      */
-    private fun expand(stops: List<GradientStop>): List<GradientStop> {
+    private fun expand(stops: List<GradientStop>, linearColors: Boolean): List<GradientStop> {
         val needsHelp =
-            (0 until stops.size - 1).any { i ->
-                val a = stops[i].color
-                val b = stops[i + 1].color
-                a.a != b.a && (a.r != b.r || a.g != b.g || a.b != b.b) && stops[i].offset < stops[i + 1].offset
-            }
+            linearColors ||
+                (0 until stops.size - 1).any { i ->
+                    val a = stops[i].color
+                    val b = stops[i + 1].color
+                    a.a != b.a && (a.r != b.r || a.g != b.g || a.b != b.b) && stops[i].offset < stops[i + 1].offset
+                }
         if (!needsHelp) return stops
-        val out = ArrayList<GradientStop>(stops.size * SUBDIVISIONS)
+        val subdivisions = if (linearColors) LINEAR_SUBDIVISIONS else SUBDIVISIONS
+        val out = ArrayList<GradientStop>(stops.size * subdivisions)
         for (i in 0 until stops.size - 1) {
             val a = stops[i]
             val b = stops[i + 1]
             out += a
-            val differs = a.color.a != b.color.a && (a.color.r != b.color.r || a.color.g != b.color.g || a.color.b != b.color.b)
+            val differs =
+                linearColors || (a.color.a != b.color.a && (a.color.r != b.color.r || a.color.g != b.color.g || a.color.b != b.color.b))
             if (differs && a.offset < b.offset) {
-                for (k in 1 until SUBDIVISIONS) {
-                    val p = k.toDouble() / SUBDIVISIONS
-                    out += GradientStop(a.offset + (b.offset - a.offset) * p, straightMix(a.color, b.color, p))
+                for (k in 1 until subdivisions) {
+                    val p = k.toDouble() / subdivisions
+                    val color = if (linearColors) linearMix(a.color, b.color, p) else straightMix(a.color, b.color, p)
+                    out += GradientStop(a.offset + (b.offset - a.offset) * p, color)
                 }
             }
         }
@@ -133,6 +143,14 @@ internal object GradientShaders {
 
     private fun straightMix(a: Rgba, b: Rgba, p: Double): Rgba =
         Rgba(a.r + (b.r - a.r) * p, a.g + (b.g - a.g) * p, a.b + (b.b - a.b) * p, a.a + (b.a - a.a) * p)
+
+    private fun linearMix(a: Rgba, b: Rgba, p: Double): Rgba {
+        fun channel(x: Double, y: Double): Double {
+            val from = srgbDecode(x / 255.0)
+            return srgbEncode(from + (srgbDecode(y / 255.0) - from) * p) * 255.0
+        }
+        return Rgba(channel(a.r, b.r), channel(a.g, b.g), channel(a.b, b.b), a.a + (b.a - a.a) * p)
+    }
 
     private fun colors(stops: List<GradientStop>): IntArray = IntArray(stops.size) { stops[it].color.toArgb() }
 

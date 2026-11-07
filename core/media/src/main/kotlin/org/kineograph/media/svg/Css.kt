@@ -245,7 +245,7 @@ private fun singleQueryMatches(query: String, context: MediaContext): Boolean {
     }
     while (matches && rest.isNotEmpty()) {
         if (rest.startsWith("and")) rest = rest.removePrefix("and").trim()
-        val feature = MEDIA_FEATURE.matchAt(rest, 0) ?: return false
+        val feature = MEDIA_FEATURE.find(rest)?.takeIf { it.range.first == 0 } ?: return false
         matches = mediaFeatureMatches(feature.groupValues[1], feature.groupValues[2], context)
         rest = rest.substring(feature.range.last + 1).trim()
     }

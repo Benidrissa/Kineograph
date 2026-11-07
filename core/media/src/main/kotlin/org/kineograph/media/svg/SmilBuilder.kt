@@ -165,7 +165,7 @@ internal class SmilBuilder(
             return
         }
         // Transforms have their own element for this. Browsers ignore animate and set on them, so a file that tries shows no motion.
-        if (def.kind == PropKind.TRANSFORM && tag != "animateTransform") {
+        if ((def.kind == PropKind.TRANSFORM) != (tag == "animateTransform")) {
             warnings += SvgWarning.INVALID_CONTENT_IGNORED
             return
         }
@@ -175,7 +175,7 @@ internal class SmilBuilder(
                 val type = attrs["type"]?.trim() ?: "translate"
                 ({ text -> parseAnimateTransformValue(type, text) })
             } else {
-                ({ text -> parseProperty(property, resolveRem(text, rootFontSize)) })
+                ({ text -> parseProperty(property, resolveRemIn(property, text, rootFontSize)) })
             }
         val interpolable = tag == "animateTransform" || (def.kind != PropKind.KEYWORD && def.kind != PropKind.RAW)
         val requestedMode =
@@ -254,7 +254,7 @@ internal class SmilBuilder(
                 ValueSpec(listOf(zero, by.value), additiveByDefinition = true, isToAnimation = false)
             }
 
-            // Even when discrete. SMIL's text says this should hold the target all the way, but both Chromium and Firefox flip half way.
+            // Even when discrete. SMIL's text says this should hold the target all the way, but Chromium flips half way, between the two values.
             to != null -> {
                 ValueSpec(listOf(null, to.value), additiveByDefinition = false, isToAnimation = true)
             }
@@ -411,18 +411,39 @@ internal class SmilBuilder(
     }
 }
 
-/** The values of `animateTransform` are bare numbers, whose meaning depends on its `type` attribute. */
+/** The values of `animateTransform` are bare numbers, whose meaning and allowed count depend on its `type` attribute. */
 private fun parseAnimateTransformValue(type: String, text: String): SvgValue? {
     val numbers = parseNumberList(text) ?: return null
-    if (numbers.isEmpty()) return null
     val op: TransformOp =
         when (type) {
-            "translate" -> TransformOp.Translate(Length(px = numbers[0]), Length(px = numbers.getOrElse(1) { 0.0 }))
-            "scale" -> TransformOp.Scale(numbers[0], numbers.getOrElse(1) { numbers[0] })
-            "rotate" -> TransformOp.Rotate(numbers[0], numbers.getOrElse(1) { 0.0 }, numbers.getOrElse(2) { 0.0 })
-            "skewX" -> TransformOp.Skew(numbers[0], 0.0)
-            "skewY" -> TransformOp.Skew(0.0, numbers[0])
-            else -> return null
+            "translate" -> {
+                if (numbers.size !in 1..2) return null
+                TransformOp.Translate(Length(px = numbers[0]), Length(px = numbers.getOrElse(1) { 0.0 }))
+            }
+
+            "scale" -> {
+                if (numbers.size !in 1..2) return null
+                TransformOp.Scale(numbers[0], numbers.getOrElse(1) { numbers[0] })
+            }
+
+            "rotate" -> {
+                if (numbers.size != 1 && numbers.size != 3) return null
+                TransformOp.Rotate(numbers[0], numbers.getOrElse(1) { 0.0 }, numbers.getOrElse(2) { 0.0 })
+            }
+
+            "skewX" -> {
+                if (numbers.size != 1) return null
+                TransformOp.Skew(numbers[0], 0.0)
+            }
+
+            "skewY" -> {
+                if (numbers.size != 1) return null
+                TransformOp.Skew(0.0, numbers[0])
+            }
+
+            else -> {
+                return null
+            }
         }
     return TransformValue(listOf(op))
 }

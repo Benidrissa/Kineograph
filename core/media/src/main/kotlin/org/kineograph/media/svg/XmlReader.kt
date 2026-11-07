@@ -160,12 +160,6 @@ internal class SvgXmlReader(private val limits: SvgLimits, private val warnings:
                 true
             }
 
-            // Its words still show, in a straight line, which reads better than losing them.
-            "textPath" -> {
-                warnings += SvgWarning.UNSUPPORTED_FEATURE_IGNORED
-                false
-            }
-
             // None of these draw anything. A filter only matters where something refers to it, and that is warned about there.
             "metadata", "title", "desc", "filter", "font", "font-face", "missing-glyph", "cursor", "view" -> {
                 true

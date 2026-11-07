@@ -186,18 +186,10 @@ private fun parseColorMix(args: String): Rgba? {
     val space = parts[0].removePrefix("in ").trim().substringBefore(' ')
     val first = parseMixPart(parts[1]) ?: return null
     val second = parseMixPart(parts[2]) ?: return null
-    var share1 = first.second
-    var share2 = second.second
-    if (share1 == null && share2 == null) {
-        share1 = 0.5
-        share2 = 0.5
-    } else if (share1 == null) {
-        share1 = 1.0 - (share2 ?: 0.0)
-    } else if (share2 == null) {
-        share2 = 1.0 - share1
-    }
-    val a = share1 ?: return null
-    val b = share2 ?: return null
+    val given1 = first.second
+    val given2 = second.second
+    val a = given1 ?: if (given2 != null) 1.0 - given2 else 0.5
+    val b = given2 ?: if (given1 != null) 1.0 - given1 else 0.5
     val total = a + b
     if (total <= 0.0) return null
     val mixed = mixIn(space, first.first, second.first, b / total)
@@ -245,13 +237,13 @@ private inline fun mixPremultiplied(
     return build(DoubleArray(3) { (a[it] * alphaA + (b[it] * alphaB - a[it] * alphaA) * p) / alpha })
 }
 
-private fun srgbDecode(value: Double): Double {
+internal fun srgbDecode(value: Double): Double {
     val magnitude = abs(value)
     val linear = if (magnitude <= 0.04045) magnitude / 12.92 else ((magnitude + 0.055) / 1.055).pow(2.4)
     return if (value < 0.0) -linear else linear
 }
 
-private fun srgbEncode(value: Double): Double {
+internal fun srgbEncode(value: Double): Double {
     val magnitude = abs(value)
     val encoded = if (magnitude <= 0.0031308) magnitude * 12.92 else 1.055 * magnitude.pow(1.0 / 2.4) - 0.055
     return if (value < 0.0) -encoded else encoded

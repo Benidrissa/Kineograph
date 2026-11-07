@@ -57,7 +57,7 @@ class SvgValuesTest {
         assertNull(parseLengthOrNull("10foo"))
         assertNull(parseLengthOrNull(""))
         assertNull(parseLengthOrNull("10 px"))
-        // A dot with no digit after it is a mistake in the eyes of Chromium and Firefox alike, though SVG 1.1 allowed it.
+        // A dot with no digit after it is a mistake to Chromium, though SVG 1.1 allowed it.
         assertNull(parseLengthOrNull("5."))
         assertNull(parseLengthOrNull("NaN"))
         assertNull(parseLengthOrNull("Infinity"))
@@ -252,6 +252,9 @@ class SvgValuesTest {
         assertEquals("-5.0px", resolveRem("-.5REM", 10.0))
         assertEquals("2em", resolveRem("2em", 10.0))
         assertEquals("remember", resolveRem("remember", 10.0))
+        // Only where a length can be. This could be part of an embedded picture.
+        assertEquals("data:image/png;base64,AA1rem/AA", resolveRemIn("href", "data:image/png;base64,AA1rem/AA", 10.0))
+        assertEquals("10.0px", resolveRemIn("width", "1rem", 10.0))
     }
 
     @Test

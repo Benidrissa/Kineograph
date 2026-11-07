@@ -4,7 +4,7 @@
 //
 // Node's standard library is all this needs. Chromium's debugging protocol can run over a pipe, which avoids a WebSocket client.
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -21,7 +21,6 @@ const { values: args, positionals: filters } = parseArgs({
     fonts: { type: 'string', default: process.env.SVG_REFERENCE_FONTS ?? '' },
     fixtures: { type: 'string', default: join(repo, 'core/media/src/test/resources/svg') },
     size: { type: 'string', default: '200' },
-    check: { type: 'boolean', default: false },
   },
 })
 
@@ -163,7 +162,7 @@ function readMoments(path) {
   return entries
 }
 
-export function referenceName(fixture, time) {
+function referenceName(fixture, time) {
   return `${fixture.replace(/\.svg$/, '')}@${time}.png`
 }
 

@@ -1,3 +1,5 @@
+# The moments of each fixture to compare with a browser: its file name, then times in seconds, then any flags.
+# size=N is for a fixture that is not 200 by 200 pixels, and letters for a fixture with text. See tools/svg-reference/README.md.
 bounce-smil.svg 0 0.5 1 size=100
 clip-basic.svg 0
 clip-chain.svg 0
@@ -6,8 +8,11 @@ clip-rule.svg 0
 clip-units.svg 0
 color-current.svg 0
 color-formats.svg 0
+color-interpolation-mask.svg 0
+color-interpolation.svg 0
 color-modern.svg 0
 color-named.svg 0
+color-spaces.svg 0
 css-anim-bbox-change.svg 0 1 2
 css-anim-dash.svg 0 0.5 1 1.5 2
 css-anim-direction.svg 0 0.25 0.75 1 1.25 1.75 2 3
@@ -48,7 +53,7 @@ feature-filter-blur.svg 0
 feature-filter-css.svg 0
 feature-foreign-object.svg 0
 feature-script.svg 0 1
-feature-text-path.svg 0 letters
+feature-text-per-letter.svg 0 letters
 grad-href.svg 0
 grad-linear-bbox.svg 0
 grad-linear-spread.svg 0
@@ -93,10 +98,21 @@ path-quad.svg 0
 path-zero-length.svg 0
 pattern-basic.svg 0
 pattern-transforms.svg 0
+real-bars-smil.svg 0 0.25 0.5 0.75 1 1.25
+real-dots-smil.svg 0 0.2 0.4 0.6 0.8 1 1.3
+real-draw-css.svg 0 0.5 1 1.5 2 2.5 3
+real-icon-sprite.svg 0
+real-morph-smil.svg 0 0.5 1 1.5 2 3 4
+real-pulse-css.svg 0 0.25 0.5 0.75 1 1.5 3
+real-spinner-smil.svg 0 0.25 0.5 0.75 1 1.5
+real-walker-mixed.svg 0 0.5 1 1.5 2
 root-css.svg 0
 root-overflow.svg 0 size=100
 root-style.svg 0
 root-transform.svg 0
+scale-down.svg 0
+scale-stretch.svg 0 letters
+scale-up.svg 0
 scripted.svg 0 size=100
 shape-circle-ellipse.svg 0
 shape-line-poly.svg 0
@@ -141,6 +157,7 @@ smil-timing-begin.svg 0 0.5 1 1.5 2 2.5 3 4
 smil-timing-end.svg 0 0.5 1 1.5 2 3 4
 smil-timing-event.svg 0 1 2 3
 smil-timing-minmax.svg 0 0.5 1.2 1.5 2 3
+smil-timing-odd.svg 0 0.5 1 1.5 2 3
 smil-timing-repeat-event.svg 0 0.5 1.25 1.75
 smil-timing-repeat.svg 0 0.5 1.2 1.5 2.5 3.2 5
 smil-timing-restart.svg 0 0.5 1 1.5 2 2.5 3.5
@@ -148,9 +165,11 @@ smil-timing-syncbase-loop.svg 0 0.5 1 1.25 2 2.5 3 3.5 4.5
 smil-timing-syncbase.svg 0 0.5 1 1.5 2 2.5 3 3.5 4 5
 smil-transform-accumulate.svg 0 0.5 1.5 2 3 3.5
 smil-transform-additive.svg 0 0.5 1 2
+smil-transform-odd.svg 0 0.5 1 2
 smil-transform-rotate.svg 0 0.5 1 2 2.5 4
 smil-transform-scale.svg 0 0.5 1 2
 smil-transform-skew.svg 0 1 2
+smil-transform-targets.svg 0 0.5 1 2
 smil-transform-translate.svg 0 0.5 1 2 3
 smil-use-instances.svg 0 1 2
 smil-values-kinds.svg 0 0.5 1 1.5 2 3
@@ -179,6 +198,7 @@ text-family-unknown.svg 0 letters
 text-family.svg 0 letters
 text-list-attrs.svg 0 letters
 text-paint.svg 0 letters
+text-path.svg 0 letters
 text-transform-variant.svg 0 letters
 text-tspan.svg 0 letters
 text-weight.svg 0 letters
@@ -188,6 +208,7 @@ transform-individual.svg 0
 transform-list.svg 0
 transform-nested.svg 0
 transform-origin.svg 0
+transform-targets.svg 0 letters
 units-lengths.svg 0
 units-percent-viewbox.svg 0
 units-relative.svg 0

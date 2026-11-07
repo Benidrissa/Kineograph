@@ -112,3 +112,24 @@ People write SVG by looking at it in a browser, so that is what an import has to
 A looping SVG suggests the least common multiple of its cycles, up to `SvgLimits.maxSeamlessLoopSeconds` (60 s), and after that its longest
 cycle, which will not quite be seamless. Cycles count as equal within 2 ms, so that `.333s` lines up with `1s`. A delay or an intro means
 the picture only starts repeating later, and `SvgAnimationInfo.loopStartSeconds` says when: a seamless loop samples from there.
+
+## When the specification and browsers disagree about SVG
+
+People judge an imported picture by how it looked in their browser, so a browser is what the renderer is checked against, and a difference
+counts as our bug until shown otherwise. Most of the time that means following Chromium, also where the specification reads otherwise. Only Chromium was checked: no other browser
+was at hand. For example:
+
+- `5.` is not a number, a `transform` attribute cannot use CSS units or a CSS property leave them out, and `animate` and `set` cannot
+  change a transform.
+- A discrete `to` animation flips half way, instead of holding its value throughout.
+- A focal point outside its gradient's circle makes a cone, as SVG 2 says, instead of being moved to the edge.
+- `min` holds an element active showing only its fill, a `use` element's `x` and `y` count as its transform for clips and masks, and animation
+  stacks go by begin time and file order alone.
+- SMIL mixes colours channel by channel, while CSS mixes them premultiplied. Only CSS mixes dash lists of different lengths.
+
+We keep to the specification where what Chromium does plainly contradicts it, and is a mistake rather than a reading of it: paced
+`animateTransform`, a fixed `rotate` on `animateMotion`, `slice` on an image that is itself SVG, and `url()` paints in SMIL.
+
+Other differences are choices, or not done yet. Each one has a fixture listed with its reason in
+`core/media/src/test/resources/svg/reference/known-differences.txt`. A font the phone does not have becomes sans-serif, where a browser picks
+serif: it is likelier to be what the author saw.

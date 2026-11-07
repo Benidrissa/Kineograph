@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
   <defs><path id="a" d="M-12 -6 L12 0 L-12 6 Z"/></defs>
-  <!-- A fixed angle is in the specification and in Firefox. Chromium ignores it and leaves the element unturned. -->
+  <!-- A fixed angle is in the specification. Chromium ignores it and leaves the element unturned. -->
   <use href="#a" fill="#33aa33"><animateMotion dur="2s" fill="freeze" rotate="45" path="M60 100 h80"/></use>
 </svg>
