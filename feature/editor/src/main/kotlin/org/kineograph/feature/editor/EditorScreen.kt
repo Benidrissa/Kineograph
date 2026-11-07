@@ -146,7 +146,11 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
 
     val leave = { viewModel.requestLeave(onBack) }
 
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.saveBeforeBackground() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        // Only an export is meant to carry on after the user has left. Multi-window only pauses, so playback goes on there.
+        viewModel.stopPlayback()
+        viewModel.saveBeforeBackground()
+    }
     LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.retryFailedSave() }
     // The handler declared last goes first, so playback keeps priority over leaving.
     BackHandler { leave() }
@@ -301,7 +305,19 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
         }
     }
     exportState?.let { state ->
-        ExportDialog(state = state, onCancel = viewModel::cancelExport, onDismiss = viewModel::dismissExport)
+        ExportDialog(
+            state = state,
+            actions =
+                remember(viewModel) {
+                    ExportDialogActions(
+                        onCancel = viewModel::cancelExport,
+                        onDismiss = viewModel::dismissExport,
+                        onSave = viewModel::saveExportToGallery,
+                        onHandedOff = viewModel::markExportHandedOff,
+                        onResultShown = viewModel::exportResultShown,
+                    )
+                },
+        )
     }
     if (unsavedOnLeave) {
         UnsavedChangesDialog(

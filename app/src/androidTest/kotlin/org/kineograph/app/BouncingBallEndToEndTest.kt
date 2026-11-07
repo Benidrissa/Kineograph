@@ -149,7 +149,8 @@ class BouncingBallEndToEndTest {
         compose.onNodeWithTag("export_done").performClick()
         compose.waitForIdle()
         val directory = File(compose.activity.cacheDir, "exports")
-        val output = directory.listFiles()?.filter { it.extension == extension }?.maxByOrNull { it.lastModified() }
+        // Each export has a directory of its own.
+        val output = directory.walkTopDown().filter { it.isFile && it.extension == extension }.maxByOrNull { it.lastModified() }
         assertTrue("no .$extension in $directory", output != null && output.length() > 0)
         return checkNotNull(output)
     }

@@ -28,6 +28,61 @@ import kotlin.math.min
 internal data class PlaybackState(val isPlaying: Boolean = false, val isPreparing: Boolean = false, val slotIndex: Int = 0)
 
 /**
+ * Where the playhead is and which way it is about to go. Decoding threads read this, so these travel as one thing and
+ * can never disagree with each other.
+ */
+internal data class Playhead(val slot: Int, val reversed: Boolean = false, val pingPong: Boolean = false)
+
+/**
+ * Which frames to have ready, in order of when they will be needed. Going by slot number only works when play keeps going
+ * forward: ping-pong comes back through the frames it just played, so those are the ones to keep, and the frames at
+ * the far end of the animation are not coming up next just because the numbers wrap around to them.
+ */
+internal object PlaybackWindow {
+    /** The first slot in the window around [head] for which [wanted] says yes. */
+    fun firstWanted(head: Playhead, slotCount: Int, capacity: Int, wanted: (Int) -> Boolean): Int? {
+        val size = min(capacity, slotCount)
+        val slot = head.slot
+        if (!head.pingPong) {
+            for (offset in 0 until size) {
+                val next = (slot + offset) % slotCount
+                if (wanted(next)) return next
+            }
+            return null
+        }
+        // Near a turn, the frames still to come are those up to the end and then the same ones on the way back. The window
+        // stays on one set of slots across a turn, so nothing is thrown out and decoded again because the direction changed.
+        if (head.reversed) {
+            val high = max(slot, size - 1)
+            for (next in slot downTo high - size + 1) {
+                if (wanted(next)) return next
+            }
+            for (next in slot + 1..high) {
+                if (wanted(next)) return next
+            }
+        } else {
+            val low = min(slot, slotCount - size)
+            for (next in slot..low + size - 1) {
+                if (wanted(next)) return next
+            }
+            for (next in slot - 1 downTo low) {
+                if (wanted(next)) return next
+            }
+        }
+        return null
+    }
+
+    /** How many frames from now [slot] will next be on screen. The highest is the one to throw out. */
+    fun timeUntilShown(slot: Int, head: Playhead, slotCount: Int): Int =
+        when {
+            !head.pingPong -> (slot - head.slot).mod(slotCount)
+            head.reversed -> if (slot <= head.slot) head.slot - slot else head.slot + slot
+            slot >= head.slot -> slot - head.slot
+            else -> (slotCount - 1 - head.slot) + (slotCount - 1 - slot)
+        }
+}
+
+/**
  * Plays the animation. The clock runs on Choreographer and never waits for anything: a frame not decoded yet is
  * skipped rather than slowing the animation down, so timing is always right. Frames are flattened ahead of the
  * playhead on background threads, at the size they are shown, and kept as hardware bitmaps where possible, so they
@@ -60,10 +115,12 @@ internal class PlaybackController(
     private var startTick = 0
     private var running = false
     private var clockRunning = false
+
+    @Volatile
     private var capacity = 1
 
     @Volatile
-    private var playhead = 0
+    private var head = Playhead(0)
 
     private val frameCallback =
         object : Choreographer.FrameCallback {
@@ -84,7 +141,7 @@ internal class PlaybackController(
         mode = playbackMode
         fps = target.fps
         startTick = timeline.startTick(startSlot)
-        playhead = startSlot
+        head = Playhead(startSlot, pingPong = playbackMode == PlaybackMode.PING_PONG)
         shownSlot = -1
         running = true
         clockRunning = false
@@ -135,6 +192,7 @@ internal class PlaybackController(
 
     fun setMode(playbackMode: PlaybackMode) {
         mode = playbackMode
+        head = head.copy(pingPong = playbackMode == PlaybackMode.PING_PONG, reversed = false)
     }
 
     fun stop() {
@@ -161,7 +219,9 @@ internal class PlaybackController(
             return
         }
         val slot = timeline.slotAtTick(tick)
-        playhead = slot
+        // This comes from the clock rather than from which way the slots moved, because a held frame does not move.
+        val pingPong = mode == PlaybackMode.PING_PONG
+        head = Playhead(slot, pingPong && Timeline.isPingPongReversed(elapsed, timeline.totalTicks), pingPong)
         if (slot != shownSlot) {
             val frame = cache[slot]
             if (frame != null) {
@@ -212,22 +272,16 @@ internal class PlaybackController(
         }
     }
 
-    /** The first frame ahead of the playhead that is neither ready nor being worked on, if any is wanted. */
-    private fun nextSlotToDecode(slotCount: Int): Int? {
-        val start = playhead
-        val lookAhead = min(capacity, slotCount)
-        for (offset in 0 until lookAhead) {
-            val slot = (start + offset) % slotCount
-            if (!cache.containsKey(slot) && inFlight.add(slot)) return slot
-        }
-        return null
-    }
+    /** The next frame to be shown that is neither ready nor being worked on, if any is wanted. */
+    private fun nextSlotToDecode(slotCount: Int): Int? =
+        PlaybackWindow.firstWanted(head, slotCount, capacity) { slot -> !cache.containsKey(slot) && inFlight.add(slot) }
 
     private fun evictIfFull(incoming: Int, slotCount: Int) {
         while (cache.size >= capacity) {
-            val start = playhead
-            // Throw out what would be needed last: the frame furthest ahead in playing order.
-            val victim = cache.keys.filter { it != incoming }.maxByOrNull { (it - start).mod(slotCount) } ?: return
+            val current = head
+            // Throw out what would be needed last.
+            val victim =
+                cache.keys.filter { it != incoming }.maxByOrNull { PlaybackWindow.timeUntilShown(it, current, slotCount) } ?: return
             cache.remove(victim)
         }
     }

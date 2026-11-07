@@ -4,7 +4,7 @@ import android.graphics.Bitmap
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
-import android.media.MediaMuxer
+import android.view.Surface
 import org.kineograph.media.export.ExportNotSupportedException
 import java.io.File
 import java.io.IOException
@@ -17,29 +17,37 @@ import java.io.IOException
  * docs/decisions.md.
  */
 internal class H264Encoder(outputFile: File, private val width: Int, private val height: Int, fps: Int, bitrate: Int) {
-    private val codec: MediaCodec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
-    private val muxer: MediaMuxer
+    private val codec: MediaCodec =
+        try {
+            MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        } catch (e: IOException) {
+            throw ExportNotSupportedException("Could not create an encoder: ${e.message}")
+        }
+    private val inputSurface: Surface
     private val renderer: EglSurfaceRenderer
+    private val writer: Mp4Writer
     private val bufferInfo = MediaCodec.BufferInfo()
-    private var trackIndex = -1
-    private var muxerStarted = false
     private var finished = false
 
-    /** How many frames reached the file. */
-    var writtenFrames: Int = 0
-        private set
-
     init {
-        configure(width, height, fps, bitrate)
-        val inputSurface = codec.createInputSurface()
+        // Whatever fails here, there is no encoder for the caller to release, so everything made so far goes back now.
+        // The renderer goes before the surface it draws on. The failure carries on unchanged, since its type decides
+        // what the user is told.
+        var surface: Surface? = null
+        var createdRenderer: EglSurfaceRenderer? = null
         try {
-            renderer = EglSurfaceRenderer(inputSurface)
+            configure(width, height, fps, bitrate)
+            surface = codec.createInputSurface()
+            createdRenderer = EglSurfaceRenderer(surface)
             codec.start()
-            muxer = MediaMuxer(outputFile.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-        } catch (e: IOException) {
-            inputSurface.release()
+            writer = Mp4Writer(PlatformMuxer(outputFile), outputFile, bitrate / BITS_PER_BYTE + MUXER_INDEX_BYTES)
+            inputSurface = surface
+            renderer = createdRenderer
+        } catch (failure: Throwable) {
+            createdRenderer?.release()
+            surface?.release()
             codec.release()
-            throw e
+            throw failure
         }
     }
 
@@ -65,10 +73,7 @@ internal class H264Encoder(outputFile: File, private val width: Int, private val
             format.removeKey(MediaFormat.KEY_PROFILE)
             format.removeKey(MediaFormat.KEY_LEVEL)
         }
-        if (!tryConfigure(format)) {
-            codec.release()
-            throw ExportNotSupportedException("The encoder refused ${width}x$height")
-        }
+        if (!tryConfigure(format)) throw ExportNotSupportedException("The encoder refused ${width}x$height")
     }
 
     private fun tryConfigure(format: MediaFormat): Boolean =
@@ -99,12 +104,13 @@ internal class H264Encoder(outputFile: File, private val width: Int, private val
         renderer.render(frame, width, height, presentationTimeUs * NANOS_PER_MICRO)
     }
 
-    /** Flushes the encoder and finishes the file. */
+    /** Flushes the encoder and finishes the file, or throws if the file did not come out whole. */
     fun finish() {
         if (finished) return
         finished = true
         codec.signalEndOfInputStream()
         drain(endOfStream = true)
+        writer.finish()
     }
 
     /** Frees everything. Safe to call at any point, including after a failure. */
@@ -116,14 +122,8 @@ internal class H264Encoder(outputFile: File, private val width: Int, private val
         }
         codec.release()
         renderer.release()
-        if (muxerStarted) {
-            try {
-                muxer.stop()
-            } catch (_: IllegalStateException) {
-                // The muxer refuses to stop when no frames were written. The caller deletes such a file.
-            }
-        }
-        muxer.release()
+        inputSurface.release()
+        writer.release()
     }
 
     private fun drain(endOfStream: Boolean) {
@@ -133,29 +133,24 @@ internal class H264Encoder(outputFile: File, private val width: Int, private val
             when {
                 index == MediaCodec.INFO_TRY_AGAIN_LATER -> {
                     if (!endOfStream) return
-                    if (++idleSpins > MAX_IDLE_DRAINS) throw IOException("The encoder stopped responding")
+                    if (++idleSpins > MAX_IDLE_DRAINS) throw ExportNotSupportedException("The encoder stopped responding")
                 }
 
                 index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                    if (muxerStarted) throw IOException("The encoder changed format mid-stream")
-                    trackIndex = muxer.addTrack(codec.outputFormat)
-                    muxer.start()
-                    muxerStarted = true
+                    writer.start(codec.outputFormat)
                 }
 
                 index >= 0 -> {
                     idleSpins = 0
-                    val buffer = codec.getOutputBuffer(index) ?: throw IOException("The encoder returned no data")
+                    val buffer = codec.getOutputBuffer(index) ?: throw ExportNotSupportedException("The encoder returned no data")
                     if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
                         // The configuration is already in the format the muxer was given.
                         bufferInfo.size = 0
                     }
                     if (bufferInfo.size > 0) {
-                        if (!muxerStarted) throw IOException("The encoder sent data before its format")
                         buffer.position(bufferInfo.offset)
                         buffer.limit(bufferInfo.offset + bufferInfo.size)
-                        muxer.writeSampleData(trackIndex, buffer, bufferInfo)
-                        writtenFrames++
+                        writer.write(buffer, bufferInfo)
                     }
                     codec.releaseOutputBuffer(index, false)
                     if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) return
@@ -169,5 +164,7 @@ internal class H264Encoder(outputFile: File, private val width: Int, private val
         const val NANOS_PER_MICRO = 1000L
         const val DRAIN_TIMEOUT_US = 10_000L
         const val MAX_IDLE_DRAINS = 1000
+        const val BITS_PER_BYTE = 8L
+        const val MUXER_INDEX_BYTES = 1024L * 1024L
     }
 }

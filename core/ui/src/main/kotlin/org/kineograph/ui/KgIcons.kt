@@ -18,6 +18,7 @@ public object KgIcons {
     public val Close: ImageVector by lazy { icon("Close", "M6 6l12 12M18 6 6 18") }
     public val Check: ImageVector by lazy { icon("Check", "M5 12.5l4.5 4.5L19 7.5") }
     public val Add: ImageVector by lazy { icon("Add", "M12 5v14M5 12h14") }
+    public val Minus: ImageVector by lazy { icon("Minus", "M5 12h14") }
     public val More: ImageVector by lazy { icon("More", "M12 5v.01M12 12v.01M12 19v.01") }
     public val Search: ImageVector by lazy { icon("Search", "M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM15.5 15.5 20 20") }
     public val Sort: ImageVector by lazy { icon("Sort", "M4 7h16M7 12h10M10 17h4") }

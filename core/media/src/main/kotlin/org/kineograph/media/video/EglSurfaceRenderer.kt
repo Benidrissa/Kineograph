@@ -10,7 +10,7 @@ import android.opengl.EGLSurface
 import android.opengl.GLES20
 import android.opengl.GLUtils
 import android.view.Surface
-import java.io.IOException
+import org.kineograph.media.export.ExportNotSupportedException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -35,17 +35,17 @@ internal class EglSurfaceRenderer(surface: Surface) {
         try {
             setUpEgl(surface)
             setUpGl()
-        } catch (e: IOException) {
+        } catch (failure: Throwable) {
             release()
-            throw e
+            throw failure
         }
     }
 
     private fun setUpEgl(surface: Surface) {
         display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
-        if (display == EGL14.EGL_NO_DISPLAY) throw IOException("No EGL display")
+        if (display == EGL14.EGL_NO_DISPLAY) throw ExportNotSupportedException("No EGL display")
         val version = IntArray(2)
-        if (!EGL14.eglInitialize(display, version, 0, version, 1)) throw IOException("Could not initialize EGL")
+        if (!EGL14.eglInitialize(display, version, 0, version, 1)) throw ExportNotSupportedException("Could not initialize EGL")
         val attributes =
             intArrayOf(
                 EGL14.EGL_RED_SIZE,
@@ -63,9 +63,9 @@ internal class EglSurfaceRenderer(surface: Surface) {
         val configs = arrayOfNulls<EGLConfig>(1)
         val found = IntArray(1)
         if (!EGL14.eglChooseConfig(display, attributes, 0, configs, 0, 1, found, 0) || found[0] == 0) {
-            throw IOException("No recordable EGL config")
+            throw ExportNotSupportedException("No recordable EGL config")
         }
-        val config = configs[0] ?: throw IOException("No recordable EGL config")
+        val config = configs[0] ?: throw ExportNotSupportedException("No recordable EGL config")
         context =
             EGL14.eglCreateContext(
                 display,
@@ -74,10 +74,10 @@ internal class EglSurfaceRenderer(surface: Surface) {
                 intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE),
                 0,
             )
-        if (context == EGL14.EGL_NO_CONTEXT) throw IOException("Could not create an EGL context")
+        if (context == EGL14.EGL_NO_CONTEXT) throw ExportNotSupportedException("Could not create an EGL context")
         eglSurface = EGL14.eglCreateWindowSurface(display, config, surface, intArrayOf(EGL14.EGL_NONE), 0)
-        if (eglSurface == EGL14.EGL_NO_SURFACE) throw IOException("Could not create an EGL surface")
-        if (!EGL14.eglMakeCurrent(display, eglSurface, eglSurface, context)) throw IOException("Could not activate EGL")
+        if (eglSurface == EGL14.EGL_NO_SURFACE) throw ExportNotSupportedException("Could not create an EGL surface")
+        if (!EGL14.eglMakeCurrent(display, eglSurface, eglSurface, context)) throw ExportNotSupportedException("Could not activate EGL")
     }
 
     private fun setUpGl() {
@@ -89,7 +89,7 @@ internal class EglSurfaceRenderer(surface: Surface) {
         GLES20.glLinkProgram(program)
         val status = IntArray(1)
         GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, status, 0)
-        if (status[0] != GLES20.GL_TRUE) throw IOException("Could not link shaders: " + GLES20.glGetProgramInfoLog(program))
+        if (status[0] != GLES20.GL_TRUE) throw ExportNotSupportedException("Could not link shaders: " + GLES20.glGetProgramInfoLog(program))
         positionHandle = GLES20.glGetAttribLocation(program, "aPosition")
         texCoordHandle = GLES20.glGetAttribLocation(program, "aTexCoord")
         val textures = IntArray(1)
@@ -108,7 +108,11 @@ internal class EglSurfaceRenderer(surface: Surface) {
         GLES20.glCompileShader(shader)
         val status = IntArray(1)
         GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, status, 0)
-        if (status[0] != GLES20.GL_TRUE) throw IOException("Could not compile a shader: " + GLES20.glGetShaderInfoLog(shader))
+        if (status[0] !=
+            GLES20.GL_TRUE
+        ) {
+            throw ExportNotSupportedException("Could not compile a shader: " + GLES20.glGetShaderInfoLog(shader))
+        }
         return shader
     }
 
@@ -129,7 +133,7 @@ internal class EglSurfaceRenderer(surface: Surface) {
         GLES20.glEnableVertexAttribArray(texCoordHandle)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         EGLExt.eglPresentationTimeANDROID(display, eglSurface, presentationTimeNs)
-        if (!EGL14.eglSwapBuffers(display, eglSurface)) throw IOException("Could not send a frame to the encoder")
+        if (!EGL14.eglSwapBuffers(display, eglSurface)) throw ExportNotSupportedException("Could not send a frame to the encoder")
     }
 
     fun release() {

@@ -178,4 +178,36 @@ class GifExportTest {
             assertTrue(progressCalls in 3..4)
         }
     }
+
+    @Test
+    fun `a small canvas can be exported well past four times its size`() {
+        val tiny = project.copy(width = 64, height = 64)
+        val output = temp.newFile("big.gif")
+        val result = runBlocking { ProjectExporter(store).export(tiny, ExportConfig(tiny.id, ExportFormat.GIF, scale = 8f), output) { } }
+        assertEquals(512, result.width)
+        assertFalse(result.wasReduced)
+        assertEquals(512, TestGifDecoder(output.readBytes()).width)
+    }
+
+    @Test
+    fun `a size the format cannot hold comes down and says so, rather than writing a broken file`() {
+        val long = project.copy(width = 8192, height = 1)
+        val output = temp.newFile("long.gif")
+        val config = ExportConfig(long.id, ExportFormat.GIF, scale = 10f, rangeStart = 0, rangeEnd = 0)
+        val result = runBlocking { ProjectExporter(store).export(long, config, output) { } }
+        assertTrue(result.wasReduced)
+        assertEquals(65_535, result.width)
+        val decoded = TestGifDecoder(output.readBytes())
+        assertEquals(65_535, decoded.width)
+        assertEquals(result.height, decoded.height)
+    }
+
+    @Test
+    fun `a frame set for video does not reach a GIF`() {
+        val output = temp.newFile("framed.gif")
+        val config = ExportConfig(project.id, ExportFormat.GIF, scale = 0.25f, frameWidth = 1080, frameHeight = 1920)
+        val result = runBlocking { ProjectExporter(store).export(project, config, output) { } }
+        assertEquals((project.width * 0.25f).toInt(), result.width)
+        assertEquals((project.height * 0.25f).toInt(), result.height)
+    }
 }

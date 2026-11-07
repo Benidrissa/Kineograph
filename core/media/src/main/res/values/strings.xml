@@ -3,4 +3,8 @@
     <string name="export_channel_name">Exports</string>
     <string name="export_notification_title">Exporting your animation</string>
     <string name="export_cancel">Cancel</string>
+    <string name="export_result_ready_title">Your animation is ready</string>
+    <string name="export_result_ready_text">Tap to save or share it.</string>
+    <string name="export_result_failed_title">Export failed</string>
+    <string name="export_result_failed_text">Tap to see why.</string>
 </resources>

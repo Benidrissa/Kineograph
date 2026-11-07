@@ -61,6 +61,13 @@ public object Timeline {
     }
 
     /**
+     * Whether ping-pong playback is on its way back at [elapsedTicks], for a range of [rangeTicks] ticks. The tick it turns
+     * around on counts as on the way back, because what is needed next from there is the tick before it.
+     */
+    public fun isPingPongReversed(elapsedTicks: Long, rangeTicks: Int): Boolean =
+        rangeTicks > 1 && maxOf(0L, elapsedTicks) % (2L * rangeTicks - 2) >= rangeTicks - 1
+
+    /**
      * Converts time spent playing into the tick to show, given the playback [mode], for a range of
      * [rangeTicks] ticks. [elapsedTicks] counts up from zero. The result is relative to the range start,
      * or null when play-once has run past the end.

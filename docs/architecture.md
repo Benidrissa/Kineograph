@@ -156,10 +156,27 @@ a process death can never leave something there that looks like a project or cla
 live session, and flattens one frame at a time, so memory use does not grow with the length of the animation.
 
 - **MP4:** frame → GL texture → encoder input surface (`eglPresentationTimeANDROID` for exact timing) → `MediaCodec`
-  (H.264 baseline) → `MediaMuxer`. `VideoSizeResolver` checks `VideoCapabilities` and rounds or scales as needed,
-  adding thin bars rather than distorting the picture, and the user is told if the size was reduced.
+  (H.264 baseline) → `MediaMuxer`. `VideoSizeResolver` checks `VideoCapabilities` and rounds or scales as needed, adding
+  bars rather than distorting the picture. The export sheet goes through the same sizing, so the user is told what will
+  happen before the export starts, and again when it finishes. `Mp4Writer` makes sure a file that did not come out whole is
+  reported as a failure, which on Android 8 takes checking free space and the file's length, because the muxer ignores
+  failed writes.
 - **GIF:** own encoder, with median-cut palettes, optional Floyd–Steinberg dithering, and LZW. Each frame stores only what
   changed. See the comment on `GifEncoder.addFrame` for how frames that clear pixels work.
 
 Nothing is ever drawn over the artwork. `FrameFlattener` is the only path to a finished frame, shared by thumbnails, ghosts,
 playback and export, so they cannot disagree about what a frame looks like.
+
+An export belongs to WorkManager, not to the editor that started it. It is unique work named after the project, so one
+project has one export at a time, and a new `EditorViewModel` can find it when the project opens, running or finished, and
+show the same dialog. The user finishing with a result is recorded in settings by work id, because WorkManager cannot forget
+one record. If the user has gone, a notification says how it ended, and a tap on it or on the progress notification opens the
+project through `MainActivity`.
+
+Each export has its own directory in `cache/exports`, because another app may still be reading an earlier export through the
+link it was given, and two projects can share a name. A copy that reached the gallery and went to no other app is deleted
+when the dialog closes. Otherwise `ExportManager.pruneOldExports` removes it at a later launch, a day on, unless the user has
+not seen it yet. Android can still clear the cache by itself, and the dialog explains that if it happens.
+
+Saving to the gallery copies the whole file, so it runs on the app's scope from `EditorViewModel`, off the main thread, and
+the dialog cannot be closed until it has finished.

@@ -75,4 +75,24 @@ class SettingsRepositoryTest {
         val repository = SettingsRepository(ApplicationProvider.getApplicationContext<Context>())
         assertEquals(AppSettings(), runBlocking { repository.settings.first() })
     }
+
+    @Test
+    fun `exports the user has seen are remembered, and forgotten once they no longer exist`() {
+        val repository = repositoryAt(settingsFile())
+        assertEquals(emptySet<String>(), runBlocking { repository.seenExports() })
+        assertTrue(runBlocking { repository.markExportSeen("a") })
+        assertTrue(runBlocking { repository.markExportSeen("b") })
+        assertEquals(setOf("a", "b"), runBlocking { repository.seenExports() })
+        assertTrue(runBlocking { repository.keepSeenExports(setOf("b", "c")) })
+        assertEquals(setOf("b"), runBlocking { repository.seenExports() })
+    }
+
+    @Test
+    fun `seen exports that cannot be read count as none, which only offers a result again`() {
+        val file = settingsFile().apply { mkdirs() }
+        File(file, "in-the-way").writeText("x")
+        val repository = repositoryAt(file)
+        assertEquals(emptySet<String>(), runBlocking { repository.seenExports() })
+        assertFalse(runBlocking { repository.markExportSeen("a") })
+    }
 }

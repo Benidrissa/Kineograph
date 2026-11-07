@@ -46,8 +46,28 @@ low frame rates.
 
 ## Bars rather than stretching
 
-When an encoder's alignment forces a slightly different size (1080 → 1088), the difference becomes thin bars in the
-background colour. Stretching a drawing, even slightly, would be worse. The bars are a few pixels at most.
+When an encoder's alignment forces a slightly different size (1080 → 1088), or its minimum size is more than the canvas
+(hardware encoders often refuse anything under about 96 pixels), the difference becomes bars in the background colour.
+Stretching a drawing, even slightly, would be worse. The picture is placed on whole pixels, because a half-pixel shift would
+soften every line in it. The user is told, in the sheet and when the export finishes.
+
+## The vertical preset adds bars rather than cropping
+
+"TikTok / Reels vertical" always makes a 1080 × 1920 video. A drawing of another shape fits inside, centred, with bars filling
+the rest, because cropping would cut off artwork and a landscape file would not be what the name promises. On a 16:9
+canvas the picture only takes a third of the height, so the sheet gives the real numbers before the export starts, and any
+scale chip goes back to the picture's own shape. A GIF always takes the picture's shape, and the sheet says so.
+
+## Video without its background goes on white or black
+
+Video has no transparency, so leaving the background out still needs something behind the drawing. Keeping the background's
+own colour made the switch do nothing, and always using white would make light lines drawn on dark paper vanish. So it is
+white, or black when the background is dark, and the sheet says which rule applies as soon as the switch is turned off.
+
+## Gallery entries never replace each other
+
+Saving always adds an entry, named with the time. An earlier export of a drawing that has changed since may be the only copy
+of that version. The cache file keeps the plain name, since that is what gets shared.
 
 ## GIF frame clearing
 

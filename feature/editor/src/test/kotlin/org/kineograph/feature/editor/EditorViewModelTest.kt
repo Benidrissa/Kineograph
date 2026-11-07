@@ -1,6 +1,7 @@
 package org.kineograph.feature.editor
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.Looper
 import android.view.MotionEvent
@@ -47,6 +48,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -66,6 +68,7 @@ import org.kineograph.engine.brush.StrokeEngine
 import org.kineograph.engine.session.DrawingSession
 import org.kineograph.engine.session.MemoryBudget
 import org.kineograph.feature.editor.canvas.KineographCanvasView
+import org.kineograph.feature.editor.canvas.PlaybackDisplay
 import org.kineograph.media.export.ExportManager
 import org.kineograph.model.Background
 import org.kineograph.model.Project
@@ -117,9 +120,10 @@ class EditorViewModelTest {
                 repository,
                 SettingsRepository(context),
                 MemoryBudget.forMemoryClass(256, isLowRam = false),
-                ExportManager(context),
+                ExportManager(context, SettingsRepository(context)),
                 files::spillDirectory,
                 appScope,
+                { _, _ -> },
             )
         val factory =
             object : ViewModelProvider.Factory {
@@ -477,6 +481,72 @@ class EditorViewModelTest {
     @Config(qualifiers = "+fr")
     fun `the French warning still fits between the buttons just past the normal font size`() {
         assertNotSavedIsReadable(fontScale = 1.15f)
+    }
+
+    // ----- Playback and leaving the app -----
+
+    private class FakeDisplay : PlaybackDisplay {
+        override val supportsHardwareBitmaps = false
+
+        override fun setPlaybackFrame(frame: Bitmap?) = Unit
+    }
+
+    /** A session with [frames] frames, showing the last of them. */
+    private fun EditorLoadState.Ready.withFrames(frames: Int): String {
+        repeat(frames - 1) { session.addFrame() }
+        waitUntil("the frames to arrive") { session.state.value.project.frames.size == frames }
+        return session.state.value.frameId
+    }
+
+    @Test
+    fun `leaving the app while nothing is playing stays on the same frame`() {
+        val viewModel = viewModelFor(create().id)
+        val ready = viewModel.awaitReady()
+        val frame = ready.withFrames(8)
+        assertNotEquals(
+            ready.session.state.value.project.frames
+                .first()
+                .id,
+            frame,
+        )
+
+        viewModel.stopPlayback()
+        waitUntil("the session to settle") { !ready.session.state.value.busy }
+
+        assertEquals(frame, ready.session.state.value.frameId)
+    }
+
+    @Test
+    fun `leaving the app during playback stops it, and everything that was working for it`() {
+        val viewModel = viewModelFor(create().id)
+        val ready = viewModel.awaitReady()
+        ready.withFrames(4)
+        val controller = checkNotNull(viewModel.playback)
+
+        viewModel.startPlayback(FakeDisplay(), 1f)
+        waitUntil("playback to start") { controller.state.value.isPlaying }
+        viewModel.stopPlayback()
+
+        assertFalse(controller.state.value.isPlaying)
+    }
+
+    @Test
+    fun `leaving the app while playback is still getting ready means it never starts`() {
+        val viewModel = viewModelFor(create().id)
+        val ready = viewModel.awaitReady()
+        ready.withFrames(4)
+        val controller = checkNotNull(viewModel.playback)
+
+        viewModel.startPlayback(FakeDisplay(), 1f)
+        // Nothing has had a chance to run on the main thread yet, so the start is still waiting for the save.
+        assertFalse(controller.state.value.isPlaying)
+        viewModel.stopPlayback()
+
+        repeat(20) {
+            shadowOf(Looper.getMainLooper()).idle()
+            Thread.sleep(5)
+        }
+        assertFalse(controller.state.value.isPlaying)
     }
 
     @Test

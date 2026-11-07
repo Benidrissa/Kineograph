@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -31,8 +32,10 @@ import org.kineograph.engine.session.MemoryBudget
 import org.kineograph.engine.session.SessionEvent
 import org.kineograph.feature.editor.canvas.PlaybackDisplay
 import org.kineograph.media.export.ExportConfig
+import org.kineograph.media.export.ExportFormat
 import org.kineograph.media.export.ExportManager
 import org.kineograph.media.export.ExportStatus
+import org.kineograph.media.export.ExportWorker
 import org.kineograph.model.Background
 import org.kineograph.model.PlaybackMode
 import java.io.File
@@ -48,6 +51,8 @@ public class EditorDependencies(
     public val spillDirectory: (String) -> File,
     /** Lives as long as the app, for finishing up after a screen has gone. */
     public val appScope: CoroutineScope,
+    /** Copies a finished export to the gallery, however long that takes, or throws an IOException. Never called on the main thread. */
+    public val saveToGallery: (File, ExportFormat) -> Unit,
 )
 
 /** What the editor needs to show while a project opens. */
@@ -80,8 +85,15 @@ internal enum class EditorMessage {
     CANVAS_DOES_NOT_FIT,
 }
 
-/** An export in progress or just finished, for the export dialog. */
-internal data class ExportUiState(val config: ExportConfig, val status: ExportStatus)
+/** An export in progress or finished, and what has happened to the result so far, for the export dialog. */
+internal data class ExportUiState(
+    val status: ExportStatus,
+    val saving: Boolean = false,
+    val saved: Boolean = false,
+    val saveFailed: Boolean = false,
+    /** Another app was given the file and may read it at any time. */
+    val handedOff: Boolean = false,
+)
 
 /**
  * Owns one open project for as long as the editor is on screen, surviving window changes.
@@ -117,6 +129,7 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
 
     private var exportId: UUID? = null
     private var exportWatcher: Job? = null
+    private var playbackStart: Job? = null
     private var discarded = false
 
     internal var playback: PlaybackController? = null
@@ -182,6 +195,12 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
             autosaver.saveFailed.collect { failed -> if (failed) _messages.trySend(EditorMessage.SAVE_FAILED) }
         }
         _load.value = EditorLoadState.Ready(session, autosaver, opened.store, settings.lowLatencyDrawing)
+        // An export outlives the editor that started it, so this may be the first chance to show how one went. A running
+        // one also has to show here, or it would look as if another could be started.
+        viewModelScope.launch {
+            val unseen = dependencies.exportManager.findUnseen(projectId)
+            if (unseen != null && exportId == null) watchExport(unseen)
+        }
     }
 
     private val ready: EditorLoadState.Ready? get() = _load.value as? EditorLoadState.Ready
@@ -272,7 +291,8 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
     internal fun startPlayback(display: PlaybackDisplay, displayScale: Float) {
         val state = ready ?: return
         val controller = playback ?: return
-        viewModelScope.launch {
+        playbackStart?.cancel()
+        playbackStart = viewModelScope.launch {
             // Frames are drawn from what is saved, so anything pending has to get there first.
             val project =
                 try {
@@ -288,13 +308,19 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
         }
     }
 
+    /**
+     * Stops playback, or a start still on its way, leaving the editor on the frame that was showing. When nothing is
+     * playing there is no such frame, and the editor stays where it is. Leaving the app comes through here every time.
+     */
     internal fun stopPlayback() {
+        playbackStart?.cancel()
         val state = ready ?: return
         val controller = playback ?: return
-        val slot = controller.state.value.slotIndex
+        val current = controller.state.value
+        if (!current.isPlaying) return
         val frames = state.session.state.value.project.frames
         controller.stop()
-        frames.getOrNull(slot)?.let { state.session.selectFrame(it.id) }
+        frames.getOrNull(current.slotIndex)?.let { state.session.selectFrame(it.id) }
     }
 
     internal fun setPlaybackMode(mode: PlaybackMode) {
@@ -330,28 +356,83 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
                 notify(EditorMessage.SAVE_FAILED)
                 return@launch
             }
-            val id = dependencies.exportManager.start(config)
-            exportId = id
-            _export.value = ExportUiState(config, ExportStatus.Running(0f))
-            exportWatcher?.cancel()
-            exportWatcher =
-                launch {
-                    dependencies.exportManager.observe(id, config.format).collectLatest { status ->
-                        _export.value = ExportUiState(config, status)
-                    }
+            val id =
+                try {
+                    dependencies.exportManager.start(config)
+                } catch (_: IOException) {
+                    _export.value = ExportUiState(ExportStatus.Failed(ExportWorker.ERROR_STORAGE))
+                    return@launch
                 }
+            watchExport(id)
         }
+    }
+
+    private fun watchExport(id: UUID) {
+        exportId = id
+        _export.value = ExportUiState(ExportStatus.Running(0f))
+        exportWatcher?.cancel()
+        exportWatcher =
+            viewModelScope.launch {
+                dependencies.exportManager.observe(id).collectLatest { status ->
+                    _export.update { it?.copy(status = status) ?: ExportUiState(status) }
+                }
+            }
     }
 
     internal fun cancelExport() {
         exportId?.let(dependencies.exportManager::cancel)
     }
 
+    /**
+     * Copies the finished export to the gallery. It is a long copy on a slow phone, so it stays off the main thread, and on
+     * the app's scope, because the user leaving the screen is no reason to abandon it half way.
+     */
+    internal fun saveExportToGallery() {
+        val current = _export.value ?: return
+        val finished = current.status as? ExportStatus.Finished ?: return
+        // This runs on the main thread, as does anything that could change it, so a double tap stops here.
+        if (current.saving || current.saved) return
+        _export.value = current.copy(saving = true, saveFailed = false)
+        dependencies.appScope.launch(Dispatchers.IO) {
+            val saved =
+                try {
+                    dependencies.saveToGallery(finished.file, finished.format)
+                    true
+                } catch (_: IOException) {
+                    false
+                } catch (_: SecurityException) {
+                    false
+                }
+            _export.update { it?.copy(saving = false, saved = saved, saveFailed = !saved) }
+        }
+    }
+
+    internal fun markExportHandedOff() {
+        _export.update { it?.copy(handedOff = true) }
+    }
+
+    internal fun exportResultShown() {
+        exportId?.let(dependencies.exportManager::clearResultNotification)
+    }
+
+    /**
+     * The user has finished with the result, so it must not come back next time the project opens. A copy that has reached
+     * the gallery leaves nothing the cache file is needed for, unless another app has been given a link to it.
+     */
     internal fun dismissExport() {
+        val current = _export.value
+        // The result of the save would have nowhere to go.
+        if (current?.saving == true) return
+        val id = exportId
         exportWatcher?.cancel()
         exportWatcher = null
         exportId = null
         _export.value = null
+        val finished = current?.status as? ExportStatus.Finished
+        dependencies.appScope.launch {
+            if (id != null) dependencies.exportManager.markSeen(id)
+            if (finished != null && current.saved && !current.handedOff) dependencies.exportManager.deleteFile(finished.file)
+        }
     }
 
     /** Gives back whatever can be rebuilt later. */

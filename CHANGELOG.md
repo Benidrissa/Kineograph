@@ -19,6 +19,22 @@ The bouncing ball works from start to finish.
 
 ### Fixed
 
+- An export is no longer lost when the app is swiped away or killed. Opening the project shows it again, running or finished,
+  and a notification says when it has ended; tapping that or the progress notification goes to the project
+- A video that storage ran out on, or that the muxer failed to finish, now reports a failure instead of "Your animation is
+  ready" with a file that will not play
+- "TikTok / Reels vertical" now makes a vertical video from any drawing, with bars, and says so before it starts
+- Any export size can be typed in, as far as the encoder goes, and the sheet says what will really happen before the export
+  starts rather than after it
+- Small pixel-art canvases no longer fail on encoders with a minimum size, and any bars are mentioned
+- Exact frames can be chosen for the range on long animations
+- "Include the background" now does something for videos on solid colours, and explains what the drawing goes on
+- Saving to the gallery no longer freezes the screen, never overwrites an earlier export, and a problem in the media library
+  is a message rather than a crash
+- Exporting again no longer overwrites a file another app may still be reading, and old exports no longer pile up in the cache
+- The progress notification no longer sticks around after an export ends
+- Videos of odd-sized canvases are no longer slightly blurred
+- Playback stops when the app goes to the background, and ping-pong no longer stutters on the way back through long animations
 - A full disk, a damaged settings file or a storage error at start-up can no longer crash the app. The app says what went
   wrong instead, and tries again at the next launch
 - While saves are failing, the editor shows "Not saved", and Back asks before leaving instead of discarding your work. The

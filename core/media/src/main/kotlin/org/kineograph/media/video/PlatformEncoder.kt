@@ -15,7 +15,12 @@ public object PlatformEncoder {
                 .filter { it.isEncoder && it.supportedTypes.any { type -> type.equals(MediaFormat.MIMETYPE_VIDEO_AVC, ignoreCase = true) } }
                 .sortedByDescending { info -> if (info.isHardwareEncoder) 1 else 0 }
         val best = candidates.firstOrNull() ?: return null
-        val capabilities = best.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).videoCapabilities ?: return null
+        val capabilities =
+            try {
+                best.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).videoCapabilities
+            } catch (_: IllegalArgumentException) {
+                null
+            } ?: return null
         return RealLimits(capabilities)
     }
 
@@ -45,6 +50,8 @@ public object PlatformEncoder {
         override val heightAlignment: Int get() = capabilities.heightAlignment
         override val maxWidth: Int get() = capabilities.supportedWidths.upper
         override val maxHeight: Int get() = capabilities.supportedHeights.upper
+        override val minWidth: Int get() = capabilities.supportedWidths.lower
+        override val minHeight: Int get() = capabilities.supportedHeights.lower
 
         override fun isSizeSupported(width: Int, height: Int): Boolean = capabilities.isSizeSupported(width, height)
 

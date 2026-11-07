@@ -91,4 +91,26 @@ class TimelineTest {
     fun `empty range has nothing to play`() {
         assertNull(Timeline.playbackTick(0, 0, PlaybackMode.LOOP))
     }
+
+    @Test
+    fun `ping-pong is on its way back from the turn at the far end until it reaches the start`() {
+        val reversed = (0L until 8L).map { Timeline.isPingPongReversed(it, 5) }
+        assertEquals(listOf(false, false, false, false, true, true, true, true), reversed)
+        assertEquals(false, Timeline.isPingPongReversed(8L, 5))
+    }
+
+    @Test
+    fun `ping-pong direction agrees with the ticks it plays`() {
+        for (elapsed in 0L until 40L) {
+            val tick = Timeline.playbackTick(elapsed, 7, PlaybackMode.PING_PONG)
+            val next = Timeline.playbackTick(elapsed + 1, 7, PlaybackMode.PING_PONG)
+            assertEquals("at $elapsed", (next ?: 0) < (tick ?: 0), Timeline.isPingPongReversed(elapsed, 7))
+        }
+    }
+
+    @Test
+    fun `a range with nowhere to go is never reversed`() {
+        assertEquals(false, Timeline.isPingPongReversed(5L, 1))
+        assertEquals(false, Timeline.isPingPongReversed(5L, 0))
+    }
 }

@@ -32,7 +32,7 @@ class KineographApp : Application(), ExportDependencies {
     val files: ProjectFiles by lazy { ProjectFiles(this) }
     val budget: MemoryBudget by lazy { MemoryBudget.forDevice(this) }
     val settings: SettingsRepository by lazy { SettingsRepository(this) }
-    val exportManager: ExportManager by lazy { ExportManager(this) }
+    val exportManager: ExportManager by lazy { ExportManager(this, settings) }
 
     override val projectRepository: ProjectRepository by lazy {
         ProjectRepository(openProjectDao(this), files, budget.compressedCelCacheBytes)
@@ -55,6 +55,15 @@ class KineographApp : Application(), ExportDependencies {
                 startupMessages.trySend(GalleryMessage.STARTUP_PROBLEM)
             } catch (_: OutOfMemoryError) {
                 startupMessages.trySend(GalleryMessage.STARTUP_PROBLEM)
+            }
+        }
+        appScope.launch {
+            // Separate from the above, so that neither can stop the other. This is only tidying up, and the next launch
+            // tries again.
+            try {
+                exportManager.pruneOldExports()
+            } catch (_: SQLException) {
+                Unit
             }
         }
     }

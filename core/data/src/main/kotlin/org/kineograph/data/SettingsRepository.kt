@@ -10,9 +10,11 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.io.IOException
 
@@ -90,6 +92,21 @@ public class SettingsRepository internal constructor(private val store: DataStor
 
     public suspend fun setSampleCreated(): Boolean = save { it[SAMPLE_CREATED] = true }
 
+    /**
+     * The exports whose results the user has finished with. If this cannot be read, a result might be offered again,
+     * which does no harm.
+     */
+    public suspend fun seenExports(): Set<String> =
+        store.data
+            .catch { problem -> if (problem is IOException) emit(emptyPreferences()) else throw problem }
+            .first()[SEEN_EXPORTS]
+            .orEmpty()
+
+    public suspend fun markExportSeen(id: String): Boolean = save { it[SEEN_EXPORTS] = it[SEEN_EXPORTS].orEmpty() + id }
+
+    /** Forgets exports other than [ids], which no longer exist, so that this does not grow forever. */
+    public suspend fun keepSeenExports(ids: Set<String>): Boolean = save { it[SEEN_EXPORTS] = it[SEEN_EXPORTS].orEmpty() intersect ids }
+
     private suspend fun save(change: (MutablePreferences) -> Unit): Boolean =
         try {
             store.edit { change(it) }
@@ -109,5 +126,6 @@ public class SettingsRepository internal constructor(private val store: DataStor
         val SMOOTHING = intPreferencesKey("smoothing")
         val LOW_LATENCY = booleanPreferencesKey("low_latency")
         val SAMPLE_CREATED = booleanPreferencesKey("sample_created")
+        val SEEN_EXPORTS = stringSetPreferencesKey("seen_exports")
     }
 }
