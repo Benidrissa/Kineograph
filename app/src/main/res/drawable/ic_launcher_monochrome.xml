@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The themed icon. A launcher only uses this layer's alpha, so anything that shows has to be a hole or a gap. The ball and
+    the floor are cut out of the front page, and the pages behind it become slivers, because they would fill those holes.
+    Moved up to the middle of the icon, as the mark has no colours here to balance it.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group android:translateY="-4">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M40,34h36a2,2 0,0 1,2 2v36a2,2 0,0 1,-2 2h-0.5V36.5H38V36a2,2 0,0 1,2,-2z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M36,38h36a2,2 0,0 1,2 2v36a2,2 0,0 1,-2 2h-0.5V40.5H34V40a2,2 0,0 1,2,-2z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M32,42h36a2,2 0,0 1,2 2v36a2,2 0,0 1,-2 2h-36a2,2 0,0 1,-2 -2v-36a2,2 0,0 1,2 -2zM50,55c6,0 9.5,4 9.5,8.5c0,4.5 -3.5,7.5 -9.5,7.5c-6,0 -9.5,-3 -9.5,-7.5c0,-4.5 3.5,-8.5 9.5,-8.5zM37,74h26v2.5h-26z" />
+    </group>
+</vector>

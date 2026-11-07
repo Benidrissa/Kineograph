@@ -1,6 +1,8 @@
 package org.kineograph.media
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -23,10 +25,16 @@ import org.kineograph.data.SampleProject
 import org.kineograph.data.db.AppDatabase
 import org.kineograph.data.files.CelFileStore
 import org.kineograph.data.files.ProjectFiles
+import org.kineograph.engine.compositor.FlattenOptions
+import org.kineograph.engine.compositor.FrameFlattener
 import org.kineograph.media.export.ExportConfig
 import org.kineograph.media.export.ExportFormat
 import org.kineograph.media.export.ProjectExporter
+import org.kineograph.media.export.drawVideoFrame
+import org.kineograph.media.export.videoFillColor
+import org.kineograph.media.video.VideoLayout
 import org.kineograph.model.Background
+import org.kineograph.model.OnionSkinSettings
 import org.kineograph.model.Project
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -64,7 +72,7 @@ class GifExportTest {
     }
 
     private fun export(config: ExportConfig): TestGifDecoder {
-        val output = temp.newFile("out.gif")
+        val output = temp.newFile()
         runBlocking { ProjectExporter(store).export(project, config, output) { } }
         return TestGifDecoder(output.readBytes())
     }
@@ -109,6 +117,55 @@ class GifExportTest {
                     assertEquals(paper, frame.pixels[(height - 1 - y) * width + width - 1 - x])
                 }
             }
+        }
+    }
+
+    /** The strongest ghosts there can be, and on both sides, so that any of them reaching a frame would change its pixels. */
+    private val onionSkinOn get() =
+        project.copy(
+            settings = project.settings.copy(
+                onionSkin = OnionSkinSettings(
+                    enabled = true,
+                    previousFrames = OnionSkinSettings.MAX_GHOSTS_PER_SIDE,
+                    nextFrames = OnionSkinSettings.MAX_GHOSTS_PER_SIDE,
+                    opacity = 1f,
+                    falloff = 1f,
+                    tint = true,
+                    wrapAround = true,
+                    showDuringPlayback = true,
+                ),
+            ),
+        )
+
+    @Test
+    fun `onion skin never reaches a GIF`() {
+        val plain = export(config)
+        project = onionSkinOn
+        val withOnionSkin = export(config)
+        assertEquals(plain.frames.size, withOnionSkin.frames.size)
+        for ((index, frame) in plain.frames.withIndex()) {
+            assertTrue("frame $index", frame.pixels.contentEquals(withOnionSkin.frames[index].pixels))
+        }
+    }
+
+    @Test
+    fun `onion skin never reaches a video frame`() {
+        val layout = VideoLayout(320, 180, 0.25f, 320, 180, 0, 0, wasReduced = false)
+        val options = FlattenOptions()
+        val fill = videoFillColor(project.background, true)
+        val flattener = FrameFlattener(store)
+
+        fun framesOf(project: Project): List<IntArray> =
+            project.frames.map { slot ->
+                val frame = Bitmap.createBitmap(layout.width, layout.height, Bitmap.Config.ARGB_8888)
+                drawVideoFrame(frame, Canvas(frame), flattener, project, slot.id, layout, fill, null, options)
+                IntArray(layout.width * layout.height).also { frame.getPixels(it, 0, layout.width, 0, 0, layout.width, layout.height) }
+            }
+
+        val plain = framesOf(project)
+        val withOnionSkin = framesOf(onionSkinOn)
+        for ((index, pixels) in plain.withIndex()) {
+            assertTrue("frame $index", pixels.contentEquals(withOnionSkin[index]))
         }
     }
 

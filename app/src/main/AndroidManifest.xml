@@ -58,12 +58,5 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
-
-        <!-- mediaProcessing only exists from Android 15, so Android 14 uses dataSync for exporting. -->
-        <service
-            android:name="androidx.work.impl.foreground.SystemForegroundService"
-            android:foregroundServiceType="dataSync|mediaProcessing"
-            tools:node="merge"
-            tools:targetApi="35" />
     </application>
 </manifest>

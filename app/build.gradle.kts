@@ -28,6 +28,14 @@ android {
     }
 
     signingConfigs {
+        // Made for this repository alone, so that any debug build can update an earlier one, whoever built it. It protects
+        // nothing and is meant to be public. See docs/decisions.md.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         if (releaseKeystore != null) {
             create("release") {
                 storeFile = file(releaseKeystore)
@@ -39,6 +47,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Anyone can sign an update with a public key, so debug builds are a separate app that real releases never share.
+            applicationIdSuffix = ".debug"
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -74,6 +86,11 @@ android {
 
     packaging {
         resources.excludes += setOf("DebugProbesKt.bin", "kotlin-tooling-metadata.json", "META-INF/*.version")
+    }
+
+    // Almost all the code is in the library modules, and lint only speaks up about them from here if it is told to.
+    lint {
+        checkDependencies = true
     }
 
     testOptions {

@@ -90,7 +90,8 @@ Touches go through the same canvas-to-view transform the renderer has, so they l
 moment after the project changes size and before the view has caught up. During playback the renderer is given the whole canvas,
 fitted and upright, worked out afresh each time, while the transform the user has placed stays as it is and goes on following
 changes of size, so stopping goes back to it. Fitting has no lower limit on zoom, because a canvas can be any length: the limit is
-only on how far a pinch goes, and then only down to what shows the whole canvas.
+only on how far a pinch goes, and then only down to what shows the whole canvas. Only a tap on the canvas stops playback. With the
+system bars hidden, the swipe that brings them back for a moment also reaches the view, and it must not end anything.
 
 **Screen edges.** With gesture navigation, a stroke starting at a side edge could be taken as Back. The tool bar's handle and
 a band at the bottom of each edge are excluded from that gesture. Android grants 200 dp per edge, so the rest of each edge
@@ -160,7 +161,7 @@ a process death can never leave something there that looks like a project or cla
 live session, and flattens one frame at a time, so memory use does not grow with the length of the animation.
 
 - **MP4:** frame → GL texture → encoder input surface (`eglPresentationTimeANDROID` for exact timing) → `MediaCodec`
-  (H.264 baseline) → `MediaMuxer`. `VideoSizeResolver` checks `VideoCapabilities` and rounds or scales as needed, adding
+  (H.264, Baseline wherever the encoder accepts it) → `MediaMuxer`. `VideoSizeResolver` checks `VideoCapabilities` and rounds or scales as needed, adding
   bars rather than distorting the picture. The export sheet goes through the same sizing, so the user is told what will
   happen before the export starts, and again when it finishes. `Mp4Writer` makes sure a file that did not come out whole is
   reported as a failure, which on Android 8 takes checking free space and the file's length, because the muxer ignores
@@ -186,3 +187,20 @@ not seen it yet. Android can still clear the cache by itself, and the dialog exp
 
 Saving to the gallery copies the whole file, so it runs on the app's scope from `EditorViewModel`, off the main thread, and
 the dialog cannot be closed until it has finished.
+
+## Building and checking
+
+`.github/workflows/android.yml` has four jobs:
+
+- **`build`**, on pushes to `main`, tags and pull requests: code style, JVM tests, lint across every module, the check that the manifest holds
+  no banned permission, and the debug APK. The APK is checked for the repository's debug key, then uploaded.
+- **`acceptance`**: the bouncing-ball test through the real app, and the data module's instrumented tests, on an API 26 and an
+  API 34 emulator. The test turns on onion skin and checks that it did, checks that playback goes through frames, then exports a
+  GIF and an MP4 and reads them back.
+  Whether ghosts reach an export is tested on the JVM (`GifExportTest`), pixel for pixel, because a video encoder's noise
+  would make that unreliable here. Since a test cannot read the canvas's surface, `PlaybackSlot` gives it the playhead.
+- **`release`**, on a tag, after the jobs above: the signed APKs and bundle, as a workflow artifact.
+- **`publish`**, after `release`: the signed APKs on the Releases page.
+
+Debug builds are the package `org.kineograph.app.debug`, signed with the key in the repository, so one can update the last. Release
+builds are `org.kineograph.app`, signed with a key from repository secrets. See [decisions.md](decisions.md).

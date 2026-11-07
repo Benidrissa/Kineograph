@@ -15,8 +15,10 @@ Thank you for helping. Please keep these commitments in mind, because they are n
 1. Read [docs/architecture.md](docs/architecture.md).
 2. Before sending a change, run:
    ```sh
-   ./gradlew ktlintCheck checkNoBangBangInEngine :core:model:test testDebugUnitTest
+   ./gradlew ktlintCheck checkNoBangBangInEngine :core:model:test testDebugUnitTest :app:lintDebug
    ```
+   `:app:lintDebug` covers every module, and an error in it fails the build. Please fix what it finds rather than adding a
+   baseline, since the errors it has found so far were real crashes on old phones.
 3. Add tests with your change. Pixel behaviour can be tested on the JVM: see `DrawingSessionTest`, which uses real Skia
    through Robolectric's native graphics mode.
 4. Touch and rendering performance need a real device, ideally a cheap one.

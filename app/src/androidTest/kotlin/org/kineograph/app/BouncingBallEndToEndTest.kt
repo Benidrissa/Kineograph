@@ -10,8 +10,10 @@ import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -24,6 +26,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.kineograph.feature.editor.PlaybackSlot
 import java.io.File
 import kotlin.math.abs
 
@@ -32,9 +35,11 @@ import kotlin.math.abs
  *
  *  1. Create a 12 FPS project.
  *  2. Draw on 12 frames with simulated MotionEvents.
- *  3. Turn on onion skin, then play.
+ *  3. Turn on onion skin, see that it is on, then play and see that playback moves.
  *  4. Export a GIF and an MP4.
  *  5. Check with MediaExtractor that the MP4 has 12 frames lasting 1.0 s, and that there is no watermark.
+ *
+ * That no ghosts reach an export is checked pixel for pixel in GifExportTest, where nothing depends on a video encoder's noise.
  */
 @RunWith(AndroidJUnit4::class)
 class BouncingBallEndToEndTest {
@@ -123,14 +128,34 @@ class BouncingBallEndToEndTest {
 
     private fun turnOnOnionSkinAndPlay() {
         compose.onNodeWithTag("onion_button").performClick()
-        compose.waitForIdle()
+        // The change goes through the engine thread, which the compose rule does not wait for.
+        compose.waitUntil("the onion skin to turn on", DEFAULT_WAIT_MS) {
+            compose.onAllNodes(hasTestTag("onion_button") and isSelected()).fetchSemanticsNodes().isNotEmpty()
+        }
         SystemClock.sleep(SETTLE_MS)
         compose.onNodeWithTag("play_button").performClick()
         waitForTag("stop_button", LONG_WAIT_MS)
-        // Let it run for a whole loop on real timing.
-        SystemClock.sleep(PLAYBACK_MS)
+        assertPlaybackMoves()
         compose.onNodeWithTag("stop_button").performClick()
         waitForTag("play_button", LONG_WAIT_MS)
+    }
+
+    /**
+     * Stop only shows that play mode was entered, which happens before the clock starts. Skipping frames on a slow device is
+     * correct, so this asks for movement and not for every frame.
+     */
+    private fun assertPlaybackMoves() {
+        val seen = HashSet<Int>()
+        compose.waitUntil("playback to go through $SLOTS_TO_SEE frames", LONG_WAIT_MS) {
+            compose
+                .onAllNodes(hasTestTag("playback_bar"))
+                .fetchSemanticsNodes()
+                .firstOrNull()
+                ?.config
+                ?.getOrNull(PlaybackSlot)
+                ?.let(seen::add)
+            seen.size >= SLOTS_TO_SEE
+        }
     }
 
     private fun export(formatTag: String, extension: String): File {
@@ -351,7 +376,7 @@ class BouncingBallEndToEndTest {
         const val LONG_WAIT_MS = 60_000L
         const val EXPORT_WAIT_MS = 300_000L
         const val SETTLE_MS = 300L
-        const val PLAYBACK_MS = 2_000L
+        const val SLOTS_TO_SEE = 3
         const val TOUCH_INTERVAL_MS = 8L
         const val CORNER_FRACTION = 8
         const val CORNER_STEP = 4

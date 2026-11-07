@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.TouchInjectionScope
 import androidx.compose.ui.test.assert
@@ -51,6 +52,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -768,11 +770,12 @@ class FrameStripUiTest {
     // ----- The playback bar -----
 
     private fun showPlaybackBar(state: PlaybackState = PlaybackState(isPlaying = true), onPause: () -> Unit = {}, fontScale: Float = 1f) {
+        val project = session.state.value.project
         compose.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
                 KineographTheme(darkTheme = false) {
-                    Surface { PlaybackBar(session.state.value.project, state, {}, onPause, { _: PlaybackMode -> }, {}) }
+                    Surface { PlaybackBar(project, state, {}, onPause, { _: PlaybackMode -> }, {}) }
                 }
             }
         }
@@ -789,6 +792,47 @@ class FrameStripUiTest {
             .assertIsEnabled()
             .performClick()
         assertEquals(1, pauses)
+    }
+
+    @Test
+    fun `the playback bar tells tests which slot is showing, and tells TalkBack nothing`() {
+        showPlaybackBar(PlaybackState(isPlaying = true, slotIndex = 7))
+        val bar = compose.onNodeWithTag("playback_bar").fetchSemanticsNode()
+        assertEquals(7, bar.config.getOrNull(PlaybackSlot))
+        assertNull(bar.config.getOrNull(SemanticsProperties.StateDescription))
+        assertNull(bar.config.getOrNull(SemanticsProperties.ContentDescription))
+    }
+
+    @Test
+    fun `the onion button shows whether the onion skin is on, once the session has changed it`() {
+        compose.setContent {
+            val state by session.state.collectAsState()
+            KineographTheme(darkTheme = false) {
+                Surface {
+                    EditorTopBar(
+                        state,
+                        {},
+                        onToggleOnion = {
+                            session.updateSettings {
+                                it.copy(
+                                    onionSkin = it.onionSkin.copy(enabled = !it.onionSkin.enabled),
+                                )
+                            }
+                        },
+                        {},
+                        {},
+                        {},
+                        {},
+                    )
+                }
+            }
+        }
+        settle()
+        compose.onNodeWithTag("onion_button").assertIsNotSelected().performClick()
+        settle()
+        compose.onNodeWithTag("onion_button").assertIsSelected().performClick()
+        settle()
+        compose.onNodeWithTag("onion_button").assertIsNotSelected()
     }
 
     @Test

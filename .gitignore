@@ -12,4 +12,6 @@ build/
 *.aab
 *.jks
 *.keystore
+# Not a secret: every debug build is signed with it, so that one can update the next. See docs/decisions.md.
+!app/debug.keystore
 keystore.properties

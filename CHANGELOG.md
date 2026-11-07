@@ -106,3 +106,12 @@ The bouncing ball works from start to finish.
 - Fill with gap closing now reaches into sharp corners
 - Saved and recovered-project messages now always appear, and the canvas no longer keeps old onion-skin ghosts or a dead
   selection after undo, copying or saving
+- Exporting a video on Android 8 or 9 no longer crashes when the encoder refuses the profile the app asks for first
+- On Android 13 and up, the themed icon now shows the flipbook and its ball, not a plain shape
+
+### Test builds and releases
+
+- Test builds from GitHub now update each other and keep your projects. They show as "Kineograph Test", and install beside a signed
+  release rather than in its place. A test build made before this change cannot be updated, so the next one installs beside it
+- Tagged versions are now published on the Releases page, and the README says where to get an APK today
+- Lint now covers every module, and the acceptance test checks that onion skin really turns on and that playback really moves
