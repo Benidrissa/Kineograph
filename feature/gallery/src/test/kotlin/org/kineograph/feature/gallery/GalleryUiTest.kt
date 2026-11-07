@@ -719,6 +719,12 @@ class GalleryUiTest {
         compose.onNodeWithTag("new_project_name").performTextClearance()
         compose.waitForIdle()
         compose.onNodeWithTag("create_project").performScrollTo().assertIsNotEnabled()
+        // Never blocked without saying why, and the reason goes as soon as there is a name.
+        compose.onNodeWithTag("new_project_name_needed", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("new_project_name").performTextInput("Ball")
+        compose.waitForIdle()
+        compose.onNodeWithTag("new_project_name_needed", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("create_project").performScrollTo().assertIsEnabled()
     }
 
     @Test

@@ -56,28 +56,40 @@ public class ManifestStore(private val directory: File) {
         // A temporary file only survives if a crash hit between steps 2 and 3, when it is the newest complete copy.
         val candidates = listOf(current to false, temporary to false, previous to true)
         for ((file, isBackup) in candidates) {
-            val project = readOrNull(file) ?: continue
+            if (!file.isFile) continue
+            val project =
+                try {
+                    ManifestCodec.decode(file.readText())
+                } catch (_: IOException) {
+                    continue
+                } catch (e: ManifestException) {
+                    // A newer app's save is not damage. Going back to an older revision would show an older drawing, and the next
+                    // saves would push the newer one out for good.
+                    if (!isBackup && e.isFromNewerApp) return null
+                    continue
+                }
             val (kept, missing) = withoutMissingCels(project, celExists)
             return LoadedProject(kept, recoveredFromBackup = isBackup || (file === temporary), missingCels = missing)
         }
         return null
     }
 
-    /** Whether the newest manifest was written by a newer version of the app. */
-    public fun needsNewerApp(): Boolean {
-        val text =
-            try {
-                if (current.exists()) current.readText() else return false
-            } catch (_: IOException) {
-                return false
-            }
+    /** Whether a manifest was written by a newer version of the app, which is why [load] may have found nothing to open. */
+    public fun needsNewerApp(): Boolean = listOf(current, temporary, previous).any(::isFromNewerApp)
+
+    private fun isFromNewerApp(file: File): Boolean {
+        if (!file.isFile) return false
         return try {
-            ManifestCodec.decode(text)
+            ManifestCodec.decode(file.readText())
+            false
+        } catch (_: IOException) {
             false
         } catch (e: ManifestException) {
-            e.message?.contains("newer version") == true
+            e.isFromNewerApp
         }
     }
+
+    private val ManifestException.isFromNewerApp get() = message?.contains("newer version") == true
 
     /**
      * The cel files that any revision on disk refers to, all of which [load] might need, so none may be deleted. Returns
@@ -102,7 +114,7 @@ public class ManifestStore(private val directory: File) {
     }
 
     /** Whether any manifest exists that could still mean something. A damaged one counts, but an unfinished first write does not. */
-    public fun hasManifest(): Boolean = current.exists() || previous.exists() || readOrNull(temporary) != null
+    public fun hasManifest(): Boolean = current.exists() || previous.exists() || readOrNull(temporary) != null || isFromNewerApp(temporary)
 
     private fun readOrNull(file: File): Project? {
         if (!file.isFile) return null

@@ -27,7 +27,7 @@ Cels are lossless WebP (written on Android 11+) or PNG (written on older version
 }
 ```
 
-`version` is the schema version. A reader must refuse a version newer than it knows. Readers must ignore unknown fields.
+`version` is the schema version. A reader must refuse a version newer than it knows, and must not fall back to an older revision to get round that, because its next saves would push the newer one out. Readers must ignore unknown fields.
 
 ### project
 

@@ -42,6 +42,7 @@
     <string name="default_project_name">Mon animation %1$d</string>
     <string name="new_project_title">Nouveau projet</string>
     <string name="new_project_name">Nom du projet</string>
+    <string name="new_project_name_needed">Donnez un nom à votre projet pour le créer</string>
     <string name="new_project_background">Arrière-plan</string>
     <string name="new_project_size">Taille du canevas</string>
     <string name="new_project_fps">Images par seconde</string>

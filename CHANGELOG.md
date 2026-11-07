@@ -23,6 +23,11 @@ The bouncing ball works from start to finish.
 
 ### Fixed
 
+- Playing a project with a very large background picture no longer crashes if memory runs out while reading it
+- The New Project sheet says why Create is off when the name is empty
+- A project saved once by a newer version of the app no longer opens from its older backup in an older version, where the next saves would
+  have overwritten the newer one. It now asks for the newer app, as it does for a project saved several times
+- A leftover project entry that cannot be removed on a full disk no longer stops old items being emptied from the trash at start-up
 - A hand landing beside the pen no longer ends a lasso trace, a fill or the drag of a selection and moves the canvas instead. The pen carries on, and its button still erases
 - An export is no longer lost when the app is swiped away or killed. Opening the project shows it again, running or finished,
   and a notification says when it has ended; tapping that or the progress notification goes to the project. If another project

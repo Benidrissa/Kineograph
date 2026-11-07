@@ -917,8 +917,12 @@ class RepositoryTest {
             inner.setTrashed(id, trashedAt)
         }
 
+        @Volatile
+        var failDeleteOf: String? = null
+
         override suspend fun delete(id: String) {
             check()
+            if (id == failDeleteOf) throw SQLiteFullException("Test")
             inner.delete(id)
         }
 
@@ -1090,6 +1094,22 @@ class RepositoryTest {
         assertThrows(IOException::class.java) { runBlocking { repository.rename(project.id, "New name") } }
         assertThrows(IOException::class.java) { runBlocking { repository.isEmpty() } }
         assertThrows(IOException::class.java) { runBlocking { repository.reconcile() } }
+    }
+
+    @Test
+    fun `a stale row that cannot be removed does not stop the rest of start-up`() {
+        useFailingDao()
+        val gone = create()
+        val expired = create()
+        files.projectDirectory(gone.id).deleteRecursively()
+        runBlocking { repository.moveToTrash(expired.id) }
+        now += 31L * 24 * 60 * 60 * 1000
+        failingDao.failDeleteOf = gone.id
+
+        runBlocking { repository.reconcile() }
+
+        assertFalse(files.projectDirectory(expired.id).exists())
+        assertTrue(runBlocking { database.projects().allIds() }.contains(gone.id))
     }
 
     @Test

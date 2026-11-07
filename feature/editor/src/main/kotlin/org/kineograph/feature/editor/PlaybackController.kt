@@ -273,7 +273,9 @@ internal class PlaybackController(
 
     private suspend fun decodeLoop(target: Project, timeline: TimelineIndex, width: Int, height: Int, scale: Float, hardware: Boolean) {
         val flattener = FrameFlattener(store)
-        val background = (target.background as? Background.Image)?.let { store.read(it.file) }
+        val backgroundImage = target.background as? Background.Image
+        var background: Bitmap? = null
+        var backgroundRead = backgroundImage == null
         val options = FlattenOptions(forEditor = true, includeReferenceLayers = true)
         var scratch: Bitmap? = null
         var scratchCanvas: Canvas? = null
@@ -285,6 +287,11 @@ internal class PlaybackController(
                 continue
             }
             try {
+                // Inside the try, and read again next time if memory runs out: a large picture is the likeliest thing here to be too big.
+                if (!backgroundRead) {
+                    background = backgroundImage?.let { store.read(it.file) }
+                    backgroundRead = true
+                }
                 val surface = scratch ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { scratch = it }
                 val canvas = scratchCanvas ?: Canvas(surface).also { scratchCanvas = it }
                 surface.eraseColor(0)

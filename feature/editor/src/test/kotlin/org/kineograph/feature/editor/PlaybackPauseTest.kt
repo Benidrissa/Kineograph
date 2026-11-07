@@ -3,6 +3,7 @@ package org.kineograph.feature.editor
 import android.graphics.Bitmap
 import android.os.Looper
 import android.os.SystemClock
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -33,6 +34,7 @@ import org.robolectric.shadows.ShadowChoreographer
 import java.time.Duration
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 /** The clock here is the main looper's, which only moves when told to, so these go by frames shown and not by time passing. */
 @RunWith(RobolectricTestRunner::class)
@@ -62,6 +64,25 @@ class PlaybackPauseTest {
         override fun read(file: String, sampleSize: Int): Bitmap {
             reads.incrementAndGet()
             Thread.sleep(READ_MS)
+            return image
+        }
+
+        override fun isGone(file: String): Boolean = false
+
+        override suspend fun awaitWrites() = Unit
+
+        override fun trimMemory() = Unit
+    }
+
+    /** Runs out of memory on the background picture the first [failures] times it is asked for. */
+    private class TightStore(private val failures: Int) : CelStore {
+        val backgroundReads = AtomicInteger()
+        private val image = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+
+        override fun write(image: Bitmap): String = "cels/one.png"
+
+        override fun read(file: String, sampleSize: Int): Bitmap {
+            if (file == BACKGROUND_FILE && backgroundReads.incrementAndGet() <= failures) throw OutOfMemoryError("Test")
             return image
         }
 
@@ -128,6 +149,30 @@ class PlaybackPauseTest {
     }
 
     private val slot get() = controller.state.value.slotIndex
+
+    @Test
+    fun `memory running out on the background picture is survived, and the picture is read once it fits`() {
+        val uncaught = AtomicReference<Throwable?>()
+        val guarded = CoroutineScope(SupervisorJob() + Dispatchers.Main + CoroutineExceptionHandler { _, e -> uncaught.set(e) })
+        val tight = TightStore(failures = 2)
+        val playback =
+            PlaybackController(guarded, tight, playbackBudgetBytes = 1024L * 1024, isLowRam = false, nanoTime = {
+                SystemClock.uptimeMillis() * 1_000_000
+            })
+        val frames = CountingDisplay()
+
+        playback.start(project.copy(background = Background.Image(BACKGROUND_FILE)), 0, PlaybackMode.LOOP, 1f, frames)
+        val deadline = System.currentTimeMillis() + WAIT_MS
+        while (frames.shown < 2 || tight.backgroundReads.get() <= 2) {
+            check(System.currentTimeMillis() < deadline) { "No frames were shown" }
+            runFor(16)
+            Thread.sleep(2)
+        }
+        playback.stop()
+        guarded.cancel()
+
+        assertEquals(null, uncaught.get())
+    }
 
     @Test
     fun `a long canvas is decoded at the size it is shown, not at some larger minimum`() {
@@ -243,6 +288,7 @@ class PlaybackPauseTest {
         const val FPS = 12
         const val FRAME_MS = 1000L / FPS
         const val WAIT_MS = 20_000L
+        const val BACKGROUND_FILE = "media/background.png"
         const val READ_MS = 40L
     }
 }

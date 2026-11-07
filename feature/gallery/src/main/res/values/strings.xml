@@ -41,6 +41,7 @@
     <string name="default_project_name">My animation %1$d</string>
     <string name="new_project_title">New project</string>
     <string name="new_project_name">Project name</string>
+    <string name="new_project_name_needed">Give your project a name to create it</string>
     <string name="new_project_background">Background</string>
     <string name="new_project_size">Canvas size</string>
     <string name="new_project_fps">Frames per second</string>

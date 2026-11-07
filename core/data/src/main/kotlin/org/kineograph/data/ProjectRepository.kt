@@ -397,7 +397,13 @@ public class ProjectRepository(
             // cannot be taken for a row with no files.
             val indexed = index { dao.allIds() }.toSet()
             val onDisk = files.listProjectIds().toSet()
-            (indexed - onDisk).forEach { index { dao.delete(it) } }
+            (indexed - onDisk).forEach { id ->
+                try {
+                    index { dao.delete(id) }
+                } catch (_: IOException) {
+                    // Tried again at the next start-up.
+                }
+            }
             (onDisk - indexed).forEach { id ->
                 try {
                     adoptDirectory(id)

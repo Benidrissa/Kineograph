@@ -308,4 +308,55 @@ class ManifestTest {
         file.writeText(file.readText().replace("\"version\":1", "\"version\":99"))
         assertTrue(store.needsNewerApp())
     }
+
+    @Test
+    fun `a project saved once by a newer app does not open from its older backup, so no save can push the newer one out`() {
+        val (store, directory) = store()
+        store.write(rich())
+        store.write(rich())
+        val file = File(directory, "manifest.json")
+        val newer = file.readText().replace("\"version\":1", "\"version\":99")
+        file.writeText(newer)
+
+        assertNull(store.load { true })
+        assertTrue(store.needsNewerApp())
+        assertEquals(newer, file.readText())
+    }
+
+    @Test
+    fun `a newer app's save cut short before its last step is not passed over either`() {
+        val (store, directory) = store()
+        store.write(rich())
+        store.write(rich())
+        val file = File(directory, "manifest.json")
+        File(directory, "manifest.tmp").writeText(file.readText().replace("\"version\":1", "\"version\":99"))
+        file.delete()
+
+        assertNull(store.load { true })
+        assertTrue(store.needsNewerApp())
+    }
+
+    @Test
+    fun `a newer app's first save cut short still counts as a manifest, so start-up does not clear the project away`() {
+        val (store, directory) = store()
+        store.write(rich())
+        val file = File(directory, "manifest.json")
+        File(directory, "manifest.tmp").writeText(file.readText().replace("\"version\":1", "\"version\":99"))
+        file.delete()
+
+        assertTrue(store.hasManifest())
+    }
+
+    @Test
+    fun `a damaged newest manifest still falls back to the backup`() {
+        val (store, directory) = store()
+        store.write(rich())
+        store.write(rich())
+        File(directory, "manifest.json").writeText("{ not a manifest")
+
+        val loaded = store.load { true }
+        assertNotNull(loaded)
+        assertTrue(loaded?.recoveredFromBackup == true)
+        assertFalse(store.needsNewerApp())
+    }
 }

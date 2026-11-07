@@ -184,6 +184,13 @@ internal fun NewProjectForm(
             onValueChange = { name = it.take(MAX_NAME_LENGTH) },
             label = { Text(stringResource(R.string.new_project_name)) },
             singleLine = true,
+            isError = name.isBlank(),
+            supportingText =
+                if (name.isBlank()) {
+                    { Text(stringResource(R.string.new_project_name_needed), modifier = Modifier.testTag("new_project_name_needed")) }
+                } else {
+                    null
+                },
             modifier = Modifier.fillMaxWidth().testTag("new_project_name"),
         )
 
