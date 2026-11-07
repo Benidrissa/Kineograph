@@ -1,5 +1,6 @@
 package org.kineograph.engine.history
 
+import org.kineograph.engine.vector.RecordedStroke
 import org.kineograph.model.Background
 import org.kineograph.model.IntRect
 import org.kineograph.model.Project
@@ -31,6 +32,8 @@ public class PixelEntry(
     public val rect: IntRect,
     public val payload: PatchPayload,
     public val margin: Int = 0,
+    /** The stroke this step drew, when it was a recorded stroke, so undo and redo can keep the drawing's stroke log in step. */
+    public val stroke: RecordedStroke? = null,
 ) : HistoryEntry {
     override val memoryBytes: Long get() = payload.memoryBytes + ENTRY_OVERHEAD
     override val diskBytes: Long get() = payload.diskBytes

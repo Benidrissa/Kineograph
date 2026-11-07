@@ -23,6 +23,7 @@ import org.kineograph.engine.brush.BrushSpec
 import org.kineograph.engine.brush.StampRun
 import org.kineograph.engine.brush.StrokeBuilder
 import org.kineograph.engine.brush.StrokeOptions
+import org.kineograph.engine.brush.StrokeRecording
 import org.kineograph.engine.compositor.SceneRenderer
 import org.kineograph.engine.selection.Affine
 import org.kineograph.engine.selection.SelectionHandle
@@ -562,7 +563,9 @@ internal class KineographCanvasView(
                 simulatePressure = isFinger && config.simulateFingerPressure,
                 fastSpeedPxPerMs = FAST_SPEED_DP_PER_MS * density,
             )
-        val builder = StrokeBuilder(spec, options, sampleTimeMs)
+        val recordingBytes = session.strokeRecordingBytes
+        val recording = if (recordingBytes > 0) StrokeRecording(spec, sampleTimeMs, isFinger, recordingBytes) else null
+        val builder = StrokeBuilder(spec, options, sampleTimeMs, recording)
         stroke = builder
         strokeErases = spec.isEraser
         mode = Mode.STROKE
@@ -978,6 +981,8 @@ internal class KineographCanvasView(
         val real = if (builder.stamps.count == 0) StampRun.EMPTY else builder.stamps.snapshot()
         builder.stamps.clear()
         renderer?.drawWet(real, StampRun.EMPTY)
+        // Before the commit, so it reaches this stroke on the engine thread and no later one.
+        builder.recording?.let(session::attachStrokeRecording)
         renderer?.commitWet()
     }
 

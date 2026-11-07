@@ -401,7 +401,7 @@ public class SvgImporter(
     private suspend fun applyAsOneStep(run: Run, selectLayerId: String?, edit: (Project) -> Project) {
         currentCoroutineContext().ensureActive()
         withContext(NonCancellable) {
-            session.applyEdit(selectLayerId, edit)
+            session.applyEdit(selectLayerId, edit = edit)
             run.applied = true
         }
     }

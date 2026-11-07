@@ -29,6 +29,7 @@ import org.kineograph.engine.brush.BrushSpec
 import org.kineograph.engine.brush.StampPainter
 import org.kineograph.engine.brush.StampRun
 import org.kineograph.engine.brush.StrokeMerge
+import org.kineograph.engine.brush.StrokeRecording
 import org.kineograph.engine.brush.TipCache
 import org.kineograph.engine.compositor.BackgroundPainter
 import org.kineograph.engine.compositor.FlattenOptions
@@ -46,6 +47,9 @@ import org.kineograph.engine.history.PatchPayload
 import org.kineograph.engine.history.PixelEntry
 import org.kineograph.engine.history.StructureEntry
 import org.kineograph.engine.selection.SelectionTransform
+import org.kineograph.engine.vector.RecordedStroke
+import org.kineograph.engine.vector.StrokeLog
+import org.kineograph.engine.vector.StrokeSource
 import org.kineograph.model.Background
 import org.kineograph.model.Cel
 import org.kineograph.model.CelKey
@@ -214,6 +218,16 @@ public class DrawingSession(
     private var contentBounds = IntRect.EMPTY
 
     private val history = History(budget.historyMemoryBytes, budget.historyDiskBytes, MIN_UNDO_STEPS, spillDirectory)
+
+    /**
+     * The strokes behind each saved drawing, by its file. A file never changes, so neither does its log, and drawings that share a file share
+     * a log too. Only in memory: what was drawn before the project was opened has none. Stroke data gives way first when memory is short.
+     */
+    private val strokeLogs = HashMap<String, StrokeLog>()
+
+    /** The strokes behind what is on the surface, or null when that is not known. */
+    private var activeLog: StrokeLog? = null
+    private var recordedBytes = 0L
     private var stroke: ActiveStroke? = null
     private var wet: WetDraw? = null
     private var floating: Floating? = null
@@ -244,6 +258,22 @@ public class DrawingSession(
     }
 
     // ----- Strokes -----
+
+    /** Whether strokes are worth recording. False once their memory has run out, and then nothing is recorded for the rest of the session. */
+    @Volatile
+    public var isRecordingStrokes: Boolean = true
+        private set
+
+    /** How much one stroke's recording may hold. */
+    public val strokeRecordingBytes: Long get() = if (isRecordingStrokes) budget.historyMemoryBytes / RECORDING_SHARE else 0L
+
+    /**
+     * Gives the stroke under way the samples it was drawn from. Call from the thread that calls the renderer, just before the renderer commits,
+     * so it lands on the stroke it belongs to and on no other.
+     */
+    public fun attachStrokeRecording(recording: StrokeRecording) {
+        post { stroke?.recording = recording }
+    }
 
     /** Starts a stroke on the active layer. Stamps arrive through [addStamps]. */
     public fun beginStroke(spec: BrushSpec, colorArgb: Int) {
@@ -310,10 +340,53 @@ public class DrawingSession(
             strokeMerge.merge(targetCanvas, buffer, current.spec, rect)
             clearStrokeBuffer(current)
             if (!current.spec.isEraser) contentBounds = contentBounds.union(rect)
-            recordPixelEdit(rect, before)
+            recordPixelEdit(rect, before, logStroke(current))
         }
         publishScene(notify = false)
         publishState()
+    }
+
+    /**
+     * Adds a finished stroke to the log of what is on the surface, or forgets that log if the stroke cannot be described. Never throws: pixels
+     * have already landed, and stroke data is what gives way.
+     */
+    private fun logStroke(finished: ActiveStroke): RecordedStroke? {
+        val log = activeLog ?: return null
+        val recording = finished.recording
+        val target = surface
+        if (recording == null || recording.gaveUp != null || recording.count == 0 || target == null) {
+            activeLog = null
+            return null
+        }
+        return try {
+            val recorded =
+                RecordedStroke(
+                    recording.spec,
+                    recording.seed,
+                    finished.colorArgb,
+                    recording.copySamples(),
+                    recording.count,
+                    recording.stride,
+                    IntRect(-overscan, -overscan, target.width - overscan, target.height - overscan),
+                )
+            if (recordedBytes + recorded.bytes > budget.historyMemoryBytes) {
+                stopRecordingStrokes()
+                return null
+            }
+            recordedBytes += recorded.bytes
+            activeLog = log.plus(recorded)
+            recorded
+        } catch (_: OutOfMemoryError) {
+            stopRecordingStrokes()
+            null
+        }
+    }
+
+    private fun stopRecordingStrokes() {
+        isRecordingStrokes = false
+        strokeLogs.clear()
+        activeLog = null
+        recordedBytes = 0L
     }
 
     private fun clearStrokeBuffer(finished: ActiveStroke) {
@@ -623,7 +696,10 @@ public class DrawingSession(
             } else {
                 when (val entry = history.peekUndo()) {
                     is PixelEntry -> {
-                        applyPatch(entry, onApplied = { history.popUndo() }, onLost = history::discardUndoSteps)
+                        applyPatch(entry, onApplied = {
+                            history.popUndo()
+                            unlogStroke(entry)
+                        }, onLost = history::discardUndoSteps)
                     }
 
                     is StructureEntry -> {
@@ -654,7 +730,10 @@ public class DrawingSession(
             settleOpacityPreview()
             when (val entry = history.peekRedo()) {
                 is PixelEntry -> {
-                    applyPatch(entry, onApplied = { history.popRedo() }, onLost = history::discardRedoSteps)
+                    applyPatch(entry, onApplied = {
+                        history.popRedo()
+                        entry.stroke?.let { stroke -> activeLog = activeLog?.plus(stroke) }
+                    }, onLost = history::discardRedoSteps)
                 }
 
                 is StructureEntry -> {
@@ -676,6 +755,13 @@ public class DrawingSession(
             publishScene()
             publishState()
         }
+    }
+
+    /** An undone stroke leaves the log. If the log does not end with it, the log no longer says what is on the surface. */
+    private fun unlogStroke(entry: PixelEntry) {
+        val undone = entry.stroke ?: return
+        val log = activeLog ?: return
+        activeLog = if (log.last === undone) log.previous else null
     }
 
     /**
@@ -750,7 +836,7 @@ public class DrawingSession(
      * Notes that the surface has changed, and adds an undo step if [before] holds what it replaced. The surface is marked
      * as changed first, so a failure in the history bookkeeping cannot leave the pixels unsaved.
      */
-    private fun recordPixelEdit(rect: IntRect, before: IntArray?) {
+    private fun recordPixelEdit(rect: IntRect, before: IntArray?, recorded: RecordedStroke? = null) {
         activeDirty = true
         markChanged()
         if (before == null) {
@@ -759,7 +845,7 @@ public class DrawingSession(
             return
         }
         val payload = PatchPayload(before)
-        history.push(PixelEntry(layerId, frameId, rect, payload, overscan))
+        history.push(PixelEntry(layerId, frameId, rect, payload, overscan, recorded))
         compressInBackground(payload)
     }
 
@@ -1124,9 +1210,14 @@ public class DrawingSession(
      * find out first what it will need, so it must do nothing but work out its result.
      */
     @Throws(IOException::class)
-    public suspend fun applyEdit(selectLayerId: String? = null, edit: (Project) -> Project) {
+    public suspend fun applyEdit(
+        selectLayerId: String? = null,
+        strokes: Map<String, StrokeLog> = emptyMap(),
+        edit: (Project) -> Project,
+    ) {
         withContext(dispatcher) {
             try {
+                if (isRecordingStrokes) strokeLogs.putAll(strokes)
                 applyEditNow(selectLayerId, edit)
             } catch (e: OutOfMemoryError) {
                 trimAfterOutOfMemory()
@@ -1414,6 +1505,46 @@ public class DrawingSession(
         }
 
     /**
+     * The drawings on [layerId] in frame [frameId] and the frame after it, if there is one, each with the strokes behind it, after saving what is
+     * on the surface. A null log means the strokes are not known. A log can still be wrong, so check it against the drawing before trusting it.
+     *
+     * Throws an [IOException] when memory runs out or a drawing cannot be read, as [snapshot] does.
+     */
+    @Throws(IOException::class)
+    public suspend fun strokesFor(layerId: String, frameId: String): StrokeSource =
+        withContext(dispatcher) {
+            try {
+                if (floating == null) flushActive()
+                publishState()
+                val index = project.frameIndex(frameId)
+                val frameIds = if (index < 0) {
+                    emptyList()
+                } else {
+                    project.frames
+                        .drop(index)
+                        .take(2)
+                        .map { it.id }
+                }
+                val cels = frameIds.map { id -> project.cel(layerId, id) }
+                StrokeSource(
+                    project,
+                    cels,
+                    cels.map { cel ->
+                        cel?.file?.let { strokeLogs[it] }
+                            ?: if (cel?.file == null) StrokeLog.EMPTY else null
+                    },
+                )
+            } catch (e: OutOfMemoryError) {
+                trimAfterOutOfMemory()
+                publishWhereThingsStand()
+                throw IOException("Ran out of memory while saving", e)
+            } catch (e: UnreadableCel) {
+                publishWhereThingsStand()
+                throw IOException("An earlier drawing could not be read while saving", e)
+            }
+        }
+
+    /**
      * What the active layer holds on this frame as it would be with its lifted selection put down, while that stays lifted. Null if nothing is lifted, as [snapshot] then
      * has the answer. This is for working out a change that may still fail, by which time nothing of the user's may have moved.
      *
@@ -1641,6 +1772,7 @@ public class DrawingSession(
         if (file != null && celBounds != null && image == null) {
             loadedKey = null
             loadedFile = null
+            activeLog = null
             _events.trySend(SessionEvent.CelNotLoaded)
             return
         }
@@ -1653,6 +1785,7 @@ public class DrawingSession(
         contentBounds = bounds
         loadedKey = key
         loadedFile = file
+        activeLog = if (file == null) StrokeLog.EMPTY else strokeLogs[file]
         activeDirty = false
     }
 
@@ -1678,6 +1811,9 @@ public class DrawingSession(
                 cropOf(target, tight)
             }
         val cel = pixels?.let { Cel(key.layerId, key.frameId, store.write(it.image), it.bounds) }
+        val log = activeLog
+        val file = cel?.file
+        if (file != null && log != null) strokeLogs[file] = log
         project = ProjectEdits.withCel(project, key, cel)
         contentBounds = tight
         loadedFile = cel?.file
@@ -2006,6 +2142,9 @@ public class DrawingSession(
 
     private class ActiveStroke(val spec: BrushSpec, val colorArgb: Int) {
         val bounds = BoundsAccumulator()
+
+        /** The samples it was drawn from, given at the end of the stroke. */
+        var recording: StrokeRecording? = null
     }
 
     private class Floating(
@@ -2017,6 +2156,8 @@ public class DrawingSession(
     )
 
     private companion object {
+        /** One stroke's recording may take this share of the stroke data's memory, which is the same as the undo history's. */
+        const val RECORDING_SHARE = 8L
         const val MIN_UNDO_STEPS = 100
         const val EVENT_BUFFER = 16
         const val MIN_LASSO_COORDINATES = 6
