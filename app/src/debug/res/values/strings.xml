@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A debug build is a separate app that can sit beside a release, so the two need telling apart on the home screen. -->
+    <string name="app_name">Kineograph Test</string>
+</resources>

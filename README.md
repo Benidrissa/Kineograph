@@ -27,8 +27,22 @@ A free, open-source, ad-free frame-by-frame animation app for Android. Named aft
 
 ## Install
 
-Download an APK from [Releases](https://github.com/Benidrissa/Kineograph/releases), or the `debug-apk` artifact from the latest
-[Actions run](https://github.com/Benidrissa/Kineograph/actions). The `universal` APK works on every phone.
+No signed version has been released yet, so [Releases](https://github.com/Benidrissa/Kineograph/releases) is empty. A signed
+APK appears there once a version is tagged and has passed every test. There is one to download, and it works on every phone.
+
+Until then, you can try a test build. Sign in to GitHub, open the latest successful
+[run on `main`](https://github.com/Benidrissa/Kineograph/actions/workflows/android.yml?query=branch%3Amain+is%3Asuccess), and
+download the `debug-apk` artifact. It is a ZIP with one APK inside, which works on every phone. Each one is kept for 30 days.
+
+A test build:
+
+- Shows as **Kineograph Test**. A newer test build updates an older one and keeps your projects.
+- Is a separate app from a signed release, and installs beside it. Projects cannot move between the two yet, because project
+  export comes in Phase 2. They live inside each app, so uninstalling one deletes its projects.
+- Is signed with a key that is public, in this repository, so only install test builds from this repository's own runs.
+
+An older test build that shows as plain **Kineograph** was signed with a key nobody kept, so it cannot be updated. A new test
+build installs beside it, and its projects stay where they are.
 
 ## Build
 
@@ -39,6 +53,7 @@ You need JDK 17 and the Android SDK.
 ./gradlew :core:model:test testDebugUnitTest   # unit and UI tests on the JVM
 ./gradlew connectedDebugAndroidTest            # on a device or emulator
 ./gradlew ktlintCheck                          # code style
+./gradlew :app:lintDebug                       # lint, for every module
 ```
 
 ## Learn more

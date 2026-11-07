@@ -670,9 +670,10 @@ class EditorViewModelTest {
         val project = create()
         val ready = viewModelFor(project.id).awaitReady()
         var failing by mutableStateOf(false)
+        val state = ready.session.state.value
         compose.setContent {
             KineographTheme(darkTheme = false) {
-                EditorTopBar(ready.session.state.value, {}, {}, {}, {}, {}, {}, saveFailed = failing)
+                EditorTopBar(state, {}, {}, {}, {}, {}, {}, saveFailed = failing)
             }
         }
         compose.onNodeWithTag("not_saved").assertDoesNotExist()

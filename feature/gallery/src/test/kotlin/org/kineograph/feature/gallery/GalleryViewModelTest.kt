@@ -254,6 +254,7 @@ class GalleryViewModelTest {
     }
 
     private companion object {
-        const val WAIT_MS = 10_000L
+        // Only ever waited for in full by a failing test. A real database can take over ten seconds to open here, on a busy machine.
+        const val WAIT_MS = 60_000L
     }
 }

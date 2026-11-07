@@ -79,6 +79,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
@@ -417,6 +418,12 @@ internal fun SelectionBar(onDone: () -> Unit, onCancel: () -> Unit, onDelete: ()
     }
 }
 
+/**
+ * Which slot playback is showing. The picture itself is on a surface that tests cannot read, and this is how they can tell it is
+ * moving. A property of its own, because TalkBack ignores those, and it changes far too often to be read out.
+ */
+public val PlaybackSlot: SemanticsPropertyKey<Int> = SemanticsPropertyKey("PlaybackSlot")
+
 /** The controls left on screen during playback. They wrap, because at the largest font size they are wider than a small phone. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -429,7 +436,12 @@ internal fun PlaybackBar(
     onFps: (Int) -> Unit,
 ) {
     FlowRow(
-        Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 8.dp),
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 64.dp)
+            .padding(horizontal = 8.dp)
+            .semantics { this[PlaybackSlot] = playback.slotIndex }
+            .testTag("playback_bar"),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalArrangement = Arrangement.Center,
         itemVerticalAlignment = Alignment.CenterVertically,

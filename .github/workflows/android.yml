@@ -30,9 +30,16 @@ jobs:
       - name: Unit and UI tests
         run: ./gradlew :core:model:test testDebugUnitTest
       - name: Lint and permission check
+        # The app's lint covers every module: see checkDependencies in app/build.gradle.kts.
         run: ./gradlew :app:lintDebug :app:checkDebugPermissions
       - name: Build the debug APK
         run: ./gradlew :app:assembleDebug
+      - name: Check the debug APK has the repository's debug key
+        # With any other key, this APK could not update the one from the run before. See docs/decisions.md.
+        run: |
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)"
+          "$apksigner" verify --print-certs app/build/outputs/apk/debug/*universal*.apk |
+            grep -q "SHA-256 digest: bd17729b0898c646d7b4a02ab3a30adfe6fdc55442b4b7265415a145e9965941"
       - name: Upload the debug APK
         uses: actions/upload-artifact@v7
         with:
@@ -129,3 +136,25 @@ jobs:
           path: |
             app/build/outputs/apk/release/*.apk
             app/build/outputs/bundle/release/*.aab
+
+  publish:
+    # A job of its own, because it alone can write to the repository, so it runs nothing from the repository: no checkout and no
+    # Gradle. It only goes ahead once a tag has passed every job above. Only the universal APK goes up, as a split one fails with
+    # just "App not installed" on any other kind of phone, and the bundle cannot be installed at all. See docs/decisions.md.
+    name: Publish to Releases
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: release
+          path: dist
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/apk/release/*universal*.apk \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes

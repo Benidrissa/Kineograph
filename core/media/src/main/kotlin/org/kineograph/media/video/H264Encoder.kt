@@ -57,23 +57,13 @@ internal class H264Encoder(outputFile: File, private val width: Int, private val
      * encoder itself reports. Some encoders still refuse, and any encoder can make a fine video without being told.
      */
     private fun configure(width: Int, height: Int, fps: Int, bitrate: Int) {
-        val format =
-            MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
-                setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-                setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
-                setInteger(MediaFormat.KEY_FRAME_RATE, fps)
-                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEYFRAME_INTERVAL_SECONDS)
-            }
         val baseline = baselineProfileLevel()
         if (baseline != null) {
-            format.setInteger(MediaFormat.KEY_PROFILE, baseline.profile)
-            format.setInteger(MediaFormat.KEY_LEVEL, baseline.level)
-            if (tryConfigure(format)) return
+            if (tryConfigure(videoFormat(width, height, fps, bitrate, baseline))) return
             codec.reset()
-            format.removeKey(MediaFormat.KEY_PROFILE)
-            format.removeKey(MediaFormat.KEY_LEVEL)
         }
-        if (!tryConfigure(format)) throw ExportNotSupportedException("The encoder refused ${width}x$height")
+        val unspecified = videoFormat(width, height, fps, bitrate, profile = null)
+        if (!tryConfigure(unspecified)) throw ExportNotSupportedException("The encoder refused ${width}x$height")
     }
 
     private fun tryConfigure(format: MediaFormat): Boolean =
@@ -160,7 +150,6 @@ internal class H264Encoder(outputFile: File, private val width: Int, private val
     }
 
     private companion object {
-        const val KEYFRAME_INTERVAL_SECONDS = 1
         const val NANOS_PER_MICRO = 1000L
         const val DRAIN_TIMEOUT_US = 10_000L
         const val MAX_IDLE_DRAINS = 1000
@@ -168,3 +157,21 @@ internal class H264Encoder(outputFile: File, private val width: Int, private val
         const val MUXER_INDEX_BYTES = 1024L * 1024L
     }
 }
+
+private const val KEYFRAME_INTERVAL_SECONDS = 1
+
+/**
+ * A new format for each attempt, with or without a profile. Taking a profile back out of a format needs MediaFormat.removeKey,
+ * which only exists from Android 10, and an encoder refusing Baseline is just as possible on the older phones.
+ */
+internal fun videoFormat(width: Int, height: Int, fps: Int, bitrate: Int, profile: MediaCodecInfo.CodecProfileLevel?): MediaFormat =
+    MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
+        setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+        setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
+        setInteger(MediaFormat.KEY_FRAME_RATE, fps)
+        setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEYFRAME_INTERVAL_SECONDS)
+        if (profile != null) {
+            setInteger(MediaFormat.KEY_PROFILE, profile.profile)
+            setInteger(MediaFormat.KEY_LEVEL, profile.level)
+        }
+    }

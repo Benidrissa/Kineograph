@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -180,8 +181,9 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
     // The handler declared last goes first, so playback keeps priority over leaving.
     BackHandler { leave() }
     BackHandler(enabled = playback.isPlaying) { viewModel.stopPlayback() }
+    val resources = LocalResources.current
     LaunchedEffect(viewModel) {
-        viewModel.messages.collect { message -> snackbar.showSnackbar(context.getString(message.textRes())) }
+        viewModel.messages.collect { message -> snackbar.showSnackbar(resources.getString(message.textRes())) }
     }
     LaunchedEffect(playback.isPlaying, canvasView) { canvasView?.isPlaying = playback.isPlaying }
     HideSystemBars(playback.isPlaying)

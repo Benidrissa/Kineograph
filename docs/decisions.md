@@ -313,3 +313,54 @@ They are heard in `onGenericMotionEvent` and not in `onTouchEvent`, because of w
 - Air Command belongs to the system and an app cannot stop it, so pressing during a hover may still open it.
 - The button only erases. There is no setting to give it another job, and no sign on screen that it is held.
 - On the software path, erasing shows no prediction, the same as the eraser always has there.
+
+## One debug key, in the repository
+
+`app/debug.keystore` signs every debug build, wherever it is built. Left to itself, the build makes a new debug key on each
+machine, and a CI runner is a new machine every time. Android refuses an update with a different key, and the only way past that
+is to uninstall, which deletes all the user's projects.
+
+A debug key is not a secret, and this one protects nothing: its password is `android`, and it was made for this repository
+alone. It is not anyone's personal key, and it is not the release key, which comes from repository secrets and never enters
+the repository. Since anyone can sign an update with a public key, debug builds are a separate package,
+`org.kineograph.app.debug`, so that it can never touch an installed release. That also means their projects are separate, and
+stay so until project export arrives in Phase 2. They are labelled "Kineograph Test" so the two can be told apart.
+
+CI checks the certificate of the APK it uploads (SHA-256 `bd17729b...9965941`, the full value is in the workflow). Updates now keep
+data from one build to the next, so a change to the Room schema needs a new version and a migration from now on, not only at
+release time. F-Droid builds the release type with its own key. Its source scanner goes by file name and executable bit, and has no
+rule that matches this file (read from `fdroidserver/scanner.py`, not run).
+
+## Lint runs across every module, from `:app`
+
+Without `checkDependencies`, each library's lint results are worked out and then dropped, so the report said "0 errors" while
+it knew of calls that crash on Android 8 and 9. The same setting applies to the lint that `assembleRelease` runs. Errors get
+fixed, not put in a baseline, because a baseline would hide exactly those crashes. `:core:model` has the lint plugin as well,
+as it is not an Android module and would otherwise be skipped.
+
+`ExportWorker` starts a foreground service, so the service's type is declared in `:core:media`'s manifest, next to it, because lint
+only sees what is declared in the module it is looking at. The app ends up with the same declaration in its merged manifest.
+
+## Releases are published by a job of their own
+
+The `publish` job is the only one that can write to the repository, so it has no checkout and runs no Gradle. The job that builds
+with the signing secrets has no write access.
+
+`publish` only uploads the universal APK. Android refuses a split APK on any other kind of phone with just "App not installed", and
+people opening Releases do not know which kind they have. The first file listed would be the arm64 one, which a cheap 32-bit phone
+cannot install. The universal APK is about 0.7 MB bigger than a split one (3.0 MB against 2.3 to 2.4 MB in the last build), which is
+a small price for a download that cannot be the wrong one. The split APKs stay in the `release` workflow artifact, with the bundle,
+which cannot be installed by hand. `ReleaseWorkflowTest` holds the job to this.
+
+## A wet stroke sits on top until it lands
+
+The stroke being drawn is on a layer above the whole scene, because that is what the display can read straight from. Until pen-up,
+ink on a lower layer therefore shows over the layers above it, and past the canvas edge it shows at full strength rather than
+faintly. It settles into place in the frame that merges it. Doing better would mean drawing the layers above over each new stamp,
+which is the work the front buffer is there to avoid. The software path draws the whole scene each time, so it does not have this.
+
+## The themed icon has its own drawing
+
+A launcher only reads a themed icon's alpha, and every shape in the colour icon is opaque and inside the front page, so reusing that
+gives a plain blob. `ic_launcher_monochrome` cuts the ball and floor out of the front page, and turns the pages behind it into
+slivers so that they do not fill the holes.

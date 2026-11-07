@@ -14,8 +14,8 @@ thumb.webp             Gallery thumbnail (not part of a .kgraph)
 
 ## Images
 
-Cels are lossless WebP (written on Android 11+) or PNG (written on older versions); readers must accept both. They are
-cropped to their content. Files never change after being written, and **several cels may refer to the same file**.
+Cels are lossless WebP (written on Android 11+) or PNG (written on older versions, and for images with an edge over
+16383 pixels, which WebP cannot hold); readers must accept both. They are cropped to their content. Files never change after being written, and **several cels may refer to the same file**.
 
 ## manifest.json
 

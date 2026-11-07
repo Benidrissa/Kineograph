@@ -99,9 +99,9 @@ public fun GalleryScreen(
 ) {
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val messageContext = LocalContext.current
+    val resources = LocalResources.current
     LaunchedEffect(messages) {
-        messages.collect { message -> snackbar.showSnackbar(messageContext.getString(message.textRes()), withDismissAction = true) }
+        messages.collect { message -> snackbar.showSnackbar(resources.getString(message.textRes()), withDismissAction = true) }
     }
     // Saved, because the system may destroy the activity while the camera app has the screen, and the photo comes back to this sheet.
     var showNewProject by rememberSaveable { mutableStateOf(false) }
