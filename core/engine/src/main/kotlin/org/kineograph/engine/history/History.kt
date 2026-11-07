@@ -19,12 +19,17 @@ public sealed interface HistoryEntry {
     public fun discard()
 }
 
-/** A change to pixels in one rectangle of one cel. The rectangle is in the cel surface's coordinates. */
+/**
+ * A change to pixels in one rectangle of one cel. The rectangle is in the cel surface's coordinates at the time of the
+ * edit, when the surface had a drawable margin of [margin] pixels. The margin can differ later, if memory ran short when
+ * the surface was next allocated, so whoever applies the patch must allow for that.
+ */
 public class PixelEntry(
     public val layerId: String,
     public val frameId: String,
     public val rect: IntRect,
     public val payload: PatchPayload,
+    public val margin: Int = 0,
 ) : HistoryEntry {
     override val memoryBytes: Long get() = payload.memoryBytes + ENTRY_OVERHEAD
     override val diskBytes: Long get() = payload.diskBytes
@@ -99,6 +104,12 @@ public class History(
         enforceBudgets()
     }
 
+    /** The next edit to undo, left in place. Apply it first and then call [popUndo], so a failure leaves the stacks correct. */
+    public fun peekUndo(): HistoryEntry? = undoStack.lastOrNull()
+
+    /** The next edit to redo, left in place. Apply it first and then call [popRedo], so a failure leaves the stacks correct. */
+    public fun peekRedo(): HistoryEntry? = redoStack.lastOrNull()
+
     /** Takes the newest edit for undoing, or null when there is none. The caller must apply it. */
     public fun popUndo(): HistoryEntry? {
         val entry = undoStack.removeLastOrNull() ?: return null
@@ -111,6 +122,21 @@ public class History(
         val entry = redoStack.removeLastOrNull() ?: return null
         undoStack.addLast(entry)
         return entry
+    }
+
+    /**
+     * Forgets every step that could be undone, for when the next one has become unreadable. Older steps would only apply
+     * across a change they know nothing about. What could be redone is still valid, because it starts from the present.
+     */
+    public fun discardUndoSteps() {
+        undoStack.forEach { it.discard() }
+        undoStack.clear()
+    }
+
+    /** Forgets every step that could be redone, for when the next one has become unreadable. */
+    public fun discardRedoSteps() {
+        redoStack.forEach { it.discard() }
+        redoStack.clear()
     }
 
     /** Applies the budgets again; called after background compression has changed the numbers. */

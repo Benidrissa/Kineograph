@@ -11,6 +11,7 @@ import android.graphics.PorterDuffColorFilter
 import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
 import org.kineograph.engine.selection.Affine
+import org.kineograph.model.BlendMode
 import kotlin.math.hypot
 
 /**
@@ -21,6 +22,7 @@ public class SceneRenderer {
     private val layerPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val wetLayerPaint = Paint()
     private val wetPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+    private val floatingPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val selectionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -72,7 +74,7 @@ public class SceneRenderer {
         borderPaint.strokeWidth = 0f
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), borderPaint)
 
-        if (playbackFrame == null) scene.floating?.let { drawFloating(canvas, it, zoom) }
+        if (playbackFrame == null) scene.floating?.let { drawSelectionFrame(canvas, it, zoom) }
         canvas.restoreToCount(outer)
     }
 
@@ -80,7 +82,7 @@ public class SceneRenderer {
     private fun drawOverflow(canvas: Canvas, scene: Scene, width: Int, height: Int) {
         val anyBelow = scene.below.any { it.overflows(width, height) }
         val anyAbove = scene.above.any { it.overflows(width, height) }
-        if (!anyBelow && !anyAbove && !scene.activeOverflows && scene.wet == null) return
+        if (!anyBelow && !anyAbove && !scene.activeOverflows && scene.wet == null && scene.floating == null) return
         val checkpoint = canvas.save()
         canvas.clipOutRect(0, 0, width, height)
         val layer = canvas.saveLayerAlpha(null, OVERFLOW_ALPHA)
@@ -114,21 +116,33 @@ public class SceneRenderer {
     private fun drawActive(canvas: Canvas, scene: Scene) {
         val active = scene.active
         val wet = scene.wet
-        if (wet == null) {
+        val floating = scene.floating
+        if (wet == null && floating == null) {
             if (active != null) drawLayer(canvas, active)
             return
         }
-        // The stroke and its layer are combined first, so that an eraser stroke only removes this layer.
+        // What is still loose and its layer are combined first, so that an eraser stroke only removes this layer, and a
+        // lifted selection already looks the way it will once it is put down: at the layer's opacity, in the layer's place.
         wetLayerPaint.alpha = (((active?.opacity ?: 1f).coerceIn(0f, 1f)) * 255f + 0.5f).toInt()
+        wetLayerPaint.applyLayerBlend(active?.blendMode ?: BlendMode.NORMAL)
         val checkpoint = canvas.saveLayer(null, wetLayerPaint)
         if (active != null) {
             layerPaint.alpha = 255
             layerPaint.xfermode = null
             canvas.drawBitmap(active.bitmap, active.left.toFloat(), active.top.toFloat(), layerPaint)
         }
-        wetPaint.alpha = (wet.opacity.coerceIn(0f, 1f) * 255f + 0.5f).toInt()
-        wetPaint.xfermode = if (wet.erase) eraseMode else null
-        canvas.drawBitmap(wet.buffer, wet.left.toFloat(), wet.top.toFloat(), wetPaint)
+        if (wet != null) {
+            wetPaint.alpha = (wet.opacity.coerceIn(0f, 1f) * 255f + 0.5f).toInt()
+            wetPaint.xfermode = if (wet.erase) eraseMode else null
+            canvas.drawBitmap(wet.buffer, wet.left.toFloat(), wet.top.toFloat(), wetPaint)
+        }
+        if (floating != null) {
+            val source = floating.transform.source
+            floating.transform.toAffine().toMatrixValues(values)
+            floatingMatrix.setValues(values)
+            floatingMatrix.preTranslate(source.left.toFloat(), source.top.toFloat())
+            canvas.drawBitmap(floating.bitmap, floatingMatrix, floatingPaint)
+        }
         canvas.restoreToCount(checkpoint)
     }
 
@@ -151,17 +165,9 @@ public class SceneRenderer {
         }
     }
 
-    private fun drawFloating(canvas: Canvas, floating: FloatingDraw, zoom: Float) {
+    /** The box and handles, drawn over everything, so a selection can still be grabbed under a layer above or at low opacity. */
+    private fun drawSelectionFrame(canvas: Canvas, floating: FloatingDraw, zoom: Float) {
         val transform = floating.transform
-        val source = transform.source
-        transform.toAffine().toMatrixValues(values)
-        floatingMatrix.setValues(values)
-        floatingMatrix.preTranslate(source.left.toFloat(), source.top.toFloat())
-        layerPaint.alpha = 255
-        layerPaint.xfermode = null
-        layerPaint.isFilterBitmap = true
-        canvas.drawBitmap(floating.bitmap, floatingMatrix, layerPaint)
-
         val onePixel = 1f / zoom.coerceAtLeast(0.001f)
         val corners = transform.corners()
         // Dark and light dashes together stay visible over any artwork.

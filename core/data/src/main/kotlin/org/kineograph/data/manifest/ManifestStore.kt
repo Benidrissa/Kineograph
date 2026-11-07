@@ -34,7 +34,15 @@ public class ManifestStore(private val directory: File) {
     public fun write(project: Project) {
         directory.mkdirs()
         val encoded = ManifestCodec.encode(project).toByteArray(Charsets.UTF_8)
-        AtomicFile.writeDurably(temporary, encoded)
+        // After a crash between steps 2 and 3 the temporary file is the newest revision, so it must not be written over.
+        if (!current.exists() && readOrNull(temporary) != null) AtomicFile.move(temporary, current)
+        try {
+            AtomicFile.writeDurably(temporary, encoded)
+        } catch (e: IOException) {
+            // A half-written leftover would hold on to the very space a full disk is short of.
+            temporary.delete()
+            throw e
+        }
         if (current.exists()) AtomicFile.move(current, previous)
         AtomicFile.move(temporary, current)
     }
@@ -70,8 +78,22 @@ public class ManifestStore(private val directory: File) {
         }
     }
 
-    /** The cel files referred to by the backup manifest, which must be kept in case it is ever needed. */
-    public fun filesReferencedByBackup(): Set<String> = readOrNull(previous)?.referencedFiles().orEmpty()
+    /**
+     * The cel files that any revision on disk refers to, all of which [load] might need, so none may be deleted. Returns
+     * null if that cannot be known because a revision could not be read. Temporary files are left out of that rule: an
+     * unreadable one is just an unfinished write that nothing could ever load.
+     */
+    public fun filesReferencedByManifests(): Set<String>? {
+        val files = HashSet<String>()
+        for (file in listOf(current, previous)) {
+            if (file.isFile) files += (readOrNull(file) ?: return null).referencedFiles()
+        }
+        readOrNull(temporary)?.let { files += it.referencedFiles() }
+        return files
+    }
+
+    /** Whether any manifest exists that could still mean something. A damaged one counts, but an unfinished first write does not. */
+    public fun hasManifest(): Boolean = current.exists() || previous.exists() || readOrNull(temporary) != null
 
     private fun readOrNull(file: File): Project? {
         if (!file.isFile) return null
@@ -90,9 +112,12 @@ public class ManifestStore(private val directory: File) {
         return (if (missing == 0) project else project.copy(cels = kept)) to missing
     }
 
-    private companion object {
-        const val CURRENT = "manifest.json"
-        const val PREVIOUS = "manifest.prev.json"
-        const val TEMPORARY = "manifest.tmp"
+    public companion object {
+        private const val CURRENT = "manifest.json"
+        private const val PREVIOUS = "manifest.prev.json"
+        private const val TEMPORARY = "manifest.tmp"
+
+        /** Whether a file directly inside a project's directory is one of its manifest revisions. */
+        public fun isManifestFile(name: String): Boolean = name == CURRENT || name == PREVIOUS || name == TEMPORARY
     }
 }

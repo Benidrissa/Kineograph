@@ -42,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -281,6 +282,8 @@ internal fun LayersSheet(state: SessionState, session: DrawingSession, thumbnail
     val defaultName = stringResource(R.string.layer_default_name, project.layers.size + 1)
     val copySuffix = stringResource(R.string.layer_copy_suffix)
     var renaming by remember { mutableStateOf<Layer?>(null) }
+    // A slider removed in mid-drag never reports its end, which would otherwise leave the opacity change unfinished.
+    DisposableEffect(session) { onDispose { session.endLayerOpacityPreview() } }
     EditorBottomSheet(onDismiss) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.layers_title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
@@ -297,7 +300,8 @@ internal fun LayersSheet(state: SessionState, session: DrawingSession, thumbnail
             LayerRow(
                 layer = layer,
                 isActive = layer.id == state.layerId,
-                canMergeDown = stackIndex > 0,
+                // A hidden layer and a visible one cannot merge without showing what was hidden or hiding what was shown.
+                canMergeDown = stackIndex > 0 && layer.visible == project.layers[stackIndex - 1].visible,
                 canDelete = project.layers.size > 1,
                 project = project,
                 frameId = state.frameId,

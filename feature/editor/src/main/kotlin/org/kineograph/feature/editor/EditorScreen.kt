@@ -1,5 +1,10 @@
 package org.kineograph.feature.editor
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.os.storage.StorageManager
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -11,12 +16,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,8 +68,43 @@ public fun EditorRoute(viewModel: EditorViewModel, wideLayout: Boolean, onBack: 
         }
 
         is EditorLoadState.Ready -> {
-            EditorContent(viewModel, state, wideLayout, onBack)
+            val sessionState by state.session.state.collectAsStateWithLifecycle()
+            if (sessionState.openFailed) {
+                CanvasTooLarge(viewModel, sessionState.project.width, sessionState.project.height, onBack)
+            } else {
+                EditorContent(viewModel, state, wideLayout, onBack)
+            }
         }
+    }
+}
+
+/** There is no canvas to show, so this stays on screen, with something the user can do about it, until one fits. */
+@Composable
+private fun CanvasTooLarge(viewModel: EditorViewModel, width: Int, height: Int, onBack: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .verticalScroll(rememberScrollState())
+            .padding(32.dp)
+            .testTag("canvas_too_large"),
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            stringResource(R.string.message_cannot_open, width, height),
+            textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.bodyLarge,
+        )
+        Button(onClick = { viewModel.retryOpen() }) { Text(stringResource(R.string.action_try_again)) }
+        val smallerWidth = (width / 2).coerceAtLeast(1)
+        val smallerHeight = (height / 2).coerceAtLeast(1)
+        if (smallerWidth != width || smallerHeight != height) {
+            OutlinedButton(onClick = { viewModel.retryOpen(smallerWidth, smallerHeight) }) {
+                Text(stringResource(R.string.action_use_smaller_canvas, smallerWidth, smallerHeight))
+            }
+        }
+        TextButton(onClick = onBack) { Text(stringResource(R.string.action_back)) }
     }
 }
 
@@ -85,6 +130,9 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
     val tools by viewModel.tools.collectAsStateWithLifecycle()
     val settings by viewModel.appSettings.collectAsStateWithLifecycle()
     val exportState by viewModel.export.collectAsStateWithLifecycle()
+    val saveFailed by ready.autosaver.saveFailed.collectAsStateWithLifecycle()
+    val leaving by viewModel.leaving.collectAsStateWithLifecycle()
+    val unsavedOnLeave by viewModel.unsavedOnLeave.collectAsStateWithLifecycle()
     val playbackController = viewModel.playback
     val playback = playbackController?.state?.collectAsStateWithLifecycle()?.value ?: PlaybackState()
     val thumbnails = viewModel.thumbnails
@@ -95,7 +143,12 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
     val context = LocalContext.current
     val workspaceColor = MaterialTheme.colorScheme.surfaceContainerHighest.toArgb()
 
+    val leave = { viewModel.requestLeave(onBack) }
+
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.saveBeforeBackground() }
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.retryFailedSave() }
+    // The handler declared last goes first, so playback keeps priority over leaving.
+    BackHandler { leave() }
     BackHandler(enabled = playback.isPlaying) { viewModel.stopPlayback() }
     LaunchedEffect(viewModel) {
         viewModel.messages.collect { message -> snackbar.showSnackbar(context.getString(message.textRes())) }
@@ -117,7 +170,8 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
         if (!playback.isPlaying) {
             EditorTopBar(
                 state = sessionState,
-                onBack = onBack,
+                saveFailed = saveFailed,
+                onBack = leave,
                 onToggleOnion = {
                     session.updateSettings { it.copy(onionSkin = it.onionSkin.copy(enabled = !it.onionSkin.enabled)) }
                 },
@@ -175,7 +229,7 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
                     )
                 }
             }
-            if (sessionState.busy || playback.isPreparing) {
+            if (sessionState.busy || playback.isPreparing || leaving) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             }
             SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
@@ -243,14 +297,53 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
     exportState?.let { state ->
         ExportDialog(state = state, onCancel = viewModel::cancelExport, onDismiss = viewModel::dismissExport)
     }
+    if (unsavedOnLeave) {
+        UnsavedChangesDialog(
+            onStay = viewModel::stayAfterFailedSave,
+            onFreeSpace = {
+                viewModel.stayAfterFailedSave()
+                openStorageSettings(context)
+            },
+            onDiscard = { viewModel.discardAndLeave(onBack) },
+        )
+    }
+}
+
+/** Staying is the safe choice, so it is the main button and what dismissing the dialog does. */
+@Composable
+internal fun UnsavedChangesDialog(onStay: () -> Unit, onFreeSpace: () -> Unit, onDiscard: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onStay,
+        title = { Text(stringResource(R.string.unsaved_title)) },
+        text = { Text(stringResource(R.string.unsaved_message)) },
+        confirmButton = { TextButton(onClick = onStay) { Text(stringResource(R.string.unsaved_stay)) } },
+        dismissButton = {
+            TextButton(onClick = onDiscard) { Text(stringResource(R.string.unsaved_discard)) }
+            TextButton(onClick = onFreeSpace) { Text(stringResource(R.string.unsaved_free_space)) }
+        },
+    )
+}
+
+/** Opens the system's storage screen. Saving is tried again when the user comes back. */
+private fun openStorageSettings(context: Context) {
+    for (action in listOf(StorageManager.ACTION_MANAGE_STORAGE, Settings.ACTION_INTERNAL_STORAGE_SETTINGS, Settings.ACTION_SETTINGS)) {
+        try {
+            context.startActivity(Intent(action))
+            return
+        } catch (_: ActivityNotFoundException) {
+            // Some devices leave this screen out, so try the next one.
+        }
+    }
 }
 
 private fun EditorMessage.textRes(): Int =
     when (this) {
         EditorMessage.LAYER_LOCKED -> R.string.message_layer_locked
         EditorMessage.LOW_MEMORY -> R.string.message_low_memory
-        EditorMessage.CANNOT_OPEN -> R.string.message_cannot_open
         EditorMessage.SAVE_FAILED -> R.string.message_save_failed
         EditorMessage.RECOVERED_FROM_BACKUP -> R.string.message_recovered
         EditorMessage.MISSING_DRAWINGS -> R.string.message_missing_drawings
+        EditorMessage.DRAWING_NOT_LOADED -> R.string.message_drawing_not_loaded
+        EditorMessage.UNDO_STEPS_LOST -> R.string.message_undo_steps_lost
+        EditorMessage.SETTING_NOT_SAVED -> R.string.message_setting_not_saved
     }

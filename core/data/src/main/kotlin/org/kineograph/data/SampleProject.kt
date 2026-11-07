@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
+import org.kineograph.data.files.CelFileStore
 import org.kineograph.model.Background
 import org.kineograph.model.Cel
 import org.kineograph.model.CelKey
@@ -47,10 +48,24 @@ public object SampleProject {
             floatArrayOf(0.98f, 1.00f, 1.00f),
         )
 
-    /** Writes the sample's images through [repository] and saves it. [name] and [layerName] come from the app's translations. */
+    /**
+     * Writes the sample's images through [repository] and saves it. [name] and [layerName] come from the app's translations.
+     * A failure leaves nothing behind, so the next launch can simply try again.
+     */
     public suspend fun create(repository: ProjectRepository, name: String, layerName: String, now: Long): String {
         val projectId = newId()
         val store = repository.storeFor(projectId)
+        try {
+            repository.saveNew(buildProject(projectId, store, name, layerName, now), store)
+        } catch (problem: Throwable) {
+            store.close()
+            repository.deleteFiles(projectId)
+            throw problem
+        }
+        return projectId
+    }
+
+    private fun buildProject(projectId: String, store: CelFileStore, name: String, layerName: String, now: Long): Project {
         val layerId = newId()
         val frames = ArrayList<FrameSlot>(POSES.size)
         val cels = HashMap<CelKey, Cel>()
@@ -61,22 +76,19 @@ public object SampleProject {
             val (image, bounds) = drawBall(BALL_X_START + (BALL_X_END - BALL_X_START) * travel, pose[0], pose[1], pose[2])
             cels[CelKey(layerId, frameId)] = Cel(layerId, frameId, store.write(image), bounds)
         }
-        val project =
-            Project(
-                id = projectId,
-                name = name,
-                createdAt = now,
-                updatedAt = now,
-                width = WIDTH,
-                height = HEIGHT,
-                fps = FPS,
-                background = Background.Paper(PaperKind.OFF_WHITE),
-                layers = listOf(Layer(layerId, layerName)),
-                frames = frames,
-                cels = cels,
-            )
-        repository.saveNew(project, store)
-        return projectId
+        return Project(
+            id = projectId,
+            name = name,
+            createdAt = now,
+            updatedAt = now,
+            width = WIDTH,
+            height = HEIGHT,
+            fps = FPS,
+            background = Background.Paper(PaperKind.OFF_WHITE),
+            layers = listOf(Layer(layerId, layerName)),
+            frames = frames,
+            cels = cels,
+        )
     }
 
     private fun drawBall(centerX: Float, heightFraction: Float, stretchX: Float, stretchY: Float): Pair<Bitmap, IntRect> {

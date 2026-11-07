@@ -128,6 +128,72 @@ class FloodFillTest {
         assertTrue(mask.isSet(2, 2))
     }
 
+    /** Paints every pixel outside a five-pointed star black, so the star is a closed outline with sharp tips. */
+    private fun star(size: Int, outer: Double, inner: Double, rotation: Double): IntArray {
+        val center = size / 2.0
+        val xs = DoubleArray(10) { i ->
+            val radius = if (i % 2 == 0) outer else inner
+            center + radius * kotlin.math.cos(rotation + i * kotlin.math.PI / 5)
+        }
+        val ys = DoubleArray(10) { i ->
+            val radius = if (i % 2 == 0) outer else inner
+            center + radius * kotlin.math.sin(rotation + i * kotlin.math.PI / 5)
+        }
+        val pixels = blank(size, size)
+        for (y in 0 until size) {
+            for (x in 0 until size) {
+                var inside = false
+                var j = 9
+                for (i in 0 until 10) {
+                    val crosses = (ys[i] > y) != (ys[j] > y)
+                    if (crosses && x < (xs[j] - xs[i]) * (y - ys[i]) / (ys[j] - ys[i]) + xs[i]) inside = !inside
+                    j = i
+                }
+                if (!inside) pixels[y * size + x] = black
+            }
+        }
+        return pixels
+    }
+
+    @Test
+    fun `gap closing fills all the way into the sharp tips of a closed shape`() {
+        val size = 300
+        for (rotation in listOf(0.0, 0.3, 0.9, 1.4)) {
+            val pixels = star(size, outer = 140.0, inner = 55.0, rotation = rotation)
+            val plain = requireMask(FloodFill.computeMask(pixels, size, size, size / 2, size / 2, 0))
+            val closing = requireMask(FloodFill.computeMask(pixels, size, size, size / 2, size / 2, 0, gapClose = 4))
+            for (y in 0 until size) {
+                for (x in 0 until size) {
+                    if (plain.isSet(x, y)) assertTrue("rotation $rotation left a hole at $x,$y", closing.isSet(x, y))
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `filling corners does not leak into a thin ring behind a real gap`() {
+        // A box inside a box: the space between them is too thin to survive the thickening, and is reached through a gap.
+        val size = 200
+        val pixels = blank(size, size)
+        fun box(from: Int, to: Int, gapWidth: Int) {
+            for (i in from..to) {
+                for (t in 0 until 2) {
+                    val inGap = kotlin.math.abs(i - size / 2) < gapWidth / 2.0
+                    if (!inGap) pixels[(from + t) * size + i] = black
+                    pixels[(to - t) * size + i] = black
+                    pixels[i * size + from + t] = black
+                    pixels[i * size + to - t] = black
+                }
+            }
+        }
+        box(10, 189, 0)
+        box(20, 179, 4)
+        val inner = requireMask(FloodFill.computeMask(pixels, size, size, 100, 100, 0, gapClose = 4))
+        assertTrue(inner.isSet(100, 100))
+        assertFalse("the ring behind the gap must stay empty", inner.isSet(15, 100))
+        assertFalse("the ring behind the gap must stay empty", inner.isSet(100, 185))
+    }
+
     @Test
     fun `gap closing works when the seed is in a space narrower than the closing distance`() {
         val size = 40

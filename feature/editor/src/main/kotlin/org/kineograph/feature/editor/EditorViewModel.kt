@@ -4,20 +4,22 @@ import android.content.ContentResolver
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import org.kineograph.data.AppSettings
 import org.kineograph.data.Autosaver
 import org.kineograph.data.ProjectRepository
@@ -34,6 +36,7 @@ import org.kineograph.media.export.ExportStatus
 import org.kineograph.model.Background
 import org.kineograph.model.PlaybackMode
 import java.io.File
+import java.io.IOException
 import java.util.UUID
 
 /** What the editor needs from the rest of the app. */
@@ -64,7 +67,16 @@ internal sealed interface EditorLoadState {
 }
 
 /** Short messages for the user. */
-internal enum class EditorMessage { LAYER_LOCKED, LOW_MEMORY, CANNOT_OPEN, SAVE_FAILED, RECOVERED_FROM_BACKUP, MISSING_DRAWINGS }
+internal enum class EditorMessage {
+    LAYER_LOCKED,
+    LOW_MEMORY,
+    SAVE_FAILED,
+    RECOVERED_FROM_BACKUP,
+    MISSING_DRAWINGS,
+    DRAWING_NOT_LOADED,
+    UNDO_STEPS_LOST,
+    SETTING_NOT_SAVED,
+}
 
 /** An export in progress or just finished, for the export dialog. */
 internal data class ExportUiState(val config: ExportConfig, val status: ExportStatus)
@@ -79,8 +91,21 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
     private val _tools = MutableStateFlow(ToolState())
     internal val tools: StateFlow<ToolState> get() = _tools
 
-    private val _messages = MutableSharedFlow<EditorMessage>(extraBufferCapacity = 8)
-    internal val messages: SharedFlow<EditorMessage> get() = _messages
+    /**
+     * Messages wait here until the screen collects them, which is only once the editor has opened, so the warnings
+     * from opening a project still arrive. Each is shown once: a window change does not repeat it. If this ever fills up
+     * it is the newest that are dropped, so a burst of low-memory messages cannot push out those warnings.
+     */
+    private val _messages = Channel<EditorMessage>(capacity = MESSAGE_BUFFER)
+    internal val messages: Flow<EditorMessage> = _messages.receiveAsFlow()
+
+    /** True while Back is waiting for the last save. */
+    private val _leaving = MutableStateFlow(false)
+    internal val leaving: StateFlow<Boolean> get() = _leaving
+
+    /** True when Back was refused because the last changes could not be saved, so the user has to choose what happens. */
+    private val _unsavedOnLeave = MutableStateFlow(false)
+    internal val unsavedOnLeave: StateFlow<Boolean> get() = _unsavedOnLeave
 
     private val _export = MutableStateFlow<ExportUiState?>(null)
     internal val export: StateFlow<ExportUiState?> get() = _export
@@ -90,6 +115,7 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
 
     private var exportId: UUID? = null
     private var exportWatcher: Job? = null
+    private var discardOnClose = false
 
     internal var playback: PlaybackController? = null
         private set
@@ -106,10 +132,16 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
             _load.value = if (dependencies.repository.needsNewerApp(projectId)) EditorLoadState.NeedsNewerApp else EditorLoadState.NotFound
             return
         }
-        if (opened.loaded.recoveredFromBackup) _messages.tryEmit(EditorMessage.RECOVERED_FROM_BACKUP)
-        if (opened.loaded.missingCels > 0) _messages.tryEmit(EditorMessage.MISSING_DRAWINGS)
+        if (opened.loaded.recoveredFromBackup) _messages.trySend(EditorMessage.RECOVERED_FROM_BACKUP)
+        if (opened.loaded.missingCels > 0) _messages.trySend(EditorMessage.MISSING_DRAWINGS)
 
-        val settings = dependencies.settings.settings.first()
+        val settings =
+            try {
+                dependencies.settings.settings.first()
+            } catch (e: CancellationException) {
+                opened.store.close()
+                throw e
+            }
         val project = opened.loaded.project
         _tools.value =
             ToolState(smoothing = settings.defaultSmoothing, simulateFingerPressure = settings.simulateFingerPressure)
@@ -117,21 +149,33 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
 
         val budget = dependencies.budget
         val session = DrawingSession(project, opened.store, budget, dependencies.spillDirectory(projectId))
+        viewModelScope.launch {
+            session.events.collect { event ->
+                _messages.trySend(
+                    when (event) {
+                        SessionEvent.LowMemory -> EditorMessage.LOW_MEMORY
+                        SessionEvent.CelNotLoaded -> EditorMessage.DRAWING_NOT_LOADED
+                        SessionEvent.LayerNotEditable -> EditorMessage.LAYER_LOCKED
+                        SessionEvent.UndoStepsLost -> EditorMessage.UNDO_STEPS_LOST
+                    },
+                )
+            }
+        }
+        // The screen should know from the start whether the canvas fitted in memory, rather than show a dead one first.
+        try {
+            session.awaitIdle()
+        } catch (e: CancellationException) {
+            // onCleared only cleans up what reached Ready.
+            session.close()
+            opened.store.close()
+            throw e
+        }
         val autosaver = Autosaver(session, dependencies.repository, opened.store, projectId)
         autosaver.start(viewModelScope)
         playback = PlaybackController(viewModelScope, opened.store, budget.playbackCacheBytes, budget.isLowRam)
         thumbnails = ThumbnailLoader(opened.store, THUMBNAIL_CACHE_BYTES)
-
         viewModelScope.launch {
-            session.events.collect { event ->
-                when (event) {
-                    SessionEvent.LowMemory -> _messages.tryEmit(EditorMessage.LOW_MEMORY)
-                    SessionEvent.CannotOpen -> _messages.tryEmit(EditorMessage.CANNOT_OPEN)
-                }
-            }
-        }
-        viewModelScope.launch {
-            autosaver.saveFailed.collect { failed -> if (failed) _messages.tryEmit(EditorMessage.SAVE_FAILED) }
+            autosaver.saveFailed.collect { failed -> if (failed) _messages.trySend(EditorMessage.SAVE_FAILED) }
         }
         _load.value = EditorLoadState.Ready(session, autosaver, opened.store, settings.lowLatencyDrawing)
     }
@@ -139,7 +183,9 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
     private val ready: EditorLoadState.Ready? get() = _load.value as? EditorLoadState.Ready
 
     internal fun setToolbarSide(side: ToolbarSide) {
-        viewModelScope.launch { dependencies.settings.setToolbarSide(side) }
+        viewModelScope.launch {
+            if (!dependencies.settings.setToolbarSide(side)) notify(EditorMessage.SETTING_NOT_SAVED)
+        }
     }
 
     internal fun updateTools(change: (ToolState) -> ToolState) {
@@ -151,13 +197,69 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
     }
 
     internal fun notify(message: EditorMessage) {
-        _messages.tryEmit(message)
+        _messages.trySend(message)
     }
 
-    /** Saves now, for example when the app goes to the background. */
+    /**
+     * Saves when the app goes to the background, waiting a moment for it, because the system may kill a stopped app
+     * at any time. The wait has a limit, and the save carries on regardless. It runs on the app's scope and needs nothing
+     * from the main thread, so blocking that thread here cannot hold it up, and it returns at once if nothing changed.
+     */
     internal fun saveBeforeBackground() {
         val state = ready ?: return
-        viewModelScope.launch { withContext(NonCancellable) { state.autosaver.saveNow(commitSelection = true) } }
+        val save = dependencies.appScope.launch { state.autosaver.saveNow(commitSelection = true) }
+        runBlocking { withTimeoutOrNull(STOP_SAVE_WAIT_MS) { save.join() } }
+    }
+
+    /** Saving is otherwise only tried again after the next change, but coming back may well mean space was freed. */
+    internal fun retryFailedSave() {
+        val state = ready ?: return
+        if (!state.autosaver.saveFailed.value) return
+        viewModelScope.launch {
+            if (state.autosaver.saveNow()) _unsavedOnLeave.value = false
+        }
+    }
+
+    /**
+     * Back goes through here, so the screen only closes once everything has reached the disk. If it cannot, the user
+     * stays in the editor and is asked, because what could not be saved exists nowhere but in memory.
+     */
+    internal fun requestLeave(onLeft: () -> Unit) {
+        val state = ready
+        if (state == null) {
+            onLeft()
+            return
+        }
+        if (_leaving.value) return
+        _leaving.value = true
+        discardOnClose = false
+        viewModelScope.launch {
+            val saved = state.autosaver.saveNow(commitSelection = true)
+            _leaving.value = false
+            if (saved) onLeft() else _unsavedOnLeave.value = true
+        }
+    }
+
+    internal fun stayAfterFailedSave() {
+        _unsavedOnLeave.value = false
+    }
+
+    /** The user chose to give up what could not be saved. The last save on disk is what the project goes back to. */
+    internal fun discardAndLeave(onLeft: () -> Unit) {
+        _unsavedOnLeave.value = false
+        discardOnClose = true
+        onLeft()
+    }
+
+    /** Tries again to open a canvas that did not fit in memory, at a size the user chose if they did. */
+    internal fun retryOpen(width: Int? = null, height: Int? = null) {
+        val state = ready ?: return
+        if (width != null && height != null) {
+            state.session.retryOpen(width, height)
+            _tools.update { it.scaledForCanvas(width, height) }
+        } else {
+            state.session.retryOpen()
+        }
     }
 
     internal fun startPlayback(renderer: CanvasRenderer, displayScale: Float) {
@@ -165,9 +267,15 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
         val controller = playback ?: return
         viewModelScope.launch {
             // Frames are drawn from what is saved, so anything pending has to get there first.
-            state.session.snapshot(commitSelection = true)
+            val project =
+                try {
+                    state.session.snapshot(commitSelection = true)
+                    state.session.snapshot()
+                } catch (_: IOException) {
+                    // Only running out of memory does this, and the session has already said so.
+                    return@launch
+                }
             val session = state.session.state.value
-            val project = state.session.snapshot()
             val start = project.frameIndex(session.frameId).coerceAtLeast(0)
             controller.start(project, start, project.settings.playbackMode, displayScale, renderer)
         }
@@ -210,7 +318,11 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
     internal fun startExport(config: ExportConfig) {
         val state = ready ?: return
         viewModelScope.launch {
-            state.autosaver.saveNow(commitSelection = true)
+            // An export reads what is saved, so it would otherwise quietly leave out the latest work.
+            if (!state.autosaver.saveNow(commitSelection = true)) {
+                notify(EditorMessage.SAVE_FAILED)
+                return@launch
+            }
             val id = dependencies.exportManager.start(config)
             exportId = id
             _export.value = ExportUiState(config, ExportStatus.Running(0f))
@@ -247,9 +359,12 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
             // This scope outlives the screen, so the last save still happens. The main thread must not wait for it.
             val job =
                 dependencies.appScope.launch {
-                    state.autosaver.finish()
-                    state.session.close()
-                    state.store.close()
+                    try {
+                        if (discardOnClose) state.autosaver.abandon() else state.autosaver.finish()
+                    } finally {
+                        state.session.close()
+                        state.store.close()
+                    }
                 }
             dependencies.repository.trackClosing(projectId, job)
         }
@@ -258,6 +373,8 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
 
     private companion object {
         const val THUMBNAIL_CACHE_BYTES = 16 * 1024 * 1024
+        const val MESSAGE_BUFFER = 16
+        const val STOP_SAVE_WAIT_MS = 2000L
         const val OPAQUE = 0xFF000000.toInt()
     }
 }

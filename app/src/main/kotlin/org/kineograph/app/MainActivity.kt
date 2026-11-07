@@ -10,6 +10,7 @@ import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -68,10 +69,12 @@ private fun KineographNavHost(app: KineographApp, settings: AppSettings, wideLay
             val state by model.state.collectAsStateWithLifecycle()
             val context = LocalContext.current
             val layerName = stringResource(R.string.default_layer_name)
+            LaunchedEffect(model) { app.startupNotices.collect(model::notify) }
             GalleryScreen(
                 state = state,
                 canEncode = PlatformEncoder::canEncodeAtDefaultRate,
                 previewSource = app.projectRepository,
+                messages = model.messages,
                 actions =
                     GalleryActions(
                         // A double tap must not open two editors on one project: the older would overwrite the newer's work.

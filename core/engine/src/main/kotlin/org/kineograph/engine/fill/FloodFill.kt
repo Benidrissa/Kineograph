@@ -43,6 +43,11 @@ internal class BitGrid(val width: Int, val height: Int) {
         words[index] = words[index] or (1L shl (x and 63))
     }
 
+    fun clear(x: Int, y: Int) {
+        val index = y * wordsPerRow + (x ushr 6)
+        words[index] = words[index] and (1L shl (x and 63)).inv()
+    }
+
     /** Sets every bit from [from] to [to], both inclusive, on row [rowStart] (a word offset). */
     fun setRange(rowStart: Int, from: Int, to: Int) {
         val firstWord = from ushr 6
@@ -222,6 +227,94 @@ public object FloodFill {
         }
         spanFill(clear, mask, start.first, start.second)
         grow(mask, open, radius)
+        fillCornerPockets(open, clear, mask, radius)
+    }
+
+    /**
+     * Growing back by the radius cannot reach the tip of a sharp corner, because the thickened walls close it off well before
+     * the point. What it leaves is a small pocket of open pixels touching the region, so those are filled too.
+     *
+     * Two limits keep this from leaking through the gap the thickening was there to close. A pocket holding a clear
+     * pixel is open space beyond a gap, and a large one is a thin space beyond a gap, or too long a channel to be a corner.
+     * Pockets are followed with 4-connectivity, because diagonal steps would cross a one-pixel diagonal line.
+     */
+    private fun fillCornerPockets(open: BitGrid, clear: BitGrid, mask: BitGrid, radius: Int) {
+        val bounds = mask.bounds()
+        if (bounds.isEmpty) return
+        val perRow = mask.wordsPerRow
+        val width = mask.width
+        val height = mask.height
+        val words = mask.words
+        // Rejected pockets stay marked, so a large one is only ever walked once, however long its border with the region is.
+        val rejected = BitGrid(width, height)
+        val seen = BitGrid(width, height)
+        val pocket = IntArray(POCKET_AREA_PER_RADIUS_SQUARED * radius * radius)
+        for (y in maxOf(0, bounds.top - 1)..minOf(height - 1, bounds.bottom)) {
+            val row = y * perRow
+            for (w in 0 until perRow) {
+                val here = words[row + w]
+                val fromLeft = if (w > 0) words[row + w - 1] ushr 63 else 0L
+                val fromRight = if (w < perRow - 1) words[row + w + 1] shl 63 else 0L
+                val fromAbove = if (y > 0) words[row - perRow + w] else 0L
+                val fromBelow = if (y < height - 1) words[row + perRow + w] else 0L
+                val touching = (here shl 1) or (here ushr 1) or fromLeft or fromRight or fromAbove or fromBelow
+                var candidates = open.words[row + w] and here.inv() and rejected.words[row + w].inv() and touching
+                while (candidates != 0L) {
+                    val x = (w shl 6) + numberOfTrailingZeros(candidates)
+                    candidates = candidates and (candidates - 1)
+                    if (mask.get(x, y) || rejected.get(x, y)) continue
+                    val size = walkPocket(open, clear, mask, rejected, seen, x, y, pocket)
+                    for (i in 0 until size) mask.set(pocket[i] % width, pocket[i] / width)
+                }
+            }
+        }
+    }
+
+    /**
+     * Collects the pocket around a pixel into [pocket], as `y * width + x`, and returns how many pixels it has. Returns
+     * 0 as soon as it finds the pocket must not be filled, and marks everything it visited as [rejected].
+     */
+    private fun walkPocket(
+        open: BitGrid,
+        clear: BitGrid,
+        mask: BitGrid,
+        rejected: BitGrid,
+        seen: BitGrid,
+        startX: Int,
+        startY: Int,
+        pocket: IntArray,
+    ): Int {
+        val width = open.width
+        val height = open.height
+        pocket[0] = startY * width + startX
+        seen.set(startX, startY)
+        var size = 1
+        var next = 0
+        var refused = clear.get(startX, startY)
+        while (next < size && !refused) {
+            val index = pocket[next++]
+            val x = index % width
+            val y = index / width
+            for (direction in POCKET_STEPS_X.indices) {
+                val nx = x + POCKET_STEPS_X[direction]
+                val ny = y + POCKET_STEPS_Y[direction]
+                if (nx !in 0 until width || ny !in 0 until height) continue
+                if (!open.get(nx, ny) || mask.get(nx, ny) || seen.get(nx, ny)) continue
+                if (rejected.get(nx, ny) || clear.get(nx, ny) || size == pocket.size) {
+                    refused = true
+                    break
+                }
+                seen.set(nx, ny)
+                pocket[size++] = ny * width + nx
+            }
+        }
+        for (i in 0 until size) {
+            val x = pocket[i] % width
+            val y = pocket[i] / width
+            seen.clear(x, y)
+            if (refused) rejected.set(x, y)
+        }
+        return if (refused) 0 else size
     }
 
     /** Returns the open pixels that are more than [radius] steps from any wall, counting diagonals as one step. */
@@ -481,4 +574,9 @@ public object FloodFill {
     }
 
     private const val MAX_GAP = 100
+
+    /** The largest corner pocket is this many times the gap radius squared. A 25 degree tip fits, and so does anything wider. */
+    private const val POCKET_AREA_PER_RADIUS_SQUARED = 8
+    private val POCKET_STEPS_X = intArrayOf(-1, 1, 0, 0)
+    private val POCKET_STEPS_Y = intArrayOf(0, 0, -1, 1)
 }

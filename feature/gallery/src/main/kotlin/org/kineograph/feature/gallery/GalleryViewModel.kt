@@ -1,13 +1,18 @@
 package org.kineograph.feature.gallery
 
 import android.content.ContentResolver
+import android.database.SQLException
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -15,6 +20,22 @@ import org.kineograph.data.ProjectRepository
 import org.kineograph.data.ProjectSummary
 import org.kineograph.model.Background
 import org.kineograph.model.newId
+import java.io.IOException
+
+/** Short messages for the user. */
+public enum class GalleryMessage {
+    /** A change could not be saved, which nearly always means the storage is full. */
+    STORAGE_PROBLEM,
+
+    /** The app could not finish setting itself up when it started. */
+    STARTUP_PROBLEM,
+
+    /** The settings file was damaged, so the settings went back to their defaults. */
+    SETTINGS_RESET,
+
+    /** The project list could not be read. */
+    INDEX_PROBLEM,
+}
 
 public enum class GallerySort { DATE, NAME }
 
@@ -45,10 +66,35 @@ public data class NewProjectRequest(
 public class GalleryViewModel(private val repository: ProjectRepository) : ViewModel() {
     private val controls = MutableStateFlow(Controls())
 
+    /** Messages wait here until the screen collects them. Each is shown once. */
+    private val _messages = Channel<GalleryMessage>(capacity = MESSAGE_BUFFER)
+    public val messages: Flow<GalleryMessage> = _messages.receiveAsFlow()
+
     public val state: StateFlow<GalleryUiState> =
         combine(repository.projects, repository.totalSizeBytes, controls) { projects, size, control ->
             buildState(projects, size, control)
+        }.catch { problem ->
+            // The files are all still there, and the next launch rebuilds the index from them. Until then, say so and stay up.
+            if (problem !is SQLException && problem !is IOException) throw problem
+            notify(GalleryMessage.INDEX_PROBLEM)
+            emit(GalleryUiState(isLoaded = true))
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), GalleryUiState())
+
+    /** Shows a message, including ones from outside the gallery such as start-up problems. */
+    public fun notify(message: GalleryMessage) {
+        _messages.trySend(message)
+    }
+
+    /** Runs a change to stored projects. A full disk must only ever cost the user that change, with a message saying so. */
+    private fun launchChange(change: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                change()
+            } catch (_: IOException) {
+                notify(GalleryMessage.STORAGE_PROBLEM)
+            }
+        }
+    }
 
     public fun setQuery(query: String) {
         controls.update { it.copy(query = query) }
@@ -64,7 +110,7 @@ public class GalleryViewModel(private val repository: ProjectRepository) : ViewM
 
     /** Creates a project and reports its id. */
     public fun create(request: NewProjectRequest, layerName: String, resolver: ContentResolver, onCreated: (String) -> Unit) {
-        viewModelScope.launch {
+        launchChange {
             val id = newId()
             var background = request.background
             val uri = request.backgroundUri
@@ -77,23 +123,25 @@ public class GalleryViewModel(private val repository: ProjectRepository) : ViewM
     }
 
     public fun rename(id: String, name: String) {
-        viewModelScope.launch { repository.rename(id, name) }
+        launchChange { repository.rename(id, name) }
     }
 
     public fun duplicate(id: String, newName: String) {
-        viewModelScope.launch { repository.duplicate(id, newName) }
+        viewModelScope.launch {
+            if (repository.duplicate(id, newName) == null) notify(GalleryMessage.STORAGE_PROBLEM)
+        }
     }
 
     public fun moveToTrash(id: String) {
-        viewModelScope.launch { repository.moveToTrash(id) }
+        launchChange { repository.moveToTrash(id) }
     }
 
     public fun restore(id: String) {
-        viewModelScope.launch { repository.restoreFromTrash(id) }
+        launchChange { repository.restoreFromTrash(id) }
     }
 
     public fun deletePermanently(id: String) {
-        viewModelScope.launch { repository.deletePermanently(id) }
+        launchChange { repository.deletePermanently(id) }
     }
 
     private data class Controls(
@@ -104,6 +152,7 @@ public class GalleryViewModel(private val repository: ProjectRepository) : ViewM
 
     internal companion object {
         private const val STOP_TIMEOUT_MS = 5000L
+        private const val MESSAGE_BUFFER = 8
         private const val RECENT_COUNT = 4
 
         private fun buildState(projects: List<ProjectSummary>, size: Long, control: Controls): GalleryUiState {

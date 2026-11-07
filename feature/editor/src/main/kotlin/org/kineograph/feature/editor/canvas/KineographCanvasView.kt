@@ -128,6 +128,8 @@ internal class KineographCanvasView(
     }
 
     override fun onDetachedFromWindow() {
+        // A touch that never got its ending would leave the session waiting for the stroke, ignoring everything else.
+        onCancel()
         session.sceneListener = null
         renderer?.release()
         renderer = null

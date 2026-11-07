@@ -14,8 +14,14 @@ internal object AtomicFile {
     fun write(target: File, bytes: ByteArray) {
         target.parentFile?.mkdirs()
         val temporary = File(target.parentFile, ".${target.name}.tmp")
-        writeDurably(temporary, bytes)
-        move(temporary, target)
+        try {
+            writeDurably(temporary, bytes)
+            move(temporary, target)
+        } catch (e: IOException) {
+            // A half-written leftover would hold on to the very space a full disk is short of.
+            temporary.delete()
+            throw e
+        }
     }
 
     /** Writes [bytes] to [file] and only returns once the system has flushed them to storage. */

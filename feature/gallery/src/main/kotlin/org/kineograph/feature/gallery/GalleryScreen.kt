@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -66,6 +67,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.kineograph.data.ProjectRepository
@@ -86,9 +89,14 @@ public fun GalleryScreen(
     canEncode: (Int, Int) -> Boolean,
     actions: GalleryActions,
     previewSource: ProjectRepository? = null,
+    messages: Flow<GalleryMessage> = emptyFlow(),
 ) {
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val messageContext = LocalContext.current
+    LaunchedEffect(messages) {
+        messages.collect { message -> snackbar.showSnackbar(messageContext.getString(message.textRes()), withDismissAction = true) }
+    }
     var showNewProject by remember { mutableStateOf(false) }
     var searching by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<ProjectSummary?>(null) }
@@ -223,6 +231,14 @@ public fun GalleryScreen(
         )
     }
 }
+
+private fun GalleryMessage.textRes(): Int =
+    when (this) {
+        GalleryMessage.STORAGE_PROBLEM -> R.string.message_storage_problem
+        GalleryMessage.STARTUP_PROBLEM -> R.string.message_startup_problem
+        GalleryMessage.SETTINGS_RESET -> R.string.message_settings_reset
+        GalleryMessage.INDEX_PROBLEM -> R.string.message_index_problem
+    }
 
 /** What the gallery can ask the rest of the app to do. */
 public class GalleryActions(

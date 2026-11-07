@@ -33,7 +33,9 @@ Robolectric's native graphics mode, which is real Skia.
 
 `DrawingSession`'s public methods only queue work on the engine thread. Commands therefore run in exactly the order they
 arrive, which removes a whole class of races: a stroke that starts right after a frame change lands on the new frame,
-whatever is still loading. The UI observes results through `StateFlow`.
+whatever is still loading. While a stroke is under way, navigation and structure edits are ignored, so it ends on the
+frame and layer it began on. The UI observes results through `StateFlow`, and messages for the user wait in a channel until
+something collects them, so those from opening a project are not missed.
 
 ## Rendering pipeline
 
@@ -80,8 +82,11 @@ thread always sees a consistent set of layers.
 - **Pixel undo** stores only the changed rectangle. Patches start raw, are deflated in the background, and spill to disk
   when the memory budget is reached. At least 100 steps are always kept, even when budgets are exceeded.
 - **Playback** decodes ahead of the playhead at display resolution into `HARDWARE` bitmaps, off the Java heap.
-- **`OutOfMemoryError`** is caught on the engine thread: caches empty, history spills to disk, and the user is told.
-  Opening a canvas retries without the margin before giving up with an explanation.
+- **`OutOfMemoryError`** is caught on the engine thread and in background work: caches empty, history spills to disk, and
+  the user is told. Pixels stay marked as unsaved until the project holds their new file, so the next attempt starts over.
+  A surface whose load failed counts as holding nothing: it is neither shown nor saved, and edits are refused until a load
+  works, so no stroke can land on the wrong drawing. Opening a canvas retries without the margin. If it still does not fit,
+  the user can try again or choose a smaller canvas.
 
 ## Saving
 
@@ -96,6 +101,16 @@ exactly. On open, the newest readable manifest wins. See [file-format.md](file-f
 
 Room is only an index for fast gallery listing. The manifests are the truth, and `ProjectRepository.reconcile` can rebuild
 the index from them.
+
+A sweep deletes cel files nothing needs any more. It keeps whatever the session, its undo history or any manifest on disk
+refers to, deletes nothing if a manifest cannot be read, and never runs after a failed save.
+
+A save that fails, usually on a full disk, leaves the last good revision on disk and the newer work in memory. Memory cannot
+outlive the process, so the editor shows "Not saved" for as long as that lasts. Back saves first and, if that fails, asks the
+user instead of leaving. Trying again happens after the next change and whenever the app returns to the foreground.
+
+A duplicate is put together in `projects-staging/` with a manifest of its own, and appears in `projects/` in one rename, so
+a process death can never leave something there that looks like a project or claims to be another one.
 
 ## Export pipeline
 

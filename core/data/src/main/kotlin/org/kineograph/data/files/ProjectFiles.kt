@@ -21,6 +21,21 @@ public class ProjectFiles(private val root: File, private val cacheRoot: File) {
         ?.map { it.name }
         .orEmpty()
 
+    /**
+     * Where a copy of a project is put together. It is on the same volume as the projects, so the finished copy can appear
+     * among them in one rename, and outside them, so a half-made copy is never mistaken for a project.
+     */
+    public fun stagingDirectory(projectId: String): File = File(stagingRoot, safeName(projectId))
+
+    /** Copies being put together, or left behind by a process that died while making one. */
+    public fun listStagingIds(): List<String> = stagingRoot
+        .listFiles()
+        ?.filter { it.isDirectory }
+        ?.map { it.name }
+        .orEmpty()
+
+    private val stagingRoot: File get() = File(root.absoluteFile.parentFile, "${root.name}-staging")
+
     /** The total size of a project's files in bytes. */
     public fun sizeOf(projectId: String): Long = projectDirectory(projectId).walkTopDown().filter { it.isFile }.sumOf { it.length() }
 

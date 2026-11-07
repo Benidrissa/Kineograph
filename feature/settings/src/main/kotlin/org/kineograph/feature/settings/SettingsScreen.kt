@@ -19,6 +19,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -50,7 +52,15 @@ import kotlin.math.roundToInt
 @Composable
 public fun SettingsScreen(settings: AppSettings, repository: SettingsRepository, onBack: () -> Unit, onOpenAbout: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val snackbar = remember { SnackbarHostState() }
+    val notSaved = stringResource(R.string.settings_not_saved)
+
+    /** A full disk can stop a setting from being saved, and the user should not have to find that out next time. */
+    fun save(change: suspend () -> Boolean) {
+        scope.launch { if (!change()) snackbar.showSnackbar(notSaved) }
+    }
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.settings_title)) },
@@ -72,21 +82,19 @@ public fun SettingsScreen(settings: AppSettings, repository: SettingsRepository,
                 ThemeChip(
                     R.string.settings_theme_system,
                     settings.theme == ThemeMode.SYSTEM,
-                ) { scope.launch { repository.setTheme(ThemeMode.SYSTEM) } }
+                ) { save { repository.setTheme(ThemeMode.SYSTEM) } }
                 ThemeChip(
                     R.string.settings_theme_light,
                     settings.theme == ThemeMode.LIGHT,
-                ) { scope.launch { repository.setTheme(ThemeMode.LIGHT) } }
+                ) { save { repository.setTheme(ThemeMode.LIGHT) } }
                 ThemeChip(
                     R.string.settings_theme_dark,
                     settings.theme == ThemeMode.DARK,
-                ) { scope.launch { repository.setTheme(ThemeMode.DARK) } }
+                ) { save { repository.setTheme(ThemeMode.DARK) } }
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 SwitchRow(stringResource(R.string.settings_dynamic_color), settings.dynamicColor) { value ->
-                    scope.launch {
-                        repository.setDynamicColor(value)
-                    }
+                    save { repository.setDynamicColor(value) }
                 }
             }
             HorizontalDivider()
@@ -95,10 +103,10 @@ public fun SettingsScreen(settings: AppSettings, repository: SettingsRepository,
             Text(stringResource(R.string.settings_toolbar_side))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ThemeChip(R.string.settings_side_left, settings.toolbarSide == ToolbarSide.LEFT) {
-                    scope.launch { repository.setToolbarSide(ToolbarSide.LEFT) }
+                    save { repository.setToolbarSide(ToolbarSide.LEFT) }
                 }
                 ThemeChip(R.string.settings_side_right, settings.toolbarSide == ToolbarSide.RIGHT) {
-                    scope.launch { repository.setToolbarSide(ToolbarSide.RIGHT) }
+                    save { repository.setToolbarSide(ToolbarSide.RIGHT) }
                 }
             }
             Text(
@@ -107,13 +115,11 @@ public fun SettingsScreen(settings: AppSettings, repository: SettingsRepository,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             SwitchRow(stringResource(R.string.settings_finger_pressure), settings.simulateFingerPressure) { value ->
-                scope.launch { repository.setSimulateFingerPressure(value) }
+                save { repository.setSimulateFingerPressure(value) }
             }
-            SmoothingRow(settings.defaultSmoothing) { value -> scope.launch { repository.setDefaultSmoothing(value) } }
+            SmoothingRow(settings.defaultSmoothing) { value -> save { repository.setDefaultSmoothing(value) } }
             SwitchRow(stringResource(R.string.settings_low_latency), settings.lowLatencyDrawing) { value ->
-                scope.launch {
-                    repository.setLowLatencyDrawing(value)
-                }
+                save { repository.setLowLatencyDrawing(value) }
             }
             Text(
                 stringResource(R.string.settings_low_latency_help),

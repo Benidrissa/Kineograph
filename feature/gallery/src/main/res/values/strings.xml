@@ -16,6 +16,10 @@
     <string name="gallery_no_results">Nothing matches your search.</string>
     <string name="gallery_storage">Projects use %1$s</string>
     <string name="gallery_moved_to_trash">Moved to trash</string>
+    <string name="message_storage_problem">That could not be saved. Your storage may be full.</string>
+    <string name="message_startup_problem">Kineograph could not finish getting ready because storage is full or unavailable. Your projects are safe. Free up some space and open the app again.</string>
+    <string name="message_settings_reset">Your settings file was damaged, so settings went back to their defaults. Your projects were not affected.</string>
+    <string name="message_index_problem">The list of projects could not be read. Your projects are safe. Free up some space and open the app again.</string>
     <string name="gallery_card_description">Open %1$s, %2$s, %3$s, %4$d frames per second</string>
     <string name="gallery_card_menu">More actions for %1$s</string>
     <string name="gallery_delete_title">Delete for good?</string>

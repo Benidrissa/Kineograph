@@ -79,14 +79,14 @@ class HistoryTest {
     fun `a payload reads back the same in every state`() {
         val pixels = noise(1000)
         val payload = PatchPayload(pixels.copyOf())
-        assertArrayEquals(pixels, payload.read())
+        assertArrayEquals(pixels, payload.readOrNull())
         payload.compress()
         assertTrue(payload.isCompressed)
-        assertArrayEquals(pixels, payload.read())
+        assertArrayEquals(pixels, payload.readOrNull())
         assertTrue(payload.spillTo(temp.newFile()))
         assertTrue(payload.isSpilled)
         assertEquals(0L, payload.memoryBytes)
-        assertArrayEquals(pixels, payload.read())
+        assertArrayEquals(pixels, payload.readOrNull())
     }
 
     @Test
@@ -94,7 +94,7 @@ class HistoryTest {
         val pixels = noise(100)
         val payload = PatchPayload(pixels.copyOf())
         assertTrue(payload.spillTo(temp.newFile()))
-        assertArrayEquals(pixels, payload.read())
+        assertArrayEquals(pixels, payload.readOrNull())
     }
 
     @Test
@@ -106,7 +106,7 @@ class HistoryTest {
         payload.replace(replacement.copyOf())
         assertFalse(file.exists())
         assertFalse(payload.isSpilled)
-        assertArrayEquals(replacement, payload.read())
+        assertArrayEquals(replacement, payload.readOrNull())
     }
 
     @Test
@@ -116,7 +116,7 @@ class HistoryTest {
         val payload = PatchPayload(pixels.copyOf())
         assertFalse(payload.spillTo(folder))
         assertFalse(payload.isSpilled)
-        assertArrayEquals(pixels, payload.read())
+        assertArrayEquals(pixels, payload.readOrNull())
     }
 
     @Test
@@ -164,7 +164,7 @@ class HistoryTest {
         assertEquals(51, history.undoDepth)
         assertTrue(history.memoryBytes <= 100_000)
         assertTrue(firstEntry.payload.isSpilled)
-        assertArrayEquals(first, firstEntry.payload.read())
+        assertArrayEquals(first, firstEntry.payload.readOrNull())
     }
 
     @Test
@@ -199,6 +199,77 @@ class HistoryTest {
         val cursor = HistoryCursor("f", "l")
         history.push(StructureEntry(project("old.webp"), project("new.webp"), cursor, cursor))
         assertEquals(setOf("old.webp", "new.webp"), history.referencedFiles())
+    }
+
+    @Test
+    fun `a large patch survives compression through the small scratch buffer`() {
+        val pixels = noise(100_000)
+        assertArrayEquals(pixels, PatchCodec.decompress(PatchCodec.compress(pixels), pixels.size))
+    }
+
+    @Test
+    fun `a spilled patch whose file was deleted reads as gone rather than throwing`() {
+        val file = temp.newFile()
+        val payload = PatchPayload(noise(100))
+        assertTrue(payload.spillTo(file))
+        assertTrue(file.delete())
+        assertNull(payload.readOrNull())
+    }
+
+    @Test
+    fun `a spilled patch whose file is damaged reads as gone rather than as garbage`() {
+        val file = temp.newFile()
+        val payload = PatchPayload(noise(100))
+        assertTrue(payload.spillTo(file))
+        file.writeBytes(byteArrayOf(-1, -1, -1, -1, -1, -1))
+        assertNull(payload.readOrNull())
+    }
+
+    @Test
+    fun `a spilled patch whose file was cut short reads as gone rather than as transparent pixels`() {
+        val file = temp.newFile()
+        val payload = PatchPayload(noise(1000))
+        assertTrue(payload.spillTo(file))
+        file.writeBytes(file.readBytes().copyOf(50))
+        assertNull(payload.readOrNull())
+    }
+
+    @Test
+    fun `peeking leaves the stacks alone`() {
+        val history = history()
+        val entry = pixelEntry(noise(4))
+        history.push(entry)
+        assertSame(entry, history.peekUndo())
+        assertEquals(1, history.undoDepth)
+        assertNull(history.peekRedo())
+        history.popUndo()
+        assertSame(entry, history.peekRedo())
+        assertEquals(1, history.redoDepth)
+    }
+
+    @Test
+    fun `losing an undo step forgets what is older and keeps what can be redone`() {
+        val history = history()
+        val redoable = pixelEntry(noise(4, seed = 3))
+        history.push(pixelEntry(noise(4, seed = 1)))
+        history.push(pixelEntry(noise(4, seed = 2)))
+        history.push(redoable)
+        history.popUndo()
+        history.discardUndoSteps()
+        assertFalse(history.canUndo)
+        assertSame(redoable, history.peekRedo())
+    }
+
+    @Test
+    fun `losing a redo step keeps what can be undone`() {
+        val history = history()
+        val undoable = pixelEntry(noise(4, seed = 1))
+        history.push(undoable)
+        history.push(pixelEntry(noise(4, seed = 2)))
+        history.popUndo()
+        history.discardRedoSteps()
+        assertFalse(history.canRedo)
+        assertSame(undoable, history.peekUndo())
     }
 
     @Test

@@ -68,6 +68,10 @@ public class CelFileStore(
                 } catch (_: IOException) {
                     // Most likely the disk is full. The image stays in memory and awaitWrites will report it.
                     failed[name] = image
+                } catch (_: OutOfMemoryError) {
+                    // Same outcome: the image is kept and tried again later, now with the cache out of the way.
+                    cache.evictAll()
+                    failed[name] = image
                 } finally {
                     jobs.remove(name)
                     queueSlots.release()

@@ -16,11 +16,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.kineograph.engine.brush.BoundsAccumulator
@@ -55,9 +56,11 @@ import org.kineograph.model.ProjectSettings
 import org.kineograph.model.newId
 import org.kineograph.model.planOnionSkin
 import java.io.File
+import java.io.IOException
 import java.util.Collections
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import kotlin.math.max
 import kotlin.math.min
 
@@ -75,6 +78,8 @@ public data class SessionState(
     val selection: SelectionTransform? = null,
     val hasFrameClipboard: Boolean = false,
     val busy: Boolean = false,
+    /** There was not enough memory to open this canvas, so nothing can be drawn until [DrawingSession.retryOpen] succeeds. */
+    val openFailed: Boolean = false,
 ) {
     /** A stroke can only go on a layer that is visible and unlocked. */
     val canDrawOnActiveLayer: Boolean
@@ -86,8 +91,14 @@ public sealed interface SessionEvent {
     /** Memory ran out. Caches were emptied and the app carried on. */
     public data object LowMemory : SessionEvent
 
-    /** Not enough memory even to open this canvas. */
-    public data object CannotOpen : SessionEvent
+    /** The drawing at the current position could not be read, so editing it is refused rather than replacing it. */
+    public data object CelNotLoaded : SessionEvent
+
+    /** Clearing left a layer alone because it is hidden or locked. */
+    public data object LayerNotEditable : SessionEvent
+
+    /** A step saved to the cache directory has gone, so undo or redo cannot go back any further. */
+    public data object UndoStepsLost : SessionEvent
 }
 
 /**
@@ -106,6 +117,10 @@ public class DrawingSession(
     private val store: CelStore,
     private val budget: MemoryBudget,
     private val spillDirectory: File,
+    /** Makes the full-size surfaces. Tests replace it to run out of memory on demand. */
+    private val allocateSurface: (width: Int, height: Int) -> Bitmap = { width, height ->
+        Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    },
 ) {
     private val executor: ExecutorService =
         Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "kg-engine").apply { priority = Thread.NORM_PRIORITY + 1 } }
@@ -128,8 +143,10 @@ public class DrawingSession(
         )
     public val state: StateFlow<SessionState> get() = _state
 
-    private val _events = MutableSharedFlow<SessionEvent>(extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-    public val events: SharedFlow<SessionEvent> get() = _events
+    private val _events = Channel<SessionEvent>(capacity = EVENT_BUFFER, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /** Things to tell the user. They wait here until collected, so nothing that happens while opening is missed. Collect it once. */
+    public val events: Flow<SessionEvent> = _events.receiveAsFlow()
 
     /** The latest thing to draw. Null until the project has loaded. */
     @Volatile
@@ -159,6 +176,7 @@ public class DrawingSession(
     private var revision = 0L
     private var ready = false
     private var busy = false
+    private var openFailed = false
     private var closed = false
 
     private var overscan = 0
@@ -169,6 +187,11 @@ public class DrawingSession(
     private var backgroundImage: Bitmap? = null
 
     private val liveCels = HashMap<String, LiveCel>()
+
+    /**
+     * Which cel the surface holds, or null if it holds nothing usable because a load failed. Pixels on the surface may
+     * only be edited or saved while this matches the current position: otherwise they would land on the wrong drawing.
+     */
     private var loadedKey: CelKey? = null
     private var loadedFile: String? = null
     private var activeDirty = false
@@ -181,10 +204,11 @@ public class DrawingSession(
     private var wet: WetDraw? = null
     private var floating: Floating? = null
     private var frameClipboard: FrameClipboard? = null
-    private var previewBase: Project? = null
+    private var opacityPreview: OpacityPreview? = null
 
     private var ghosts: List<GhostDraw> = emptyList()
     private var ghostJob: Job? = null
+    private var ghostGeneration = 0L
     private val ghostCache: MutableMap<String, Bitmap> =
         Collections.synchronizedMap(
             object : LinkedHashMap<String, Bitmap>(16, 0.75f, true) {
@@ -211,7 +235,8 @@ public class DrawingSession(
     /** Starts a stroke on the active layer. Stamps arrive through [addStamps]. */
     public fun beginStroke(spec: BrushSpec, colorArgb: Int) {
         post {
-            commitFloatingInternal()
+            commitFloatingAndPublish()
+            if (!ensureSurfaceLoaded()) return@post
             val buffer = strokeBuffer ?: return@post
             stroke = ActiveStroke(spec, colorArgb)
             if (spec.isEraser && wantsRevealImage) buildRevealImage()
@@ -268,7 +293,7 @@ public class DrawingSession(
         if (target == null || targetCanvas == null || buffer == null) return
         val rect = surfaceRectOf(current.bounds)
         if (!rect.isEmpty) {
-            val before = readPixels(target, rect)
+            val before = readPixelsForUndo(target, rect)
             commitPaint.alpha = (current.spec.opacity.coerceIn(0f, 1f) * 255f + 0.5f).toInt()
             commitPaint.xfermode = if (current.spec.isEraser) eraseMode else null
             val checkpoint = targetCanvas.save()
@@ -276,8 +301,8 @@ public class DrawingSession(
             targetCanvas.drawBitmap(buffer, 0f, 0f, commitPaint)
             targetCanvas.restoreToCount(checkpoint)
             clearStrokeBuffer(current)
-            recordPixelEdit(rect, before)
             if (!current.spec.isEraser) contentBounds = contentBounds.union(rect)
+            recordPixelEdit(rect, before)
         }
         publishScene(notify = false)
         publishState()
@@ -308,7 +333,8 @@ public class DrawingSession(
      */
     public fun fill(x: Int, y: Int, colorArgb: Int, tolerance: Int, gapClose: Int, sampleAllLayers: Boolean) {
         post {
-            commitFloatingInternal()
+            commitFloatingAndPublish()
+            if (!ensureSurfaceLoaded()) return@post
             val target = surface ?: return@post
             val width = project.width
             val height = project.height
@@ -336,8 +362,8 @@ public class DrawingSession(
             FloodFill.apply(pixels, width, mask, colorArgb, behind = !seedIsPaint)
             val offset = mask.bounds.top * width + mask.bounds.left
             target.setPixels(pixels, offset, width, rect.left, rect.top, rect.width, rect.height)
-            recordPixelEdit(rect, before)
             contentBounds = contentBounds.union(rect)
+            recordPixelEdit(rect, before)
             publishScene()
             publishState()
         }
@@ -365,10 +391,10 @@ public class DrawingSession(
     /** Lifts the pixels inside a closed outline off the active layer so they can be moved. [points] holds x, y pairs in canvas coordinates. */
     public fun liftSelection(points: FloatArray) {
         post {
-            commitFloatingInternal()
+            commitFloatingAndPublish()
+            if (points.size < MIN_LASSO_COORDINATES || !ensureSurfaceLoaded()) return@post
             val target = surface ?: return@post
             val targetCanvas = surfaceCanvas ?: return@post
-            if (points.size < MIN_LASSO_COORDINATES) return@post
             val outline = Path()
             outline.moveTo(points[0], points[1])
             var i = 2
@@ -451,12 +477,20 @@ public class DrawingSession(
         }
     }
 
+    /** For commands that may stop early: the screen must not be left showing a selection that has already been put down. */
+    private fun commitFloatingAndPublish() {
+        if (floating == null) return
+        commitFloatingInternal()
+        publishScene()
+        publishState()
+    }
+
     private fun commitFloatingInternal() {
         val current = floating ?: return
         val target = surface ?: return
         val targetCanvas = surfaceCanvas ?: return
-        floating = null
         if (current.transform.isIdentity) {
+            floating = null
             target.setPixels(
                 current.before,
                 0,
@@ -466,6 +500,7 @@ public class DrawingSession(
                 current.cutRect.width,
                 current.cutRect.height,
             )
+            requestSaveOfHeldPixels()
             return
         }
         val placed = current.transform
@@ -474,6 +509,7 @@ public class DrawingSession(
             .intersect(surfaceRect())
         val union = placed.union(current.cutRect)
 
+        // Everything that can run out of memory comes before the selection is let go, so a failure leaves it floating.
         // The patch must show the layer as it was before the lift, over the whole changed area.
         val before = readPixels(target, union)
         val cut = current.cutRect
@@ -486,14 +522,15 @@ public class DrawingSession(
         current.transform.toAffine().toMatrixValues(values)
         val matrix = Matrix().apply { setValues(values) }
         val source = current.transform.source
+        floating = null
         val checkpoint = targetCanvas.save()
         targetCanvas.translate(overscan.toFloat(), overscan.toFloat())
         targetCanvas.concat(matrix)
         targetCanvas.drawBitmap(current.bitmap, source.left.toFloat(), source.top.toFloat(), filterPaint)
         targetCanvas.restoreToCount(checkpoint)
 
-        recordPixelEdit(union, before)
         contentBounds = contentBounds.union(placed)
+        recordPixelEdit(union, before)
     }
 
     private fun cancelFloating() {
@@ -508,6 +545,16 @@ public class DrawingSession(
             current.cutRect.width,
             current.cutRect.height,
         )
+        requestSaveOfHeldPixels()
+    }
+
+    /**
+     * A save that runs while a selection floats leaves the surface out, because its pixels are incomplete, yet it counts
+     * the revision as saved. Ending the lift without an edit changes no revision by itself, so without this nothing would
+     * save those pixels until the next change.
+     */
+    private fun requestSaveOfHeldPixels() {
+        if (activeDirty) markChanged()
     }
 
     private fun isFullyTransparent(image: Bitmap): Boolean {
@@ -521,13 +568,23 @@ public class DrawingSession(
     public fun undo() {
         post {
             if (stroke != null) return@post
+            settleOpacityPreview()
             if (floating != null) {
                 cancelFloating()
             } else {
-                when (val entry = history.popUndo()) {
-                    is PixelEntry -> swapPixels(entry)
-                    is StructureEntry -> restoreStructure(entry.before, entry.cursorBefore)
-                    null -> Unit
+                when (val entry = history.peekUndo()) {
+                    is PixelEntry -> {
+                        applyPatch(entry, onApplied = { history.popUndo() }, onLost = history::discardUndoSteps)
+                    }
+
+                    is StructureEntry -> {
+                        restoreStructure(entry.before, entry.cursorBefore)
+                        history.popUndo()
+                    }
+
+                    null -> {
+                        Unit
+                    }
                 }
             }
             publishScene()
@@ -538,29 +595,72 @@ public class DrawingSession(
     public fun redo() {
         post {
             if (stroke != null || floating != null) return@post
-            when (val entry = history.popRedo()) {
-                is PixelEntry -> swapPixels(entry)
-                is StructureEntry -> restoreStructure(entry.after, entry.cursorAfter)
-                null -> Unit
+            settleOpacityPreview()
+            when (val entry = history.peekRedo()) {
+                is PixelEntry -> {
+                    applyPatch(entry, onApplied = { history.popRedo() }, onLost = history::discardRedoSteps)
+                }
+
+                is StructureEntry -> {
+                    restoreStructure(entry.after, entry.cursorAfter)
+                    history.popRedo()
+                }
+
+                null -> {
+                    Unit
+                }
             }
             publishScene()
             publishState()
         }
     }
 
-    /** Exchanges a patch with what is on the surface, so the same patch then serves the opposite direction. */
-    private fun swapPixels(entry: PixelEntry) {
+    /**
+     * Applies a pixel step. Only then does [onApplied] move it to the other stack, so a failure part-way leaves it to
+     * try again. If its patch has gone, [onLost] forgets the steps that depended on it. A step whose frame cannot be
+     * loaded right now just stays where it is.
+     */
+    private fun applyPatch(entry: PixelEntry, onApplied: () -> Unit, onLost: () -> Unit) {
+        when (swapPixels(entry)) {
+            PatchOutcome.APPLIED -> {
+                onApplied()
+                compressInBackground(entry.payload)
+            }
+
+            PatchOutcome.UNREADABLE -> {
+                onLost()
+                _events.trySend(SessionEvent.UndoStepsLost)
+            }
+
+            PatchOutcome.NOT_LOADED -> {
+                Unit
+            }
+        }
+    }
+
+    /**
+     * Exchanges a patch with what is on the surface, so the same patch then serves the opposite direction. The patch is
+     * read before anything moves, so one that has gone leaves the user where they are. A patch lying partly outside a
+     * surface with a smaller margin keeps those pixels for later: only the overlap is exchanged.
+     */
+    private fun swapPixels(entry: PixelEntry): PatchOutcome {
+        val stored = entry.payload.readOrNull() ?: return PatchOutcome.UNREADABLE
         moveCursor(entry.frameId, entry.layerId)
-        val target = surface ?: return
-        val rect = entry.rect
-        val current = readPixels(target, rect)
-        val stored = entry.payload.read()
-        target.setPixels(stored, 0, rect.width, rect.left, rect.top, rect.width, rect.height)
-        entry.payload.replace(current)
-        compressInBackground(entry.payload)
-        contentBounds = contentBounds.union(rect)
+        if (!isSurfaceLoaded()) return PatchOutcome.NOT_LOADED
+        val target = surface ?: return PatchOutcome.NOT_LOADED
+        val shift = overscan - entry.margin
+        val rect = entry.rect.translated(shift, shift)
+        val visible = rect.intersect(surfaceRect())
+        if (visible.isEmpty) return PatchOutcome.APPLIED
+        val swapped = if (visible == rect) IntArray(stored.size) else stored.copyOf()
+        val offset = (visible.top - rect.top) * rect.width + (visible.left - rect.left)
+        target.getPixels(swapped, offset, rect.width, visible.left, visible.top, visible.width, visible.height)
+        target.setPixels(stored, offset, rect.width, visible.left, visible.top, visible.width, visible.height)
+        entry.payload.replace(swapped)
+        contentBounds = contentBounds.union(visible)
         activeDirty = true
         markChanged()
+        return PatchOutcome.APPLIED
     }
 
     private fun restoreStructure(target: Project, cursor: HistoryCursor) {
@@ -583,51 +683,100 @@ public class DrawingSession(
         markChanged()
     }
 
-    private fun recordPixelEdit(rect: IntRect, before: IntArray) {
-        val payload = PatchPayload(before)
-        history.push(PixelEntry(layerId, frameId, rect, payload))
-        compressInBackground(payload)
+    /**
+     * Notes that the surface has changed, and adds an undo step if [before] holds what it replaced. The surface is marked
+     * as changed first, so a failure in the history bookkeeping cannot leave the pixels unsaved.
+     */
+    private fun recordPixelEdit(rect: IntRect, before: IntArray?) {
         activeDirty = true
         markChanged()
+        if (before == null) {
+            // Older steps would apply across a change they know nothing about.
+            history.clear()
+            return
+        }
+        val payload = PatchPayload(before)
+        history.push(PixelEntry(layerId, frameId, rect, payload, overscan))
+        compressInBackground(payload)
     }
+
+    /**
+     * What an edit is about to replace, or null if even after freeing memory that does not fit. The edit then goes
+     * ahead without an undo step, because keeping the drawing matters more than being able to undo it.
+     */
+    private fun readPixelsForUndo(image: Bitmap, rect: IntRect): IntArray? =
+        try {
+            readPixels(image, rect)
+        } catch (_: OutOfMemoryError) {
+            trimAfterOutOfMemory()
+            try {
+                readPixels(image, rect)
+            } catch (_: OutOfMemoryError) {
+                null
+            }
+        }
 
     private fun compressInBackground(payload: PatchPayload) {
         workers.launch {
-            payload.compress()
-            post { history.enforceBudgets() }
+            try {
+                payload.compress()
+                post { history.enforceBudgets() }
+            } catch (_: OutOfMemoryError) {
+                // The patch simply stays uncompressed, which is still a good patch.
+                post { trimAfterOutOfMemory() }
+            }
         }
     }
 
     // ----- Position -----
 
+    /** Goes to a frame. Tapping the current frame again retries if its drawing could not be loaded. Ignored during a stroke. */
     public fun selectFrame(id: String) {
         post {
-            if (id == frameId || project.frameIndex(id) < 0) return@post
+            if (stroke != null || project.frameIndex(id) < 0) return@post
+            if (id == frameId && isSurfaceLoaded()) return@post
             commitFloatingInternal()
             moveCursor(id, layerId)
-            scheduleGhosts()
             publishScene()
             publishState()
         }
     }
 
+    /** Goes to a layer. Tapping the current layer again retries if its drawing could not be loaded. Ignored during a stroke. */
     public fun selectLayer(id: String) {
         post {
-            if (id == layerId || project.layer(id) == null) return@post
+            if (stroke != null || project.layer(id) == null) return@post
+            if (id == layerId && isSurfaceLoaded()) return@post
             commitFloatingInternal()
             moveCursor(frameId, id)
-            scheduleGhosts()
             publishScene()
             publishState()
         }
     }
 
     private fun moveCursor(newFrameId: String, newLayerId: String) {
-        if (newFrameId == frameId && newLayerId == layerId) return
+        if (newFrameId == frameId && newLayerId == layerId && isSurfaceLoaded()) return
         flushActive()
         frameId = newFrameId
         layerId = newLayerId
+        matchSurfacesToCanvas()
         syncLive()
+        scheduleGhosts()
+    }
+
+    private fun isSurfaceLoaded(): Boolean = surface != null && loadedKey == CelKey(layerId, frameId)
+
+    /**
+     * Every edit of the surface asks this first. If an earlier load failed it tries again. If it returns false, the edit
+     * must be dropped, because the surface does not hold the drawing the edit is meant for.
+     */
+    private fun ensureSurfaceLoaded(): Boolean {
+        if (isSurfaceLoaded()) return true
+        matchSurfacesToCanvas()
+        syncLive(forceActive = true)
+        if (!isSurfaceLoaded()) return false
+        publishScene()
+        return true
     }
 
     // ----- Structure edits -----
@@ -655,6 +804,10 @@ public class DrawingSession(
 
     public fun deleteFrame(id: String) {
         structureEdit { p ->
+            // A project keeps at least one frame, so deleting the only one really clears it, and a clear respects locks.
+            if (p.frames.size == 1 && p.frames.first().id == id) {
+                return@structureEdit clearEditableLayers(p, id) to HistoryCursor(frameId, layerId)
+            }
             val index = p.frameIndex(id)
             val next = ProjectEdits.deleteFrame(p, id)
             val focus =
@@ -667,15 +820,40 @@ public class DrawingSession(
         }
     }
 
-    /** Empties a frame on every layer. */
+    /** Empties a frame, leaving out layers that are hidden or locked, and says so if that left a drawing in place. */
     public fun clearFrame(id: String) {
-        structureEdit { p -> ProjectEdits.clearFrame(p, id) to HistoryCursor(frameId, layerId) }
+        structureEdit { p -> clearEditableLayers(p, id) to HistoryCursor(frameId, layerId) }
     }
 
-    /** Empties the active layer on the current frame. */
+    /** Empties the active layer on the current frame, unless it is hidden or locked, in which case it says so instead. */
     public fun clearActiveCel() {
-        structureEdit { p -> ProjectEdits.clearFrame(p, frameId, layerId) to HistoryCursor(frameId, layerId) }
+        post {
+            if (stroke != null) return@post
+            // Decided here rather than from what the UI last saw, so a lock that is still queued counts, and a refused
+            // clear does not put down a floating selection.
+            if (project.layer(layerId)?.isEditable != true) {
+                _events.trySend(SessionEvent.LayerNotEditable)
+                return@post
+            }
+            settleOpacityPreview()
+            applyStructure { p -> ProjectEdits.clearFrame(p, frameId, layerId) to HistoryCursor(frameId, layerId) }
+        }
     }
+
+    private fun clearEditableLayers(source: Project, id: String): Project {
+        var result = source
+        var refused = false
+        for (layer in source.layers) {
+            when {
+                layer.isEditable -> result = ProjectEdits.clearFrame(result, id, layer.id)
+                source.cel(layer.id, id) != null -> refused = true
+            }
+        }
+        if (refused) _events.trySend(SessionEvent.LayerNotEditable)
+        return result
+    }
+
+    private val Layer.isEditable: Boolean get() = visible && !locked
 
     public fun moveFrame(fromIndex: Int, toIndex: Int) {
         structureEdit { p -> ProjectEdits.moveFrame(p, fromIndex, toIndex) to HistoryCursor(frameId, layerId) }
@@ -691,6 +869,7 @@ public class DrawingSession(
             commitFloatingInternal()
             flushActive()
             frameClipboard = ProjectEdits.copyFrames(project, ids, if (activeLayerOnly) layerId else null)
+            publishScene()
             publishState()
         }
     }
@@ -756,7 +935,10 @@ public class DrawingSession(
     /** Shows a new layer opacity immediately while a slider moves. It adds no undo step until [commitLayerOpacity]. */
     public fun previewLayerOpacity(id: String, opacity: Float) {
         post {
-            if (previewBase == null) previewBase = project
+            val layer = project.layer(id) ?: return@post
+            // As in settleOpacity, a preview of another layer ends here.
+            if (opacityPreview?.layerId != id) settleOpacityPreview()
+            if (opacityPreview == null) opacityPreview = OpacityPreview(id, layer.opacity)
             project = ProjectEdits.updateLayer(project, id) { it.copy(opacity = opacity.coerceIn(0f, 1f)) }
             publishScene()
             publishState()
@@ -765,24 +947,56 @@ public class DrawingSession(
 
     /** Ends an opacity change as a single undo step. */
     public fun commitLayerOpacity(id: String, opacity: Float) {
-        post {
-            val base = previewBase ?: project
-            previewBase = null
-            project = base
-            applyStructure { p ->
-                ProjectEdits.updateLayer(p, id) { it.copy(opacity = opacity.coerceIn(0f, 1f)) } to HistoryCursor(frameId, layerId)
-            }
-        }
+        post { settleOpacity(id, opacity) }
     }
 
     /**
-     * Merges a layer into the one below it, baking in both opacities so the result looks unchanged. This
-     * writes a new image for each affected frame and may take a moment, so [SessionState.busy] is set meanwhile.
+     * Ends a slider drag that never got to finish, because the sheet holding it closed. What the user last saw stays, as
+     * one undo step. Does nothing when no drag is in progress.
+     */
+    public fun endLayerOpacityPreview() {
+        post { settleOpacityPreview() }
+    }
+
+    /**
+     * A preview keeps only the opacity it replaced, never a whole earlier project: an autosave may flush new drawings into
+     * the project during a drag, and they must survive it.
+     */
+    private fun settleOpacity(id: String, opacity: Float) {
+        // A second finger can switch layers mid-drag. What the first layer shows by then counts as finished.
+        if (opacityPreview?.layerId != id) settleOpacityPreview()
+        val pending = opacityPreview
+        opacityPreview = null
+        if (pending != null) project = ProjectEdits.updateLayer(project, pending.layerId) { it.copy(opacity = pending.original) }
+        applyStructure { p ->
+            ProjectEdits.updateLayer(p, id) { it.copy(opacity = opacity.coerceIn(0f, 1f)) } to HistoryCursor(frameId, layerId)
+        }
+        if (pending != null) {
+            // Dragging back to where it started adds no undo step, but a save during the drag may hold the previewed value.
+            markChanged()
+            publishScene()
+            publishState()
+        }
+    }
+
+    /** Every other edit records the project as it stands, which must not include an opacity that is still only a preview. */
+    private fun settleOpacityPreview() {
+        val pending = opacityPreview ?: return
+        val shown = project.layer(pending.layerId)?.opacity
+        if (shown == null) opacityPreview = null else settleOpacity(pending.layerId, shown)
+    }
+
+    /**
+     * Merges a layer into the one below it, baking in both opacities so the result looks unchanged. This writes a new
+     * image for each affected frame and may take a moment, so [SessionState.busy] is set meanwhile. A hidden layer and a
+     * visible one cannot be merged, because the result would have to show art that was hidden or hide art that was shown.
      */
     public fun mergeLayerDown(id: String) {
         post {
+            if (stroke != null) return@post
+            settleOpacityPreview()
             val index = project.layers.indexOfFirst { it.id == id }
-            if (index <= 0) return@post
+            if (index <= 0 || project.layers[index].visible != project.layers[index - 1].visible) return@post
             busy = true
             publishState()
             try {
@@ -790,6 +1004,8 @@ public class DrawingSession(
                     val merged = mergeDown(p, index)
                     merged to HistoryCursor(frameId, p.layers[index - 1].id)
                 }
+            } catch (_: UnreadableCel) {
+                _events.trySend(SessionEvent.CelNotLoaded)
             } finally {
                 busy = false
                 publishState()
@@ -829,7 +1045,8 @@ public class DrawingSession(
     private fun drawCelInto(canvas: Canvas, cel: Cel?, opacity: Float) {
         val file = cel?.file ?: return
         val bounds = cel.bounds ?: return
-        val image = store.read(file) ?: return
+        // A merged cel replaces this one, so carrying on without it would throw the drawing away.
+        val image = store.read(file) ?: throw UnreadableCel()
         val paint = Paint().apply { alpha = (opacity.coerceIn(0f, 1f) * 255f + 0.5f).toInt() }
         canvas.drawBitmap(image, bounds.left.toFloat(), bounds.top.toFloat(), paint)
     }
@@ -838,17 +1055,29 @@ public class DrawingSession(
         structureEdit { p -> ProjectEdits.updateLayer(p, id, change) to HistoryCursor(frameId, layerId) }
     }
 
+    /** Runs an edit of the structure. Ignored during a stroke, which must land on the frame and layer it started on. */
     private fun structureEdit(edit: (Project) -> Pair<Project, HistoryCursor>) {
-        post { applyStructure(edit) }
+        post {
+            if (stroke != null) return@post
+            settleOpacityPreview()
+            applyStructure(edit)
+        }
     }
 
     private fun applyStructure(edit: (Project) -> Pair<Project, HistoryCursor>) {
+        val hadSelection = floating != null
         commitFloatingInternal()
         flushActive()
         val before = project
         val cursorBefore = HistoryCursor(frameId, layerId)
         val (after, cursorAfter) = edit(before)
-        if (after == before && cursorAfter == cursorBefore) return
+        if (after == before && cursorAfter == cursorBefore) {
+            if (hadSelection) {
+                publishScene()
+                publishState()
+            }
+            return
+        }
         history.push(StructureEntry(before, after, cursorBefore, cursorAfter))
         project = after
         frameId = cursorAfter.frameId
@@ -861,21 +1090,31 @@ public class DrawingSession(
         publishState()
     }
 
-    /** Reallocates the surfaces after the canvas changes size. Returns whether it did. */
+    /**
+     * Reallocates the surfaces after the canvas changes size. Returns whether it tried. The check uses the margin the
+     * surface really has, which is smaller than the budget's after a low-memory open. Callers have already saved the
+     * surface's pixels. If memory is short, the old surface stays but counts as holding nothing, so edits are refused
+     * until an allocation succeeds.
+     */
     private fun matchSurfacesToCanvas(): Boolean {
-        val current = surface ?: return false
-        val margin = budget.overscanFor(project.width, project.height)
-        if (current.width == project.width + margin * 2 && current.height == project.height + margin * 2) return false
+        if (surface == null || surfaceFitsCanvas()) return false
         // Every layer's position changed, so nothing live can be reused.
         liveCels.clear()
         ghostCache.clear()
         revealBitmap = null
         revealImage = null
         revealGeneration = -1
+        loadedKey = null
+        loadedFile = null
         if (!allocateSurfaces(project.width, project.height)) {
-            _events.tryEmit(SessionEvent.LowMemory)
+            _events.trySend(SessionEvent.LowMemory)
         }
         return true
+    }
+
+    private fun surfaceFitsCanvas(): Boolean {
+        val current = surface ?: return false
+        return current.width == project.width + overscan * 2 && current.height == project.height + overscan * 2
     }
 
     // ----- Settings that are not undo steps -----
@@ -892,7 +1131,7 @@ public class DrawingSession(
     public fun setBackground(background: Background) {
         post {
             project = project.copy(background = background)
-            backgroundImage = (background as? Background.Image)?.let { store.read(it.file) }
+            backgroundImage = readBackgroundImage()
             revealGeneration = -1
             markChanged()
             publishScene()
@@ -905,15 +1144,17 @@ public class DrawingSession(
      * get new positions, so this is instant and undoable, and anything now past the edge is still there to bring back.
      */
     public fun resizeCanvas(width: Int, height: Int) {
-        structureEdit { p ->
-            val dx = (width - p.width) / 2
-            val dy = (height - p.height) / 2
-            val moved =
-                p.cels.mapValues { (_, cel) ->
-                    cel.copy(bounds = cel.bounds?.translated(dx, dy))
-                }
-            p.copy(width = width.coerceAtLeast(1), height = height.coerceAtLeast(1), cels = moved) to HistoryCursor(frameId, layerId)
-        }
+        structureEdit { p -> resized(p, width, height) to HistoryCursor(frameId, layerId) }
+    }
+
+    private fun resized(source: Project, width: Int, height: Int): Project {
+        val dx = (width - source.width) / 2
+        val dy = (height - source.height) / 2
+        val moved =
+            source.cels.mapValues { (_, cel) ->
+                cel.copy(bounds = cel.bounds?.translated(dx, dy))
+            }
+        return source.copy(width = width.coerceAtLeast(1), height = height.coerceAtLeast(1), cels = moved)
     }
 
     public fun updateSettings(change: (ProjectSettings) -> ProjectSettings) {
@@ -939,12 +1180,25 @@ public class DrawingSession(
     /**
      * Writes pending pixels to the store and returns the project as it now stands. While the lasso holds
      * lifted pixels the surface is incomplete, so they stay unsaved unless [commitSelection] is set.
+     *
+     * Throws an [IOException] when memory runs out, with the pixels still marked as unsaved, so callers treat it like
+     * any other failed save and the next attempt starts over.
      */
+    @Throws(IOException::class)
     public suspend fun snapshot(commitSelection: Boolean = false): Project =
         withContext(dispatcher) {
-            if (commitSelection) commitFloatingInternal()
-            if (floating == null) flushActive()
-            project
+            try {
+                val hadSelection = floating != null
+                if (commitSelection) commitFloatingInternal()
+                if (floating == null) flushActive()
+                if (hadSelection && floating == null) publishScene()
+                // A flush changes cel files, which thumbnails watch, and the selection may just have gone.
+                publishState()
+                project
+            } catch (e: OutOfMemoryError) {
+                trimAfterOutOfMemory()
+                throw IOException("Ran out of memory while saving", e)
+            }
         }
 
     /** Every cel file that the project, undo history or clipboard might still need. */
@@ -956,6 +1210,26 @@ public class DrawingSession(
             frameClipboard?.frames?.forEach { frame -> frame.cels.values.forEach { cel -> cel.file?.let { files += it } } }
             files
         }
+
+    /** Tries again to open a canvas that did not fit in memory. */
+    public fun retryOpen() {
+        post { if (!ready) open() }
+    }
+
+    /**
+     * Tries again to open a canvas that did not fit in memory, at a size the user chose. Drawings stay centred and nothing
+     * is deleted, as with [resizeCanvas]. This is no undo step, because undo must not go back to a size that cannot open.
+     */
+    public fun retryOpen(width: Int, height: Int) {
+        post {
+            if (ready) return@post
+            if (width != project.width || height != project.height) {
+                project = resized(project, width, height)
+                markChanged()
+            }
+            open()
+        }
+    }
 
     /** Waits until all earlier commands have been carried out. */
     public suspend fun awaitIdle() {
@@ -989,19 +1263,38 @@ public class DrawingSession(
     // ----- Internals -----
 
     private fun open() {
-        val width = project.width
-        val height = project.height
-        if (!allocateSurfaces(width, height)) {
-            _events.tryEmit(SessionEvent.CannotOpen)
-            return
+        try {
+            if (allocateSurfaces(project.width, project.height)) {
+                backgroundImage = readBackgroundImage()
+                syncLive(forceActive = true)
+                scheduleGhosts()
+                ready = true
+                openFailed = false
+                publishScene()
+            } else {
+                openFailed = true
+            }
+        } catch (_: OutOfMemoryError) {
+            trimAfterOutOfMemory()
+            openFailed = !ready
         }
-        backgroundImage = (project.background as? Background.Image)?.let { store.read(it.file) }
-        syncLive(forceActive = true)
-        scheduleGhosts()
-        ready = true
-        publishScene()
         publishState()
     }
+
+    private fun readBackgroundImage(): Bitmap? = (project.background as? Background.Image)?.let { readCel(it.file) }
+
+    /** Decodes a cel, freeing memory and trying once more if it does not fit. Returns null if it cannot be read. */
+    private fun readCel(file: String): Bitmap? =
+        try {
+            store.read(file)
+        } catch (_: OutOfMemoryError) {
+            trimAfterOutOfMemory()
+            try {
+                store.read(file)
+            } catch (_: OutOfMemoryError) {
+                null
+            }
+        }
 
     /** Allocates the surface and stroke buffer. Falls back to no margin if the full size does not fit. */
     private fun allocateSurfaces(width: Int, height: Int): Boolean {
@@ -1010,8 +1303,15 @@ public class DrawingSession(
             try {
                 val fullWidth = width + margin * 2
                 val fullHeight = height + margin * 2
-                val newSurface = Bitmap.createBitmap(fullWidth, fullHeight, Bitmap.Config.ARGB_8888)
-                val newBuffer = Bitmap.createBitmap(fullWidth, fullHeight, Bitmap.Config.ARGB_8888)
+                val newSurface = allocateSurface(fullWidth, fullHeight)
+                val newBuffer =
+                    try {
+                        allocateSurface(fullWidth, fullHeight)
+                    } catch (e: OutOfMemoryError) {
+                        // Otherwise the smaller attempt has to compete with this unreachable surface until a collection.
+                        newSurface.recycle()
+                        throw e
+                    }
                 overscan = margin
                 surface = newSurface
                 surfaceCanvas = Canvas(newSurface)
@@ -1021,7 +1321,7 @@ public class DrawingSession(
             } catch (_: OutOfMemoryError) {
                 trimAfterOutOfMemory()
             } catch (_: IllegalArgumentException) {
-                return false
+                // Too large for a bitmap at all, though perhaps not without the margin.
             }
         }
         return false
@@ -1043,7 +1343,8 @@ public class DrawingSession(
             wanted += layer.id
             val live = liveCels[layer.id]
             if (live?.file != file || live.left != bounds.left || live.top != bounds.top) {
-                val image = store.read(file)
+                // The layer stays out of the scene if it does not fit. That costs the view of it, never its drawing.
+                val image = readCel(file)
                 if (image != null) {
                     liveCels[layer.id] = LiveCel(image, bounds.left, bounds.top, file)
                 } else {
@@ -1054,19 +1355,29 @@ public class DrawingSession(
         liveCels.keys.retainAll(wanted)
     }
 
+    /**
+     * Puts a cel on the surface. The image is decoded before anything changes, and an unreadable one is never taken for
+     * an empty cel: the surface then counts as holding nothing, so a later stroke cannot replace a drawing that was
+     * only temporarily out of reach. Clearing the cel, or a load that works later, ends that state. The user is told at
+     * once, because all they would otherwise see is an empty frame.
+     */
     private fun loadSurface(key: CelKey, cel: Cel?) {
         val target = surface ?: return
         val canvas = surfaceCanvas ?: return
-        target.eraseColor(0)
-        var bounds = IntRect.EMPTY
         val file = cel?.file
         val celBounds = cel?.bounds
-        if (file != null && celBounds != null) {
-            val image = store.read(file)
-            if (image != null) {
-                canvas.drawBitmap(image, (celBounds.left + overscan).toFloat(), (celBounds.top + overscan).toFloat(), null)
-                bounds = celBounds.translated(overscan, overscan).intersect(surfaceRect())
-            }
+        val image = if (file != null && celBounds != null) readCel(file) else null
+        if (!surfaceFitsCanvas() || (file != null && celBounds != null && image == null)) {
+            loadedKey = null
+            loadedFile = null
+            _events.trySend(SessionEvent.CelNotLoaded)
+            return
+        }
+        target.eraseColor(0)
+        var bounds = IntRect.EMPTY
+        if (image != null && celBounds != null) {
+            canvas.drawBitmap(image, (celBounds.left + overscan).toFloat(), (celBounds.top + overscan).toFloat(), null)
+            bounds = celBounds.translated(overscan, overscan).intersect(surfaceRect())
         }
         contentBounds = bounds
         loadedKey = key
@@ -1074,52 +1385,99 @@ public class DrawingSession(
         activeDirty = false
     }
 
-    /** Saves the surface's pixels if they changed. An empty result removes the cel, so empty cels are never stored. */
+    /**
+     * Saves the surface's pixels if they changed. An empty result removes the cel, so empty cels are never stored. The
+     * pixels stay marked as unsaved until the project has taken the new cel, so running out of memory on the way
+     * loses nothing: the next attempt simply starts over.
+     */
     private fun flushActive() {
         if (!activeDirty) return
         val key = loadedKey ?: return
         val target = surface ?: return
-        activeDirty = false
-        if (project.frameIndex(key.frameId) < 0 || project.layer(key.layerId) == null) return
-        val tight = tightBounds(target, contentBounds)
-        contentBounds = tight
-        if (tight.isEmpty) {
-            project = ProjectEdits.withCel(project, key, null)
-            loadedFile = null
+        if (project.frameIndex(key.frameId) < 0 || project.layer(key.layerId) == null) {
+            activeDirty = false
             return
         }
-        val crop = Bitmap.createBitmap(target, tight.left, tight.top, tight.width, tight.height)
-        val file = store.write(crop)
-        val bounds = tight.translated(-overscan, -overscan)
-        project = ProjectEdits.withCel(project, key, Cel(key.layerId, key.frameId, file, bounds))
-        loadedFile = file
+        val tight = tightBounds(target, contentBounds)
+        val previous = project.cels[key]
+        val pixels =
+            if (previous != null && overhangsSurface(previous)) {
+                composeWithOverhang(previous, tight, target)
+            } else {
+                cropOf(target, tight)
+            }
+        val cel = pixels?.let { Cel(key.layerId, key.frameId, store.write(it.image), it.bounds) }
+        project = ProjectEdits.withCel(project, key, cel)
+        contentBounds = tight
+        loadedFile = cel?.file
+        activeDirty = false
     }
 
-    /** The smallest rectangle inside [area] containing every non-transparent pixel. */
+    /** Whether part of a cel lies outside the surface, as after shrinking the canvas. The surface never held those pixels. */
+    private fun overhangsSurface(cel: Cel): Boolean {
+        val onSurface = cel.bounds?.translated(overscan, overscan) ?: return false
+        return onSurface.intersect(surfaceRect()) != onSurface
+    }
+
+    private fun cropOf(target: Bitmap, tight: IntRect): CelPixels? =
+        if (tight.isEmpty) {
+            null
+        } else {
+            CelPixels(
+                Bitmap.createBitmap(target, tight.left, tight.top, tight.width, tight.height),
+                tight.translated(-overscan, -overscan),
+            )
+        }
+
+    /**
+     * Keeps what a cel holds beyond the surface when saving an edit, because shrinking a canvas promises nothing is
+     * deleted. The surface is the truth inside its own area, so that is cleared first and erased pixels stay erased.
+     * Returns null if nothing is left at all. A cel file that has really gone has nothing to keep, so the surface alone is saved.
+     */
+    private fun composeWithOverhang(previous: Cel, tight: IntRect, target: Bitmap): CelPixels? {
+        val file = previous.file ?: return cropOf(target, tight)
+        val old = previous.bounds ?: return cropOf(target, tight)
+        val image = store.read(file) ?: return cropOf(target, tight)
+        val window = surfaceRect().translated(-overscan, -overscan)
+        val area = old.union(tight.translated(-overscan, -overscan))
+        val merged = Bitmap.createBitmap(area.width, area.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(merged)
+        canvas.translate(-area.left.toFloat(), -area.top.toFloat())
+        canvas.drawBitmap(image, old.left.toFloat(), old.top.toFloat(), null)
+        canvas.drawRect(window.left.toFloat(), window.top.toFloat(), window.right.toFloat(), window.bottom.toFloat(), clearPaint)
+        canvas.drawBitmap(target, -overscan.toFloat(), -overscan.toFloat(), null)
+        val kept = tightBounds(merged, IntRect(0, 0, area.width, area.height))
+        if (kept.isEmpty) return null
+        return CelPixels(Bitmap.createBitmap(merged, kept.left, kept.top, kept.width, kept.height), kept.translated(area.left, area.top))
+    }
+
+    /**
+     * The smallest rectangle inside [area] containing every non-transparent pixel. It reads one row at a time, because
+     * a copy of the whole area is a large allocation at the worst moment: this runs before every save.
+     */
     private fun tightBounds(image: Bitmap, area: IntRect): IntRect {
         val rect = area.intersect(IntRect(0, 0, image.width, image.height))
         if (rect.isEmpty) return IntRect.EMPTY
         val width = rect.width
-        val height = rect.height
-        val pixels = IntArray(width * height)
-        image.getPixels(pixels, 0, width, rect.left, rect.top, width, height)
+        val row = IntArray(width)
         var minX = width
-        var minY = height
+        var minY = -1
         var maxX = -1
         var maxY = -1
-        var index = 0
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                if (pixels[index++] ushr 24 != 0) {
-                    if (x < minX) minX = x
-                    if (x > maxX) maxX = x
-                    if (y < minY) minY = y
-                    maxY = y
-                }
-            }
+        for (y in rect.top until rect.bottom) {
+            image.getPixels(row, 0, width, rect.left, y, width, 1)
+            var first = 0
+            while (first < width && row[first] ushr 24 == 0) first++
+            if (first == width) continue
+            var last = width - 1
+            while (row[last] ushr 24 == 0) last--
+            if (first < minX) minX = first
+            if (last > maxX) maxX = last
+            if (minY < 0) minY = y
+            maxY = y
         }
         if (maxX < 0) return IntRect.EMPTY
-        return IntRect(rect.left + minX, rect.top + minY, rect.left + maxX + 1, rect.top + maxY + 1)
+        return IntRect(rect.left + minX, minY, rect.left + maxX + 1, maxY + 1)
     }
 
     private fun readPixels(image: Bitmap, rect: IntRect): IntArray {
@@ -1145,6 +1503,7 @@ public class DrawingSession(
                 selection = floating?.transform,
                 hasFrameClipboard = frameClipboard != null,
                 busy = busy,
+                openFailed = openFailed,
             )
     }
 
@@ -1157,7 +1516,8 @@ public class DrawingSession(
         for (layer in project.layers) {
             if (layer.id == layerId) {
                 passedActive = true
-                if (layer.visible) active = LayerDraw(target, -overscan, -overscan, layer.opacity, layer.blendMode)
+                // A surface that failed to load holds something else, so it must not be shown as this layer.
+                if (layer.visible && isSurfaceLoaded()) active = LayerDraw(target, -overscan, -overscan, layer.opacity, layer.blendMode)
                 continue
             }
             val live = liveCels[layer.id] ?: continue
@@ -1195,6 +1555,7 @@ public class DrawingSession(
     private fun scheduleGhosts() {
         ghostJob?.cancel()
         ghostJob = null
+        val generation = ++ghostGeneration
         val settings = project.settings.onionSkin
         val plan = planOnionSkin(settings, project.frames.size, project.frameIndex(frameId))
         if (plan.isEmpty()) {
@@ -1208,34 +1569,46 @@ public class DrawingSession(
         val scale = min(1f, budget.ghostMaxEdge.toFloat() / longest)
         val job =
             workers.launch {
-                val flattener = FrameFlattener(store)
-                val draws = ArrayList<GhostDraw>(plan.size)
-                for (ghost in plan) {
+                try {
+                    val flattener = FrameFlattener(store)
+                    val draws = ArrayList<GhostDraw>(plan.size)
+                    for (ghost in plan) {
+                        ensureActive()
+                        val slot = snapshot.frames[ghost.frameIndex]
+                        if (!flattener.hasContent(snapshot, slot.id, options)) continue
+                        val cacheKey = ghostKey(snapshot, slot.id, onlyLayer)
+                        val image =
+                            ghostCache[cacheKey] ?: run {
+                                val width = (snapshot.width * scale).toInt().coerceAtLeast(1)
+                                val height = (snapshot.height * scale).toInt().coerceAtLeast(1)
+                                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                                flattener.flatten(snapshot, slot.id, Canvas(bitmap), scale, null, options)
+                                ghostCache[cacheKey] = bitmap
+                                bitmap
+                            }
+                        val tint =
+                            when {
+                                !settings.tint -> null
+                                ghost.isPrevious -> GHOST_TINT_PREVIOUS
+                                else -> GHOST_TINT_NEXT
+                            }
+                        draws += GhostDraw(image, ghost.opacity, tint)
+                    }
                     ensureActive()
-                    val slot = snapshot.frames[ghost.frameIndex]
-                    if (!flattener.hasContent(snapshot, slot.id, options)) continue
-                    val cacheKey = ghostKey(snapshot, slot.id, onlyLayer)
-                    val image =
-                        ghostCache[cacheKey] ?: run {
-                            val width = (snapshot.width * scale).toInt().coerceAtLeast(1)
-                            val height = (snapshot.height * scale).toInt().coerceAtLeast(1)
-                            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                            flattener.flatten(snapshot, slot.id, Canvas(bitmap), scale, null, options)
-                            ghostCache[cacheKey] = bitmap
-                            bitmap
+                    post {
+                        // This job may have got this far just as the user moved on. Its ghosts belong to where they were.
+                        if (generation == ghostGeneration) {
+                            ghosts = draws
+                            publishScene()
                         }
-                    val tint =
-                        when {
-                            !settings.tint -> null
-                            ghost.isPrevious -> GHOST_TINT_PREVIOUS
-                            else -> GHOST_TINT_NEXT
-                        }
-                    draws += GhostDraw(image, ghost.opacity, tint)
-                }
-                ensureActive()
-                post {
-                    ghosts = draws
-                    publishScene()
+                    }
+                } catch (_: OutOfMemoryError) {
+                    post {
+                        // Ghosts are a drawing aid, so doing without them is fine. The old ones show the wrong frame.
+                        if (generation == ghostGeneration) ghosts = emptyList()
+                        trimAfterOutOfMemory()
+                        publishScene()
+                    }
                 }
             }
         ghostJob = job
@@ -1283,28 +1656,59 @@ public class DrawingSession(
         revealImage = image
     }
 
+    /** Gives back what it can. This runs because memory has already run out, so it must not fail itself. */
     private fun trimAfterOutOfMemory() {
-        ghostCache.clear()
-        tips.clear()
-        store.trimMemory()
-        history.spillAll()
-        _events.tryEmit(SessionEvent.LowMemory)
+        try {
+            ghostCache.clear()
+            tips.clear()
+            store.trimMemory()
+            history.spillAll()
+        } catch (_: OutOfMemoryError) {
+            // Spilling allocates too. Whatever it managed to free stands, and the user still hears about it below.
+        }
+        // A canvas that does not fit while opening has its own screen, so this would only be old news once that is over.
+        try {
+            if (ready) _events.trySend(SessionEvent.LowMemory)
+        } catch (_: OutOfMemoryError) {
+            // Not even room to say so. The next message will get through once memory comes back.
+        }
     }
 
-    /** Queues work on the engine thread. Running out of memory shrinks the caches rather than crashing the app. */
+    /**
+     * Queues work on the engine thread. Running out of memory shrinks the caches rather than crashing the app. The
+     * interrupted command may have got part of the way, so the screen is brought up to date with where things stand.
+     */
     private fun post(block: () -> Unit) {
         if (executor.isShutdown) return
-        executor.execute {
-            if (closed) return@execute
-            try {
-                block()
-            } catch (_: OutOfMemoryError) {
-                trimAfterOutOfMemory()
+        try {
+            executor.execute {
+                if (closed) return@execute
+                try {
+                    block()
+                } catch (_: OutOfMemoryError) {
+                    trimAfterOutOfMemory()
+                    try {
+                        publishScene()
+                        publishState()
+                    } catch (_: OutOfMemoryError) {
+                        // The next successful command publishes everything anyway.
+                    }
+                }
             }
+        } catch (_: RejectedExecutionException) {
+            // The session closed just as this arrived, and nothing is left to apply it to.
         }
     }
 
     private class LiveCel(val bitmap: Bitmap, val left: Int, val top: Int, val file: String)
+
+    private class CelPixels(val image: Bitmap, val bounds: IntRect)
+
+    private class OpacityPreview(val layerId: String, val original: Float)
+
+    private class UnreadableCel : Exception()
+
+    private enum class PatchOutcome { APPLIED, UNREADABLE, NOT_LOADED }
 
     private class ActiveStroke(val spec: BrushSpec, val colorArgb: Int) {
         val bounds = BoundsAccumulator()
@@ -1320,6 +1724,7 @@ public class DrawingSession(
 
     private companion object {
         const val MIN_UNDO_STEPS = 100
+        const val EVENT_BUFFER = 16
         const val MIN_LASSO_COORDINATES = 6
         const val MAX_CACHED_GHOSTS = 16
         const val OPAQUE_SEED_ALPHA = 200

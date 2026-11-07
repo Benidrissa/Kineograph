@@ -219,11 +219,84 @@ class ManifestTest {
     }
 
     @Test
-    fun `the backup's files are reported so they can be kept`() {
-        val (store) = store()
+    fun `the files of every revision are reported so they can be kept`() {
+        val (store, directory) = store()
+        val other = rich()
+            .cels.values
+            .first()
+            .copy(file = "cels/other.webp")
         store.write(rich())
-        store.write(rich().copy(cels = emptyMap()))
-        assertEquals(setOf("cels/1.webp"), store.filesReferencedByBackup())
+        store.write(rich().copy(cels = rich().cels.mapValues { other }))
+        assertEquals(setOf("cels/1.webp", "cels/other.webp"), store.filesReferencedByManifests())
+
+        // A complete temporary file may be the newest revision of all.
+        val third = rich()
+            .cels.values
+            .first()
+            .copy(file = "cels/third.webp")
+        File(directory, "manifest.tmp").writeText(ManifestCodec.encode(rich().copy(cels = rich().cels.mapValues { third })))
+        assertEquals(setOf("cels/1.webp", "cels/other.webp", "cels/third.webp"), store.filesReferencedByManifests())
+    }
+
+    @Test
+    fun `a half-written temporary file does not stop files being reported`() {
+        val (store, directory) = store()
+        store.write(rich())
+        File(directory, "manifest.tmp").writeText("{ half written")
+        assertEquals(setOf("cels/1.webp"), store.filesReferencedByManifests())
+    }
+
+    @Test
+    fun `an unreadable revision means the needed files are unknown`() {
+        val (store, directory) = store()
+        store.write(rich())
+        File(directory, "manifest.json").writeText("{ damaged")
+        assertNull(store.filesReferencedByManifests())
+    }
+
+    @Test
+    fun `a failed write leaves no temporary file behind and the old revision in place`() {
+        val (store, directory) = store()
+        store.write(rich("Good"))
+        // Nothing can be written over a directory, which is the nearest thing here to a disk with no space left.
+        val temporary = File(directory, "manifest.tmp").apply { mkdirs() }
+        assertThrows(java.io.IOException::class.java) { store.write(rich("Lost")) }
+        assertFalse(temporary.exists())
+        assertEquals("Good", store.load { true }?.project?.name)
+    }
+
+    @Test
+    fun `saving after a crash in the middle of the swap keeps that newest revision as the backup`() {
+        val (store, directory) = store()
+        store.write(rich("Old"))
+        // The state a crash between the two renames leaves: only the backup and a complete temporary file.
+        File(directory, "manifest.json").renameTo(File(directory, "manifest.prev.json"))
+        File(directory, "manifest.tmp").writeText(ManifestCodec.encode(rich("Newest")))
+
+        store.write(rich("Newer still"))
+
+        assertEquals("Newer still", store.load { true }?.project?.name)
+        assertEquals("Newest", ManifestCodec.decode(File(directory, "manifest.prev.json").readText()).name)
+    }
+
+    @Test
+    fun `only manifests that could mean something count as a manifest`() {
+        val (store, directory) = store()
+        assertFalse(store.hasManifest())
+        File(directory, "manifest.tmp").writeText("{ half written")
+        assertFalse("an unfinished first write", store.hasManifest())
+        File(directory, "manifest.tmp").delete()
+        File(directory, "manifest.json").writeText("{ damaged")
+        assertTrue("damaged, but it may yet be recovered", store.hasManifest())
+        File(directory, "manifest.json").delete()
+        File(directory, "manifest.prev.json").writeText("{ damaged")
+        assertTrue(store.hasManifest())
+    }
+
+    @Test
+    fun `manifest files are recognised so a copy can leave them out`() {
+        for (name in listOf("manifest.json", "manifest.prev.json", "manifest.tmp")) assertTrue(ManifestStore.isManifestFile(name))
+        for (name in listOf("thumb.webp", "cels", "media")) assertFalse(ManifestStore.isManifestFile(name))
     }
 
     @Test

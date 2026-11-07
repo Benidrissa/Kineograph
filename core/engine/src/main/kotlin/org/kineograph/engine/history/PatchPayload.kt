@@ -2,38 +2,51 @@ package org.kineograph.engine.history
 
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.zip.DataFormatException
 import java.util.zip.Deflater
 import java.util.zip.Inflater
 
 /** Compresses pixel patches. Transparent areas and flat colour shrink to almost nothing. */
 public object PatchCodec {
+    /**
+     * Compresses [pixels], feeding them through a small scratch buffer. A second full-size copy of a large patch is
+     * often more than a low-memory phone has left, and then the patch could never shrink or spill to disk.
+     */
     public fun compress(pixels: IntArray): ByteArray {
-        val raw = ByteBuffer.allocate(pixels.size * 4).order(ByteOrder.LITTLE_ENDIAN)
-        raw.asIntBuffer().put(pixels)
         val deflater = Deflater(Deflater.BEST_SPEED, true)
         try {
-            deflater.setInput(raw.array())
-            deflater.finish()
+            val scratch = ByteArray(SCRATCH_BYTES)
+            val scratchPixels = ByteBuffer.wrap(scratch).order(ByteOrder.LITTLE_ENDIAN).asIntBuffer()
             val output = ByteArrayOutputStream(maxOf(64, pixels.size / 8))
             val chunk = ByteArray(16 * 1024)
-            while (!deflater.finished()) {
-                val written = deflater.deflate(chunk)
-                output.write(chunk, 0, written)
+            var next = 0
+            while (next < pixels.size) {
+                val count = minOf(scratchPixels.capacity(), pixels.size - next)
+                scratchPixels.clear()
+                scratchPixels.put(pixels, next, count)
+                next += count
+                deflater.setInput(scratch, 0, count * Int.SIZE_BYTES)
+                while (!deflater.needsInput()) output.write(chunk, 0, deflater.deflate(chunk))
             }
+            deflater.finish()
+            while (!deflater.finished()) output.write(chunk, 0, deflater.deflate(chunk))
             return output.toByteArray()
         } finally {
             deflater.end()
         }
     }
 
+    /** Restores what [compress] produced. Damaged or shortened data throws, so it can never pass for transparent pixels. */
+    @Throws(DataFormatException::class)
     public fun decompress(data: ByteArray, pixelCount: Int): IntArray {
-        val raw = ByteArray(pixelCount * 4)
+        val raw = ByteArray(pixelCount * Int.SIZE_BYTES)
         val inflater = Inflater(true)
+        var offset = 0
         try {
             inflater.setInput(data)
-            var offset = 0
             while (offset < raw.size && !inflater.finished()) {
                 val read = inflater.inflate(raw, offset, raw.size - offset)
                 if (read == 0 && (inflater.needsInput() || inflater.needsDictionary())) break
@@ -42,6 +55,7 @@ public object PatchCodec {
         } finally {
             inflater.end()
         }
+        if (offset < raw.size) throw DataFormatException("A patch was shorter than expected")
         val pixels = IntArray(pixelCount)
         ByteBuffer
             .wrap(raw)
@@ -50,6 +64,8 @@ public object PatchCodec {
             .get(pixels)
         return pixels
     }
+
+    private const val SCRATCH_BYTES = 64 * 1024
 }
 
 /**
@@ -84,12 +100,21 @@ public class PatchPayload(pixels: IntArray) {
     public val isSpilled: Boolean
         get() = spillFile != null
 
-    /** Reads the pixels back, whichever state they are in. */
+    /**
+     * Reads the pixels back, whichever state they are in. Returns null if they have gone: spilled patches live in the
+     * cache directory, and the system may empty that whenever storage runs low.
+     */
     @Synchronized
-    public fun read(): IntArray {
+    public fun readOrNull(): IntArray? {
         raw?.let { return it.copyOf() }
-        val data = compressed ?: spillFile?.readBytes() ?: return IntArray(pixelCount)
-        return PatchCodec.decompress(data, pixelCount)
+        return try {
+            val data = compressed ?: spillFile?.readBytes() ?: return IntArray(pixelCount)
+            PatchCodec.decompress(data, pixelCount)
+        } catch (_: IOException) {
+            null
+        } catch (_: DataFormatException) {
+            null
+        }
     }
 
     /** Replaces the contents. Undo swaps a patch's pixels with what was on the canvas, so the same patch then serves redo. */
@@ -115,19 +140,23 @@ public class PatchPayload(pixels: IntArray) {
         }
     }
 
-    /** Moves the patch to a file, freeing its memory. Returns false if the write failed, leaving it in memory. */
+    /** Moves the patch to a file, freeing its memory. Returns false if that failed, leaving it in memory. */
     @Synchronized
     public fun spillTo(file: File): Boolean {
         if (spillFile != null) return true
-        val data = compressed ?: raw?.let(PatchCodec::compress) ?: return false
         return try {
+            val data = compressed ?: raw?.let(PatchCodec::compress) ?: return false
             file.parentFile?.mkdirs()
             file.writeBytes(data)
             spillFile = file
             compressed = null
             raw = null
             true
-        } catch (_: java.io.IOException) {
+        } catch (_: IOException) {
+            file.delete()
+            false
+        } catch (_: OutOfMemoryError) {
+            // This often runs because memory has already run out, and a patch that stays in memory is still a good patch.
             file.delete()
             false
         }

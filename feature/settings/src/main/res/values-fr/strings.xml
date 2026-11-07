@@ -2,6 +2,7 @@
 <resources>
     <string name="action_back">Retour</string>
     <string name="settings_title">Paramètres</string>
+    <string name="settings_not_saved">Impossible d’enregistrer ce réglage. Votre stockage est peut-être plein.</string>
     <string name="settings_section_appearance">Apparence</string>
     <string name="settings_section_drawing">Dessin</string>
     <string name="settings_theme">Thème</string>

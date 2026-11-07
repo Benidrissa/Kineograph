@@ -2,6 +2,7 @@
 <resources>
     <string name="action_back">Back</string>
     <string name="settings_title">Settings</string>
+    <string name="settings_not_saved">Could not save this setting. Your storage may be full.</string>
     <string name="settings_section_appearance">Appearance</string>
     <string name="settings_section_drawing">Drawing</string>
     <string name="settings_theme">Theme</string>

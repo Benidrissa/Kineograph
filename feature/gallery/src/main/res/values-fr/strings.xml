@@ -16,6 +16,10 @@
     <string name="gallery_no_results">Aucun résultat pour votre recherche.</string>
     <string name="gallery_storage">Les projets occupent %1$s</string>
     <string name="gallery_moved_to_trash">Déplacé dans la corbeille</string>
+    <string name="message_storage_problem">Impossible d’enregistrer cette action. Votre stockage est peut-être plein.</string>
+    <string name="message_startup_problem">Kineograph n’a pas pu terminer sa préparation, car le stockage est plein ou indisponible. Vos projets sont en sécurité. Libérez de l’espace et rouvrez l’application.</string>
+    <string name="message_settings_reset">Votre fichier de réglages était endommagé : les réglages ont repris leurs valeurs par défaut. Vos projets n’ont pas été touchés.</string>
+    <string name="message_index_problem">La liste des projets n’a pas pu être lue. Vos projets sont en sécurité. Libérez de l’espace et rouvrez l’application.</string>
     <string name="gallery_card_description">Ouvrir %1$s, %2$s, %3$s, %4$d images par seconde</string>
     <string name="gallery_card_menu">Plus d’actions pour %1$s</string>
     <string name="gallery_delete_title">Supprimer définitivement ?</string>

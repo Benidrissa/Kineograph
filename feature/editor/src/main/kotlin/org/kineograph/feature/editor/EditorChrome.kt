@@ -98,17 +98,30 @@ internal fun EditorTopBar(
     onToggleGrid: () -> Unit,
     onProjectSettings: () -> Unit,
     onExport: () -> Unit,
+    saveFailed: Boolean = false,
 ) {
     val onion = state.project.settings.onionSkin
     Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         KgIconButton(KgIcons.Back, stringResource(R.string.action_back), onBack)
-        Text(
-            state.project.name,
-            style = MaterialTheme.typography.titleMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
-        )
+        Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
+            Text(
+                state.project.name,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            // A snackbar goes away, but this stays true for as long as the failure lasts, however many saves fail.
+            if (saveFailed) {
+                Text(
+                    stringResource(R.string.editor_not_saved),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.testTag("not_saved"),
+                )
+            }
+        }
         OnionButton(onion.enabled, onToggleOnion, onOnionSettings)
         KgIconButton(KgIcons.Grid, stringResource(R.string.editor_grid), onToggleGrid, selected = state.project.settings.grid.enabled)
         KgIconButton(KgIcons.Settings, stringResource(R.string.editor_project_settings), onProjectSettings)
