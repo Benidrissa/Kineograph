@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    rect:first-child { fill: #cc3333 }
+    rect:last-child { fill: #3366cc }
+    g.a rect:nth-child(2) { fill: #33aa33 }
+    g.a rect:nth-child(3n) { fill: #cc9900 }
+    g.b rect:nth-of-type(2) { fill: #990099 }
+    g.b circle:first-of-type { fill: #00aaaa }
+    g.b circle:last-of-type { fill: #555555 }
+    g.c rect:not(.x) { fill: #ff6600 }
+    g.c rect:not(.x):not(.y) { stroke: #000000 }
+    [data-a^="st"] { fill: #0066ff }
+    [data-a$="nd"] { fill: #66cc00 }
+    [data-a*="iddl"] { fill: #ff00ff }
+    [data-a|="en"] { fill: #00ffff }
+    g.d > * { fill: #ffff00 }
+    g.d * rect { fill: #800000 }
+    .Case { fill: #008000 }
+    .case { fill: #000080 }
+    #Mixed { fill: #808000 }
+    #mixed { fill: #800080 }
+    rect[fill] { stroke: #ff0000; stroke-width: 3 }
+    g.e rect.p.q { fill: #008080 }
+    g.e rect.p { fill: #808080 }
+    g.e .p.q.r { fill: #c0c0c0 }
+  </style>
+  <g class="a">
+    <rect x="5" y="5" width="20" height="20"/>
+    <rect x="30" y="5" width="20" height="20"/>
+    <rect x="55" y="5" width="20" height="20"/>
+    <rect x="80" y="5" width="20" height="20"/>
+    <rect x="105" y="5" width="20" height="20"/>
+    <rect x="130" y="5" width="20" height="20"/>
+    <rect x="155" y="5" width="20" height="20"/>
+  </g>
+  <g class="b">
+    <circle cx="15" cy="45" r="10"/>
+    <rect x="30" y="35" width="20" height="20"/>
+    <circle cx="65" cy="45" r="10"/>
+    <rect x="80" y="35" width="20" height="20"/>
+    <circle cx="115" cy="45" r="10"/>
+  </g>
+  <g class="c">
+    <rect class="x" x="5" y="65" width="20" height="20"/>
+    <rect class="y" x="30" y="65" width="20" height="20"/>
+    <rect class="z" x="55" y="65" width="20" height="20"/>
+    <circle cx="90" cy="75" r="10"/>
+  </g>
+  <rect data-a="start" x="5" y="95" width="20" height="20"/>
+  <rect data-a="the end" x="30" y="95" width="20" height="20"/>
+  <rect data-a="middle" x="55" y="95" width="20" height="20"/>
+  <rect data-a="en-GB" x="80" y="95" width="20" height="20"/>
+  <rect data-a="en" x="105" y="95" width="20" height="20"/>
+  <rect data-a="eng" x="130" y="95" width="20" height="20"/>
+  <g class="d">
+    <rect x="5" y="125" width="20" height="20"/>
+    <g><rect x="30" y="125" width="20" height="20"/></g>
+  </g>
+  <rect class="Case" x="55" y="125" width="20" height="20"/>
+  <rect class="case" x="80" y="125" width="20" height="20"/>
+  <rect id="Mixed" x="105" y="125" width="20" height="20"/>
+  <rect id="mixed" x="130" y="125" width="20" height="20"/>
+  <rect fill="#ffffff" x="155" y="125" width="20" height="20"/>
+  <g class="e">
+    <rect class="p q" x="5" y="155" width="20" height="20"/>
+    <rect class="p" x="30" y="155" width="20" height="20"/>
+    <rect class="p q r" x="55" y="155" width="20" height="20"/>
+  </g>
+</svg>

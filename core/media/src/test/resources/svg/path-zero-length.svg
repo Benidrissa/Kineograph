@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- A path that goes nowhere still shows its cap, except a butt cap. -->
+  <g fill="none" stroke-width="16">
+    <path d="M30 30 L30 30" stroke="#cc3333" stroke-linecap="round"/>
+    <path d="M70 30 h0" stroke="#33aa33" stroke-linecap="square"/>
+    <path d="M110 30 L110 30" stroke="#3366cc" stroke-linecap="butt"/>
+    <path d="M150 30 z" stroke="#cc9900" stroke-linecap="round"/>
+    <path d="M30 80 L30 80 z" stroke="#990099" stroke-linecap="round"/>
+    <path d="M70 80 z" stroke="#00aaaa" stroke-linecap="square"/>
+    <path d="M110 80" stroke="#000000" stroke-linecap="round"/>
+    <path d="M150 80 C150 80 150 80 150 80" stroke="#aa5500" stroke-linecap="round"/>
+    <line x1="30" y1="130" x2="30" y2="130" stroke="#ff00ff" stroke-linecap="round"/>
+    <polyline points="70 130 70 130" stroke="#00ff00" stroke-linecap="square"/>
+    <polyline points="110 130" stroke="#0000ff" stroke-linecap="round"/>
+    <polygon points="150 130 150 130" stroke="#ff0000" stroke-linecap="round"/>
+  </g>
+</svg>

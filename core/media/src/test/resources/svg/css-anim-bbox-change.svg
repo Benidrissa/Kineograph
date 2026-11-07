@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    /* The fill box follows other animations on the same element. */
+    @keyframes w { from { width: 20px } to { width: 80px } }
+    @keyframes rot { from { rotate: 0deg } to { rotate: 90deg } }
+    .a { transform-box: fill-box; transform-origin: 50% 50%; animation: w 2s linear forwards, rot 2s linear forwards }
+  </style>
+  <rect class="a" x="60" y="60" height="20" fill="#cc3333"/>
+  <!-- A gradient's and a clip's box too. -->
+  <defs><linearGradient id="g"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/></linearGradient>
+  <clipPath id="c" clipPathUnits="objectBoundingBox"><circle cx=".5" cy=".5" r=".5"/></clipPath></defs>
+  <rect x="10" y="120" height="30" width="20" fill="url(#g)"><animate attributeName="width" from="20" to="180" dur="2s" fill="freeze"/></rect>
+  <rect x="10" y="160" height="30" width="20" fill="#33aa33" clip-path="url(#c)"><animate attributeName="width" from="20" to="180" dur="2s" fill="freeze"/></rect>
+</svg>

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <rect x="10" y="10" width="40" height="40" fill="#cc3333"><set attributeName="fill" to="#00ff00" begin="1s" dur="1s"/></rect>
+  <rect x="60" y="10" width="40" height="40" fill="#3366cc"><set attributeName="fill" to="#ffff00" begin="1s"/></rect>
+  <rect x="110" y="10" width="40" height="40" fill="#33aa33"><set attributeName="x" to="130" begin="1s" dur="1s" fill="freeze"/></rect>
+  <rect x="10" y="60" width="40" height="40" fill="#cc9900" visibility="hidden"><set attributeName="visibility" to="visible" begin="1s" dur="1s"/></rect>
+  <rect x="60" y="60" width="40" height="40" fill="#990099" display="none"><set attributeName="display" to="inline" begin="1s" dur="1s"/></rect>
+  <rect x="110" y="60" width="40" height="40" fill="#00aaaa"><set attributeName="display" to="none" begin="1s" dur="1s" fill="freeze"/></rect>
+  <rect x="10" y="110" width="40" height="40" fill="#aa5500"><set attributeName="opacity" to=".25" begin="0.5s;2s" dur="0.5s"/></rect>
+  <rect x="60" y="110" width="40" height="40" fill="#555555"><set attributeName="width" to="10%" dur="1s"/></rect>
+  <!-- animate and set do not work on transforms. That is what animateTransform is for. -->
+  <g><set attributeName="transform" to="translate(20 20)" begin="1s" dur="1s"/><rect x="110" y="110" width="40" height="40" fill="#ff6600"/></g>
+  <rect x="10" y="160" width="40" height="30" fill="#0066ff"><animate attributeName="transform" from="translate(0 0)" to="translate(100 0)" dur="3s" fill="freeze"/></rect>
+</svg>

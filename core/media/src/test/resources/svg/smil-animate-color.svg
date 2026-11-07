@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <rect x="10" y="10" width="50" height="50" fill="#ff0000"><animate attributeName="fill" from="#ff0000" to="#0000ff" dur="2s" fill="freeze"/></rect>
+  <rect x="70" y="10" width="50" height="50" fill="#ffffff"><animate attributeName="fill" from="red" to="rgb(0,255,0)" dur="2s" fill="freeze"/></rect>
+  <rect x="130" y="10" width="50" height="50" fill="#ffffff"><animate attributeName="fill" values="#000;hsl(120,100%,50%);white;#00f" keyTimes="0;.25;.5;1" dur="2s" fill="freeze"/></rect>
+  <rect x="10" y="70" width="50" height="50" fill="none" stroke="#ff0000" stroke-width="10"><animate attributeName="stroke" to="#00ffff" dur="2s" fill="freeze"/></rect>
+  <rect x="70" y="70" width="50" height="50" fill="#00ff00" color="#ff00ff"><animate attributeName="fill" to="currentColor" dur="2s" fill="freeze"/></rect>
+  <g color="#ff0000"><animate attributeName="color" to="#0000ff" dur="2s" fill="freeze"/><rect x="130" y="70" width="50" height="50" fill="currentColor"/></g>
+  <rect x="10" y="130" width="50" height="50" fill="rgba(255,0,0,.2)"><animate attributeName="fill" to="rgba(0,0,255,1)" dur="2s" fill="freeze"/></rect>
+  <rect x="70" y="130" width="50" height="50" fill="#333333"><animate attributeName="fill" by="#222222" dur="2s" fill="freeze"/></rect>
+  <rect x="130" y="130" width="50" height="50" fill="#333333"><animate attributeName="fill" from="#102030" by="#201000" dur="2s" fill="freeze"/></rect>
+</svg>

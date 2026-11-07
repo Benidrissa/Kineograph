@@ -1,0 +1,15 @@
+# Fixtures that cannot match the browser, with why. A line names a fixture, or fixture@time for one moment.
+smil-animate-color-paint    Chromium reads url() and none as black when SMIL animates a paint. The specification, and Firefox, change them in one step, as we do.
+feature-external-image      A browser draws a broken-picture icon for an image it cannot load. We draw nothing, so that no such icon ends up in an animation.
+feature-foreign-object      foreignObject holds HTML, which we skip by design, with a warning.
+feature-filter-blur         Filters are skipped by design, with a warning.
+feature-filter-css          Filters are skipped by design, with a warning.
+feature-blend               Blend modes are skipped by design, with a warning: Android only has them from API 29.
+smil-timing-repeat-event    Chromium only fires repeat events while playing, and reference pictures are taken paused. SvgSmilTest covers this instead.
+smil-calcmode-paced-transform  Chromium has a bug that spaces paced transforms evenly. We pace them by distance, as the specification and Firefox do.
+image-svg-slice             Chromium ignores slice on an image that is itself SVG, and shows the whole picture. We crop, as the specification says.
+text-family-unknown         A browser falls back to its default serif for a font it does not have. We pick sans-serif, likelier what the author saw.
+smil-motion-rotate-angle    Chromium ignores a fixed rotate angle on animateMotion. We turn the element, as the specification and Firefox do.
+kitchen-sink                It has a filter on one shape, and we skip filters by design, with a warning.
+text-decoration-skip        A browser breaks an underline around a letter's tail. We draw it straight through.
+feature-text-path           Text on a path is not implemented: it is skipped, with a warning.

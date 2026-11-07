@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <marker id="m" markerWidth="4" markerHeight="4" refX="2" refY="2"><animate attributeName="markerWidth" from="4" to="2" dur="2s" fill="freeze"/><animate attributeName="refX" from="2" to="0" dur="2s" fill="freeze"/><rect width="4" height="4" fill="#cc3333"/></marker>
+    <marker id="o" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="0"><animate attributeName="orient" from="0" to="90" dur="2s" fill="freeze"/><path d="M0 0 L8 4 L0 8 Z" fill="#3366cc"/></marker>
+    <clipPath id="c" clipPathUnits="userSpaceOnUse"><animate attributeName="clipPathUnits" from="userSpaceOnUse" to="objectBoundingBox" dur="2s" fill="freeze"/><circle cx=".5" cy=".5" r=".5"/><circle cx="150" cy="50" r="30"/></clipPath>
+    <linearGradient id="u" gradientUnits="objectBoundingBox"><animate attributeName="gradientUnits" from="objectBoundingBox" to="userSpaceOnUse" dur="2s" fill="freeze"/><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#00ff00"/></linearGradient>
+    <rect id="a" width="20" height="20" fill="#00aaaa"/><circle id="b" cx="10" cy="10" r="10" fill="#aa5500"/>
+  </defs>
+  <path d="M15 20 H85" stroke="#000000" stroke-width="3" marker-end="url(#m)"/>
+  <path d="M115 20 H185" stroke="#000000" stroke-width="1" marker-end="url(#o)"/>
+  <rect x="110" y="30" width="80" height="50" fill="#33aa33" clip-path="url(#c)"/>
+  <rect x="10" y="40" width="80" height="20" fill="url(#u)"/>
+  <svg x="10" y="70" width="60" height="30" viewBox="0 0 30 30" preserveAspectRatio="xMinYMid"><animate attributeName="preserveAspectRatio" from="xMinYMid" to="xMaxYMid" dur="2s" fill="freeze"/><rect width="30" height="30" fill="#cc9900"/></svg>
+  <path d="M10 120 H190" stroke="#990099" stroke-width="6" stroke-dasharray="1" pathLength="10"><animate attributeName="pathLength" from="10" to="40" dur="2s" fill="freeze"/></path>
+  <use x="10" y="130" href="#a"><set attributeName="href" to="#b" begin="1s"/></use>
+  <use x="40" y="130" xlink:href="#a"><animate attributeName="xlink:href" values="#a;#b" dur="2s" fill="freeze"/></use>
+  <text x="80 90 100" y="150" font-size="16" font-family="sans-serif">abc<animate attributeName="x" from="80 90 100" to="80 100 120" dur="2s" fill="freeze"/></text>
+  <text x="130" y="150" dy="0 0 0" font-size="16" font-family="sans-serif" fill="#555555">def<animate attributeName="dy" from="0 0 0" to="0 5 -5" dur="2s" fill="freeze"/></text>
+  <rect x="10" y="165" width="50" height="30" fill="#ff6600" style="fill: #0066ff"><animate attributeName="fill" from="#000000" to="#ffffff" dur="2s" fill="freeze"/></rect>
+  <rect x="70" y="165" width="50" height="30" style="x: 80px; fill: #66cc00"><animate attributeName="x" from="100" to="140" dur="2s" fill="freeze"/></rect>
+</svg>

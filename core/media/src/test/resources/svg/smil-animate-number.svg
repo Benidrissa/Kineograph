@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <rect x="10" y="10" width="30" height="30" fill="#cc3333"><animate attributeName="x" from="10" to="160" dur="2s" fill="freeze"/></rect>
+  <circle cx="25" cy="70" r="15" fill="#3366cc"><animate attributeName="cx" from="25" to="175" dur="2s" fill="freeze"/><animate attributeName="r" from="5" to="20" dur="2s" fill="freeze"/></circle>
+  <ellipse cx="100" cy="115" rx="10" ry="10" fill="#33aa33"><animate attributeName="rx" from="10" to="80" dur="2s" fill="freeze"/></ellipse>
+  <line x1="10" y1="150" x2="50" y2="150" stroke="#cc9900" stroke-width="6"><animate attributeName="x2" from="50" to="190" dur="2s" fill="freeze"/></line>
+  <rect x="10" y="165" width="20" height="20" rx="0" fill="#990099"><animate attributeName="width" from="20" to="180" dur="2s" fill="freeze"/><animate attributeName="rx" from="0" to="10" dur="2s" fill="freeze"/></rect>
+</svg>

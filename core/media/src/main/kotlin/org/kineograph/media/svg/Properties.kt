@@ -50,7 +50,7 @@ internal val PROPERTIES: Map<String, PropDef> =
         add(PropKind.NUMBER, false, true, "opacity", "stop-opacity")
         add(PropKind.NUMBER, true, true, "fill-opacity", "stroke-opacity", "stroke-miterlimit")
         add(PropKind.NUMBER, false, false, "pathLength", "offset")
-        add(PropKind.LENGTH, true, true, "stroke-width", "stroke-dashoffset", "letter-spacing")
+        add(PropKind.LENGTH, true, true, "stroke-width", "stroke-dashoffset", "letter-spacing", "word-spacing")
         add(PropKind.FONT_SIZE, true, true, "font-size")
         add(PropKind.LENGTH, false, true, "cx", "cy", "r", "rx", "ry", "width", "height")
         add(PropKind.LENGTH, false, false, "x1", "y1", "x2", "y2", "fx", "fy", "fr", "refX", "refY", "markerWidth", "markerHeight")
@@ -83,8 +83,25 @@ internal val PROPERTIES: Map<String, PropDef> =
             "image-rendering",
             "paint-order",
             "white-space",
+            "text-transform",
+            "font-variant",
+            "font-kerning",
         )
-        add(PropKind.KEYWORD, false, true, "display", "overflow", "transform-box", "mask-type", "vector-effect", "mix-blend-mode")
+        add(
+            PropKind.KEYWORD,
+            false,
+            true,
+            "display",
+            "overflow",
+            "transform-box",
+            "mask-type",
+            "vector-effect",
+            "mix-blend-mode",
+            "text-decoration",
+            "text-decoration-line",
+            "baseline-shift",
+            "alignment-baseline",
+        )
         add(PropKind.KEYWORD, true, false, "xml:space")
         add(PropKind.RAW, true, true, "font-family", "marker-start", "marker-mid", "marker-end")
         add(PropKind.RAW, false, true, "clip-path", "mask", "filter")
@@ -119,7 +136,11 @@ internal val ANIMATION_LONGHANDS: Set<String> =
         "animation-play-state",
     )
 
-internal fun parseProperty(name: String, raw: String): SvgValue? {
+/**
+ * Reads a property's value. [css] says it came from a stylesheet or a style attribute rather than a presentation attribute. For most
+ * properties that makes no difference, but CSS is stricter: there `x: 10` is a mistake, where the attribute `x="10"` is fine.
+ */
+internal fun parseProperty(name: String, raw: String, css: Boolean = false): SvgValue? {
     val def = PROPERTIES[name] ?: return null
     val text = raw.trim()
     if (text.isEmpty()) return null
@@ -133,8 +154,16 @@ internal fun parseProperty(name: String, raw: String): SvgValue? {
         // Lengths have no keyword of their own for "the usual". Both of these mean the initial value of the property.
         "auto", "normal" -> if (def.kind == PropKind.LENGTH || def.kind == PropKind.LENGTHS) return InitialValue
     }
+    if (css) {
+        if (def.kind == PropKind.TRANSFORM) return parseCssTransformList(text)?.let(::TransformValue)
+        if (name !in NUMBERS_ALLOWED_IN_CSS && def.kind in LENGTH_KINDS && splitList(text).any { !hasCssUnit(it) }) return null
+    }
     return parseKind(def.kind, text)
 }
+
+/** The kinds holding lengths, which in CSS must have units, along with the properties that browsers exempt from that rule. */
+private val LENGTH_KINDS = setOf(PropKind.LENGTH, PropKind.LENGTHS, PropKind.FONT_SIZE, PropKind.ORIGIN, PropKind.TRANSLATE)
+private val NUMBERS_ALLOWED_IN_CSS = setOf("stroke-width", "stroke-dashoffset", "x", "y", "cx", "cy", "r", "rx", "ry", "width", "height")
 
 private fun parseKind(kind: PropKind, text: String): SvgValue? =
     when (kind) {

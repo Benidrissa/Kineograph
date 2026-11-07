@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Splines and key times restart with each repeat. -->
+  <rect x="10" y="10" width="20" height="20" fill="#cc3333"><animate attributeName="x" from="10" to="170" dur="1s" repeatCount="indefinite" calcMode="spline" keySplines=".5 0 .5 1" keyTimes="0;1"/></rect>
+  <rect x="10" y="40" width="20" height="20" fill="#3366cc"><animate attributeName="x" values="10;170;10" keyTimes="0;.25;1" dur="1s" repeatCount="indefinite"/></rect>
+  <rect x="10" y="70" width="20" height="20" fill="#000000"><animate attributeName="fill" values="#ff0000;#00ff00;#0000ff;#ff0000" dur="1s" repeatCount="indefinite"/></rect>
+  <g transform="translate(100 130)"><rect x="-5" y="-30" width="10" height="30" fill="#33aa33"><animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="1s" repeatCount="indefinite" calcMode="spline" keySplines=".5 0 .5 1" keyTimes="0;1"/></rect></g>
+  <circle cx="30" cy="150" r="10" fill="#cc9900"><animate attributeName="r" values="5;20;5" dur="1s" repeatCount="indefinite" calcMode="spline" keySplines=".4 0 .6 1;.4 0 .6 1"/></circle>
+</svg>

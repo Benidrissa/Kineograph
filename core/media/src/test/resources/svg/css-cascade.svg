@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    .s { fill: #3366cc }
+    rect { fill: #cc3333 }
+    #a.s { fill: #33aa33 }
+    #a { fill: #cc9900 }
+    .imp { fill: #990099 !important }
+    #b { fill: #00aaaa }
+    .later { fill: #555555 }
+    .later { fill: #ff6600 }
+    .stroked { stroke: #000000; stroke-width: 4 !important }
+    .inline-beaten { fill: #66cc00 !important }
+    .attr { fill: #ff00ff }
+    .kw { fill: inherit }
+    .unknown { fill: #0066ff; nonsense: 12; fill: notacolour }
+    .ini { stroke-width: initial; stroke: #000000; fill: initial }
+  </style>
+  <!-- Class beats type, whatever the order. -->
+  <rect class="s" x="5" y="5" width="30" height="30"/>
+  <!-- Id with class beats id alone. -->
+  <rect id="a" class="s" x="45" y="5" width="30" height="30"/>
+  <!-- important beats an id, and a style attribute. -->
+  <rect id="b" class="imp" x="85" y="5" width="30" height="30" style="fill: #ffff00"/>
+  <!-- Equal rank: last one wins. -->
+  <rect class="later" x="125" y="5" width="30" height="30"/>
+  <!-- A style attribute beats rules, and rules beat presentation attributes. -->
+  <rect class="s" x="165" y="5" width="30" height="30" style="fill: #00ffff"/>
+  <rect class="attr" x="5" y="45" width="30" height="30" fill="#000000"/>
+  <rect x="45" y="45" width="30" height="30" class="stroked" stroke-width="20" style="stroke-width: 10"/>
+  <rect class="inline-beaten" x="85" y="45" width="30" height="30" style="fill: #000000 !important"/>
+  <g fill="#aa5500"><rect class="kw" x="125" y="45" width="30" height="30"/></g>
+  <rect class="unknown" x="165" y="45" width="30" height="30"/>
+  <rect class="ini" x="5" y="85" width="30" height="30"/>
+  <!-- Later declarations in one style attribute win, unless earlier was important. -->
+  <rect x="45" y="85" width="30" height="30" style="fill: #ff0000; fill: #00ff00"/>
+  <rect x="85" y="85" width="30" height="30" style="fill: #ff0000 !important; fill: #00ff00"/>
+  <rect x="125" y="85" width="30" height="30" style="fill: #ff0000; fill: broken"/>
+  <rect x="165" y="85" width="30" height="30" style=";;fill:#0000ff;;;nonsense;:;"/>
+  <!-- Presentation attributes are only those SVG defines; an unknown one does nothing. -->
+  <rect x="5" y="125" width="30" height="30" fill="#3366cc" nonsense="1"/>
+</svg>

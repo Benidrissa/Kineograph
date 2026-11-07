@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <path fill="#cc3333" d="M10 10 H90 V90 H10 Z"><animate attributeName="d" from="M10 10 H90 V90 H10 Z" to="M50 10 H90 V50 H50 Z" dur="2s" fill="freeze"/></path>
+  <path fill="#3366cc" d="M110 50 C110 20 190 20 190 50 C190 80 110 80 110 50 Z"><animate attributeName="d" values="M110 50 C110 20 190 20 190 50 C190 80 110 80 110 50 Z;M110 50 C110 0 190 0 190 50 C190 100 110 100 110 50 Z;M130 50 C130 30 170 30 170 50 C170 70 130 70 130 50 Z" dur="2s" fill="freeze"/></path>
+  <!-- Same commands, one written relative: they still match. -->
+  <path fill="#33aa33" d="M10 110 L50 110 L50 150 Z"><animate attributeName="d" from="M10 110 L50 110 L50 150 Z" to="M10 110 l80 10 l-20 60 z" dur="2s" fill="freeze"/></path>
+  <!-- Arc radii and flags interpolate too, flags in one step. -->
+  <path fill="none" stroke="#cc9900" stroke-width="4"><animate attributeName="d" from="M110 150 A20 20 0 0 1 150 150" to="M110 150 A40 30 45 1 0 190 150" dur="2s" fill="freeze"/></path>
+  <!-- Different commands cannot be mixed, and jump in one step. -->
+  <path fill="#990099"><animate attributeName="d" from="M10 185 h30 v10 h-30 z" to="M50 185 C60 170 80 170 90 195 z" dur="2s" fill="freeze"/></path>
+  <path fill="#00aaaa"><animate attributeName="d" from="M110 185 Q130 170 150 185 T190 185" to="M110 195 Q130 195 150 195 T190 190" dur="2s" fill="freeze"/></path>
+</svg>

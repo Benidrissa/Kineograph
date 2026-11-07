@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs><path id="p" d="M20 150 Q100 20 180 150"/></defs>
+  <text font-size="16" font-family="sans-serif"><textPath href="#p">Text on a curve</textPath></text>
+</svg>

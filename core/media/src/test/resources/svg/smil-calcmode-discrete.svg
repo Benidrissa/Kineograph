@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <rect x="10" y="10" width="20" height="20" fill="#cc3333"><animate attributeName="x" values="10;170;90" dur="2s" calcMode="discrete" fill="freeze"/></rect>
+  <rect x="10" y="40" width="20" height="20" fill="#3366cc"><animate attributeName="x" values="10;170;90" keyTimes="0;.25;.5" dur="2s" calcMode="discrete" fill="freeze"/></rect>
+  <rect x="10" y="70" width="20" height="20" fill="#33aa33"><animate attributeName="x" from="10" to="170" dur="2s" calcMode="discrete" fill="freeze"/></rect>
+  <rect x="10" y="100" width="20" height="20" fill="#cc9900"><animate attributeName="x" to="170" dur="2s" calcMode="discrete" fill="freeze"/></rect>
+  <rect x="10" y="130" width="20" height="20" fill="#990099"><animateTransform attributeName="transform" type="translate" values="0;100;50" dur="2s" calcMode="discrete" fill="freeze"/></rect>
+  <rect x="10" y="160" width="20" height="20" fill="#000000"><animate attributeName="fill" values="#ff0000;#00ff00;#0000ff" dur="2s" calcMode="discrete" fill="freeze"/></rect>
+</svg>

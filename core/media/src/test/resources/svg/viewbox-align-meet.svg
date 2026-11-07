@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Every alignment with meet: a wide viewBox in a tall window, then a tall viewBox in a wide window. -->
+  <rect width="200" height="200" fill="#eeeeee"/>
+  <defs><g id="wide"><rect width="30" height="10" fill="#cc3333"/><circle cx="5" cy="5" r="4" fill="#ffffff"/></g></defs>
+  <g fill="none">
+  <svg x="0"   y="0"  width="30" height="40" viewBox="0 0 30 10" preserveAspectRatio="xMinYMin meet"><use href="#wide"/></svg>
+  <svg x="35"  y="0"  width="30" height="40" viewBox="0 0 30 10" preserveAspectRatio="xMidYMin meet"><use href="#wide"/></svg>
+  <svg x="70"  y="0"  width="30" height="40" viewBox="0 0 30 10" preserveAspectRatio="xMaxYMin meet"><use href="#wide"/></svg>
+  <svg x="0"   y="45" width="30" height="40" viewBox="0 0 30 10" preserveAspectRatio="xMinYMid meet"><use href="#wide"/></svg>
+  <svg x="35"  y="45" width="30" height="40" viewBox="0 0 30 10" preserveAspectRatio="xMidYMid meet"><use href="#wide"/></svg>
+  <svg x="70"  y="45" width="30" height="40" viewBox="0 0 30 10" preserveAspectRatio="xMaxYMid meet"><use href="#wide"/></svg>
+  <svg x="0"   y="90" width="30" height="40" viewBox="0 0 30 10" preserveAspectRatio="xMinYMax meet"><use href="#wide"/></svg>
+  <svg x="35"  y="90" width="30" height="40" viewBox="0 0 30 10" preserveAspectRatio="xMidYMax meet"><use href="#wide"/></svg>
+  <svg x="70"  y="90" width="30" height="40" viewBox="0 0 30 10" preserveAspectRatio="xMaxYMax meet"><use href="#wide"/></svg>
+  <svg x="110" y="0"  width="40" height="30" viewBox="0 0 10 30" preserveAspectRatio="xMinYMin"><rect width="10" height="30" fill="#3366cc"/></svg>
+  <svg x="155" y="0"  width="40" height="30" viewBox="0 0 10 30" preserveAspectRatio="xMidYMin"><rect width="10" height="30" fill="#3366cc"/></svg>
+  <svg x="110" y="35" width="40" height="30" viewBox="0 0 10 30" preserveAspectRatio="xMaxYMin"><rect width="10" height="30" fill="#3366cc"/></svg>
+  <svg x="155" y="35" width="40" height="30" viewBox="0 0 10 30" preserveAspectRatio="xMinYMid"><rect width="10" height="30" fill="#33aa33"/></svg>
+  <svg x="110" y="70" width="40" height="30" viewBox="0 0 10 30" preserveAspectRatio="xMidYMid"><rect width="10" height="30" fill="#33aa33"/></svg>
+  <svg x="155" y="70" width="40" height="30" viewBox="0 0 10 30" preserveAspectRatio="xMaxYMid"><rect width="10" height="30" fill="#33aa33"/></svg>
+  <svg x="110" y="105" width="40" height="30" viewBox="0 0 10 30" preserveAspectRatio="xMinYMax"><rect width="10" height="30" fill="#cc9900"/></svg>
+  <svg x="155" y="105" width="40" height="30" viewBox="0 0 10 30" preserveAspectRatio="xMidYMax"><rect width="10" height="30" fill="#cc9900"/></svg>
+  <svg x="110" y="140" width="40" height="30" viewBox="0 0 10 30" preserveAspectRatio="xMaxYMax"><rect width="10" height="30" fill="#cc9900"/></svg>
+  <svg x="0" y="140" width="90" height="50" viewBox="0 0 10 30" preserveAspectRatio="none"><rect width="10" height="30" fill="#990099"/></svg>
+  <svg x="155" y="140" width="40" height="30" viewBox="0 0 10 30" preserveAspectRatio="nonsense"><rect width="10" height="30" fill="#00aaaa"/></svg>
+  </g>
+</svg>

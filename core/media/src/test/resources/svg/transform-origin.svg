@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    rect { fill-opacity: .8; }
+    .kw { transform: rotate(20deg); transform-origin: center; }
+    .lt { transform: rotate(20deg); transform-origin: left top; }
+    .br { transform: rotate(20deg); transform-origin: bottom right; }
+    .one { transform: rotate(20deg); transform-origin: 25%; }
+    .em { transform: rotate(20deg); transform-origin: 2em 3em; font-size: 10px; }
+    .bx { transform: rotate(20deg); transform-origin: center; transform-box: fill-box; }
+    .bxlt { transform: rotate(20deg); transform-origin: 0 0; transform-box: fill-box; }
+    .bxp { transform: rotate(20deg); transform-origin: 100% 50%; transform-box: fill-box; }
+    .stk { transform: rotate(20deg); transform-origin: 0 0; transform-box: stroke-box; }
+    .vb { transform: rotate(20deg); transform-origin: 50% 50%; transform-box: view-box; }
+  </style>
+  <rect class="kw" x="10" y="10" width="20" height="20" fill="#cc3333"/>
+  <rect class="lt" x="60" y="5" width="20" height="20" fill="#3366cc"/>
+  <rect class="br" x="110" y="10" width="20" height="20" fill="#33aa33"/>
+  <rect class="one" x="160" y="10" width="20" height="20" fill="#cc9900"/>
+  <rect class="em" x="10" y="60" width="20" height="20" fill="#990099"/>
+  <rect class="bx" x="60" y="60" width="40" height="20" fill="#00aaaa"/>
+  <rect class="bxlt" x="120" y="60" width="40" height="20" fill="#aa5500"/>
+  <rect class="bxp" x="10" y="110" width="40" height="20" fill="#555555"/>
+  <rect class="stk" x="70" y="110" width="40" height="20" fill="#ff6600" stroke="#000000" stroke-width="10"/>
+  <rect class="vb" x="130" y="110" width="40" height="20" fill="#0066ff"/>
+  <!-- The attribute transform also uses transform-origin. -->
+  <rect x="10" y="160" width="40" height="20" fill="#66cc00" transform="rotate(20)" style="transform-origin: 30px 170px"/>
+  <!-- A group's fill box is the union of its children. -->
+  <g style="transform: rotate(20deg); transform-origin: center; transform-box: fill-box">
+    <rect x="90" y="150" width="20" height="20" fill="#ff00ff"/>
+    <circle cx="150" cy="180" r="15" fill="#00ffff"/>
+  </g>
+</svg>

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    @keyframes f { from { fill: #ff0000 } to { fill: #0000ff } }
+    @keyframes s { from { stroke: #00ff00 } to { stroke: #ff00ff } }
+    @keyframes o { from { opacity: 1 } to { opacity: 0 } }
+    @keyframes fo { from { fill-opacity: 1 } 50% { fill-opacity: 0 } to { fill-opacity: 1 } }
+    @keyframes so { from { stroke-opacity: 0 } to { stroke-opacity: 1 } }
+    @keyframes c { from { color: #ff8800 } to { color: #0088ff } }
+    @keyframes w { from { stroke-width: 1px } to { stroke-width: 15px } }
+    @keyframes kw { from { fill: red } to { fill: rgba(0, 0, 255, .5) } }
+    @keyframes cc { from { fill: currentColor } to { fill: #ffffff } }
+    .f { animation: f 2s linear forwards }
+    .s { animation: s 2s linear forwards; fill: none; stroke-width: 8 }
+    .o { animation: o 2s linear forwards }
+    .fo { animation: fo 2s linear forwards }
+    .so { animation: so 2s linear forwards; stroke: #000000; stroke-width: 8 }
+    .c { animation: c 2s linear forwards; fill: currentColor }
+    .w { animation: w 2s linear forwards; stroke: #000000; fill: none }
+    .kw { animation: kw 2s linear forwards }
+    .cc { color: #00aa00; animation: cc 2s linear forwards }
+  </style>
+  <rect width="200" height="200" fill="#dddddd"/>
+  <rect class="f" x="10" y="10" width="40" height="40"/>
+  <rect class="s" x="70" y="10" width="40" height="40"/>
+  <rect class="o" x="130" y="10" width="40" height="40" fill="#990099"/>
+  <rect class="fo" x="10" y="70" width="40" height="40" fill="#cc9900"/>
+  <rect class="so" x="70" y="70" width="40" height="40" fill="#ffffff"/>
+  <rect class="c" x="130" y="70" width="40" height="40"/>
+  <rect class="w" x="10" y="130" width="40" height="40"/>
+  <rect class="kw" x="70" y="130" width="40" height="40"/>
+  <rect class="cc" x="130" y="130" width="40" height="40"/>
+</svg>

@@ -40,7 +40,7 @@ internal class SmilTiming(
     private var starts = DoubleArray(0)
     private var stops = DoubleArray(0)
 
-    /** The end before `min` stretched it: past this the element stays active, but only shows its fill. */
+    /** Where the repeating part of each interval runs out. Past this, while `min` keeps the element active, only its fill shows. */
     private var naturalStops = DoubleArray(0)
 
     /** Length of the repeating tail, when the intervals never stop coming and settle into a pattern. Zero otherwise. */
@@ -68,27 +68,25 @@ internal class SmilTiming(
     val hasIndefiniteRepeat: Boolean
         get() = duration != null && (repeatCount == Double.POSITIVE_INFINITY || repeatDuration == Double.POSITIVE_INFINITY)
 
-    private fun activeDuration(begin: Double, endLimit: Double): Double {
+    private fun repeatingDuration(): Double {
         val d = duration
-        val repeating =
-            when {
-                repeatCount == null && repeatDuration == null -> {
-                    d ?: Double.POSITIVE_INFINITY
-                }
-
-                else -> {
-                    val byCount =
-                        if (repeatCount == null) {
-                            Double.POSITIVE_INFINITY
-                        } else if (d == null) {
-                            Double.POSITIVE_INFINITY
-                        } else {
-                            d * repeatCount
-                        }
-                    min(byCount, repeatDuration ?: Double.POSITIVE_INFINITY)
-                }
+        return when {
+            repeatCount == null && repeatDuration == null -> {
+                d ?: Double.POSITIVE_INFINITY
             }
-        return min(repeating, endLimit - begin)
+
+            else -> {
+                val byCount =
+                    if (repeatCount == null) {
+                        Double.POSITIVE_INFINITY
+                    } else if (d == null) {
+                        Double.POSITIVE_INFINITY
+                    } else {
+                        d * repeatCount
+                    }
+                min(byCount, repeatDuration ?: Double.POSITIVE_INFINITY)
+            }
+        }
     }
 
     /** Builds the intervals from the current instance times, following the rules for restarting from SMIL. */
@@ -110,8 +108,8 @@ internal class SmilTiming(
             }
             // Every end is already in the past and none can still come: SMIL says this and all later intervals never happen.
             if (!hasEnd && !endOpen) break
-            val natural = activeDuration(begin, endLimit)
-            val stretched = natural.coerceIn(min(minDuration, maxDuration), maxDuration)
+            val repeating = repeatingDuration()
+            val stretched = min(repeating, endLimit - begin).coerceIn(min(minDuration, maxDuration), maxDuration)
             var stop = begin + stretched
             var next = index + 1
             when (restart) {
@@ -121,7 +119,7 @@ internal class SmilTiming(
             }
             outStarts += begin
             outStops += stop
-            outNatural += begin + min(natural, stretched)
+            outNatural += begin + repeating
             index = next
         }
         val newStarts = outStarts.toDoubleArray()
@@ -172,10 +170,10 @@ internal class SmilTiming(
         val index = lastStartAtOrBefore(t)
         if (index < 0) return null
         val begin = starts[index]
-        val natural = naturalStops[index] - begin
-        if (t < stops[index] && t - begin < natural) return activeState(t - begin, begin)
+        val repeating = naturalStops[index] - begin
+        if (t < stops[index] && t - begin < repeating) return activeState(t - begin, begin)
         if (!freeze) return null
-        return frozenState(min(natural, stops[index] - begin), begin)
+        return frozenState(min(repeating, stops[index] - begin), begin)
     }
 
     /** Begin time of the interval in effect, used to stack animations of one property in SMIL's priority order. */

@@ -595,16 +595,26 @@ class SvgCssAnimationTest {
     }
 
     @Test
-    fun `display flips half way between keyframes`() {
+    fun `display none only takes hold at the very ends of an animation`() {
         val doc =
             parse(
                 svg(
                     """<style>@keyframes k { from { display: none } to { display: inline } }
-                    rect { animation: k 2s linear; fill: #f00 }</style><rect width="100" height="100"/>""",
+                    rect { animation: k 2s linear forwards; fill: #f00 }</style><rect width="100" height="100"/>""",
                 ),
             )
-        assertEquals(0, doc.frame(0.5).paintedPixels())
+        assertEquals(0, doc.frame(0.0).paintedPixels())
+        doc.frame(0.5).assertPixel(50, 50, RED)
         doc.frame(1.5).assertPixel(50, 50, RED)
+        val out =
+            parse(
+                svg(
+                    """<style>@keyframes k { from { display: inline } to { display: none } }
+                    rect { animation: k 2s linear forwards; fill: #f00 }</style><rect width="100" height="100"/>""",
+                ),
+            )
+        out.frame(1.5).assertPixel(50, 50, RED)
+        assertEquals(0, out.frame(2.0).paintedPixels())
     }
 
     @Test

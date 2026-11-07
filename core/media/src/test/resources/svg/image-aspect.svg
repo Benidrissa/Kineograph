@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <rect width="200" height="200" fill="#dddddd"/>
+  <!-- A wide picture in a square box, every way of fitting it. -->
+  <image x="5" y="5" width="60" height="60" image-rendering="pixelated" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAIAAABwJOjsAAAALUlEQVR4nGNkYGhgY2AgF5Gvl4WBh2FAwKjFoxaPWjxq8ajFoxaPWjxqMf0BAG6fAxyBZdLUAAAAAElFTkSuQmCC"/>
+  <image x="70" y="5" width="60" height="60" image-rendering="pixelated" preserveAspectRatio="xMinYMin" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAIAAABwJOjsAAAALUlEQVR4nGNkYGhgY2AgF5Gvl4WBh2FAwKjFoxaPWjxq8ajFoxaPWjxqMf0BAG6fAxyBZdLUAAAAAElFTkSuQmCC"/>
+  <image x="135" y="5" width="60" height="60" image-rendering="pixelated" preserveAspectRatio="xMaxYMax" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAIAAABwJOjsAAAALUlEQVR4nGNkYGhgY2AgF5Gvl4WBh2FAwKjFoxaPWjxq8ajFoxaPWjxqMf0BAG6fAxyBZdLUAAAAAElFTkSuQmCC"/>
+  <image x="5" y="70" width="60" height="60" image-rendering="pixelated" preserveAspectRatio="none" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAIAAABwJOjsAAAALUlEQVR4nGNkYGhgY2AgF5Gvl4WBh2FAwKjFoxaPWjxq8ajFoxaPWjxqMf0BAG6fAxyBZdLUAAAAAElFTkSuQmCC"/>
+  <image x="70" y="70" width="60" height="60" image-rendering="pixelated" preserveAspectRatio="xMidYMid slice" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAIAAABwJOjsAAAALUlEQVR4nGNkYGhgY2AgF5Gvl4WBh2FAwKjFoxaPWjxq8ajFoxaPWjxqMf0BAG6fAxyBZdLUAAAAAElFTkSuQmCC"/>
+  <image x="135" y="70" width="60" height="60" image-rendering="pixelated" preserveAspectRatio="xMinYMin slice" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAIAAABwJOjsAAAALUlEQVR4nGNkYGhgY2AgF5Gvl4WBh2FAwKjFoxaPWjxq8ajFoxaPWjxqMf0BAG6fAxyBZdLUAAAAAElFTkSuQmCC"/>
+  <!-- One side given: the other follows the picture. -->
+  <image x="5" y="135" width="60" image-rendering="pixelated" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAIAAABwJOjsAAAALUlEQVR4nGNkYGhgY2AgF5Gvl4WBh2FAwKjFoxaPWjxq8ajFoxaPWjxqMf0BAG6fAxyBZdLUAAAAAElFTkSuQmCC"/>
+  <image x="70" y="135" height="20" image-rendering="pixelated" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAIAAABwJOjsAAAALUlEQVR4nGNkYGhgY2AgF5Gvl4WBh2FAwKjFoxaPWjxq8ajFoxaPWjxqMf0BAG6fAxyBZdLUAAAAAElFTkSuQmCC"/>
+  <image x="135" y="135" width="60" height="60" preserveAspectRatio="xMaxYMid" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSIyMCIgdmlld0JveD0iMCAwIDQwIDIwIj48cmVjdCB3aWR0aD0iNDAiIGhlaWdodD0iMjAiIGZpbGw9IiNjYzk5MDAiLz48Y2lyY2xlIGN4PSIxMCIgY3k9IjEwIiByPSI4IiBmaWxsPSIjMDAwMDAwIi8+PC9zdmc+"/>
+</svg>

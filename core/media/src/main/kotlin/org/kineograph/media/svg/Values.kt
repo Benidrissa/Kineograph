@@ -34,7 +34,7 @@ internal data class Rgba(val r: Double, val g: Double, val b: Double, val a: Dou
 
     /**
      * CSS mixes colours premultiplied, so that fading to `transparent` does not pass through a dark fringe. When both alphas are
-     * equal this reduces to plain channel mixing, which is what SMIL expects.
+     * equal this reduces to plain channel mixing.
      */
     fun mix(other: Rgba, p: Double): Rgba {
         val alpha = (a + (other.a - a) * p).coerceIn(0.0, 1.0)
@@ -42,6 +42,15 @@ internal data class Rgba(val r: Double, val g: Double, val b: Double, val a: Dou
         fun channel(x: Double, y: Double): Double = ((x * a + (y * other.a - x * a) * p) / alpha).coerceIn(0.0, 255.0)
         return Rgba(channel(r, other.r), channel(g, other.g), channel(b, other.b), alpha)
     }
+
+    /** SMIL works on each channel on its own, opacity included, which is not the same as CSS once the two opacities differ. */
+    fun mixStraight(other: Rgba, p: Double): Rgba =
+        Rgba(
+            (r + (other.r - r) * p).coerceIn(0.0, 255.0),
+            (g + (other.g - g) * p).coerceIn(0.0, 255.0),
+            (b + (other.b - b) * p).coerceIn(0.0, 255.0),
+            (a + (other.a - a) * p).coerceIn(0.0, 1.0),
+        )
 
     private fun roundChannel(value: Double): Int = floor(value.coerceIn(0.0, 255.0) + 0.5).toInt()
 
@@ -112,7 +121,7 @@ internal class NumberScanner(private val text: String, var pos: Int = 0) {
     /**
      * Reads one number, or returns null and stays put. The grammar is checked by hand because Double.parseDouble also accepts
      * `NaN`, `Infinity`, `1f` and hexadecimal, none of which may reach the renderer. An `e` only starts an exponent when digits
-     * follow it, so `1em` reads as the number 1 followed by a unit.
+     * follow it, so `1em` reads as the number 1 followed by a unit. A dot must have digits after it: browsers treat `5.` as a mistake.
      */
     fun number(): Double? {
         val n = text.length
@@ -125,6 +134,7 @@ internal class NumberScanner(private val text: String, var pos: Int = 0) {
         }
         if (i < n && text[i] == '.') {
             i++
+            if (i >= n || !text[i].isAsciiDigit()) return null
             while (i < n && text[i].isAsciiDigit()) {
                 i++
                 digits++
@@ -178,6 +188,24 @@ internal fun parseLengthOrNull(raw: String): Length? {
     return lengthWithUnit(value, text.substring(scanner.pos))
 }
 
+private val REM_LENGTH = Regex("""([+-]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)rem\b""", RegexOption.IGNORE_CASE)
+
+/** `rem` depends on the file's outermost element, which a length cannot know by itself, so it becomes plain pixels before it is read. */
+internal fun resolveRem(text: String, rootFontSize: Double): String {
+    if (!text.contains("rem", ignoreCase = true)) return text
+    return REM_LENGTH.replace(text) { match ->
+        val value = match.groupValues[1].toDoubleOrNull() ?: return@replace match.value
+        "${value * rootFontSize}px"
+    }
+}
+
+/** CSS wants a unit on every length and angle, with zero as the one exception. Text that is a bare number fails this. */
+internal fun hasCssUnit(text: String): Boolean {
+    val trimmed = text.trim()
+    val number = parseNumberOrNull(trimmed) ?: return true
+    return number == 0.0
+}
+
 internal fun lengthWithUnit(value: Double, unit: String): Length? =
     when (unit.lowercase()) {
         "", "px" -> Length(px = value)
@@ -188,8 +216,6 @@ internal fun lengthWithUnit(value: Double, unit: String): Length? =
 
         // No font in this renderer reports an x-height before drawing. The SVG specification allows half an em in that case.
         "ex" -> Length(em = value * 0.5)
-
-        "rem" -> Length(px = value * 16.0)
 
         "pt" -> Length(px = value * 96.0 / 72.0)
 

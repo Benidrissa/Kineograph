@@ -93,4 +93,8 @@ internal class SvgModel(
 ) {
     /** Laid-out text, kept between frames because shaping text is far slower than drawing the outlines it produces. */
     val glyphs: GlyphCache = GlyphCache()
+
+    private val basicShapes = HashMap<String, BasicShape?>()
+
+    fun basicShape(text: String): BasicShape? = basicShapes.getOrPut(text) { parseBasicShape(text) }
 }

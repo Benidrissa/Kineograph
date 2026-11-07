@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    .t { translate: 20px 30px; }
+    .r { rotate: 30deg; }
+    .s { scale: 1.5; }
+    .all { translate: 100px 100px; rotate: 45deg; scale: 2 1; }
+    .mix { translate: 10px 0; transform: rotate(10deg); }
+    .c { rotate: 45deg; transform-origin: center; transform-box: fill-box; }
+  </style>
+  <rect class="t" x="0" y="0" width="30" height="20" fill="#cc3333"/>
+  <rect class="r" x="60" y="0" width="30" height="20" fill="#3366cc"/>
+  <rect class="s" x="100" y="0" width="30" height="20" fill="#33aa33"/>
+  <rect class="all" x="0" y="0" width="30" height="20" fill="#cc9900"/>
+  <rect class="mix" x="10" y="150" width="50" height="20" fill="#990099"/>
+  <rect class="c" x="140" y="150" width="40" height="20" fill="#00aaaa"/>
+</svg>

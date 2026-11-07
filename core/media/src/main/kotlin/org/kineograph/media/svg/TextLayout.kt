@@ -6,6 +6,9 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.Typeface
 import android.os.Build
+import java.util.Locale
+import kotlin.math.ceil
+import kotlin.math.round
 
 private val TEXT_CHILD_TAGS = setOf("tspan", "textPath", "a", "altGlyph")
 
@@ -22,11 +25,30 @@ internal class PlacedRun(
     val y: Double,
     val glyphs: GlyphRun,
     val letterSpacingEm: Float,
+    val decorations: List<ActiveDecoration>,
 ) {
     var path: Path? = null
+
+    /**
+     * Android splits letter spacing into half before each letter and half after it, where SVG puts it all after. Glyphs are
+     * placed by this much relative to [x], so that the first letter of a run stays on its position.
+     */
+    val glyphShift: Double get() = -letterSpacingEm * style.fontSize / 2.0
 }
 
-internal class TextLayout(val runs: List<PlacedRun>, val box: Box?)
+/** A `text-decoration` in force, with the element that asked for it. Its paint is that element's, whatever is written beneath. */
+internal class ActiveDecoration(val kind: Int, val style: Style) {
+    companion object {
+        const val UNDERLINE: Int = 0
+        const val OVERLINE: Int = 1
+        const val LINE_THROUGH: Int = 2
+    }
+}
+
+/** One line of decoration, ready to paint like any other shape. */
+internal class PlacedDecoration(val path: Path, val style: Style, val isOverText: Boolean)
+
+internal class TextLayout(val runs: List<PlacedRun>, val decorations: List<PlacedDecoration>, val box: Box?)
 
 internal object TextSupport {
     /**
@@ -44,6 +66,7 @@ internal object TextSupport {
         paint.isSubpixelText = true
         paint.isLinearText = true
         if (letterSpacingEm != 0f) paint.letterSpacing = letterSpacingEm
+        if (style.fontFeatures.isNotEmpty()) paint.fontFeatureSettings = style.fontFeatures
         return paint
     }
 
@@ -70,6 +93,8 @@ internal object TextSupport {
 
     /** Files name fonts this phone does not have, and the app bundles none. Each name is mapped to the generic face closest in feel. */
     internal fun genericFamily(list: String): String {
+        // With no name at all, every browser falls back to its default font, which is a serif one.
+        if (list.isBlank()) return "serif"
         for (raw in list.split(',')) {
             when (raw.trim().trim('"', '\'').lowercase()) {
                 "serif", "times", "times new roman", "georgia", "garamond", "palatino", "palatino linotype", "cambria",
@@ -96,7 +121,7 @@ internal class GlyphCache {
     private val runs = HashMap<String, GlyphRun>()
 
     fun get(style: Style, letterSpacingEm: Float, text: String): GlyphRun {
-        val key = "${style.fontFamily}|${style.fontWeight}|${style.italic}|$letterSpacingEm|$text"
+        val key = "${style.fontFamily}|${style.fontWeight}|${style.italic}|${style.fontFeatures}|$letterSpacingEm|$text"
         return runs.getOrPut(key) { measure(style, letterSpacingEm, text) }
     }
 
@@ -126,7 +151,15 @@ internal class TextLayouter(
     private val vp: Viewport,
     private val viewFor: (SvgElement, Style) -> PropView,
 ) {
-    private class Level(val xs: List<Double>, val ys: List<Double>, val dxs: List<Double>, val dys: List<Double>) {
+    private class Level(
+        val xs: List<Double>,
+        val ys: List<Double>,
+        val dxs: List<Double>,
+        val dys: List<Double>,
+        val decorations: List<ActiveDecoration>,
+        /** How far this element and those around it raise or lower the text, as asked by `baseline-shift` and `alignment-baseline`. */
+        val shift: Double,
+    ) {
         var index = 0
     }
 
@@ -134,6 +167,9 @@ internal class TextLayouter(
     private val levels = ArrayList<Level>()
     private val pending = StringBuilder()
     private var pendingStyle: Style? = null
+    private var pendingDecorations: List<ActiveDecoration> = emptyList()
+    private var pendingShift = 0.0
+    private var insideWord = false
     private var penX = 0.0
     private var penY = 0.0
     private var chunkStart = 0
@@ -142,15 +178,20 @@ internal class TextLayouter(
     /** Starting true is what drops the whitespace at the start of a text element. */
     private var lastWasSpace = true
 
+    /** Word spacing owed for a space just placed. It waits for the next letter, because a space at the very end adds nothing. */
+    private var owedWordSpacing = 0.0
+    private val placedDecorations = ArrayList<PlacedDecoration>()
+
     fun layout(el: SvgElement, view: PropView, style: Style): TextLayout {
         visit(el, view, style)
         flush(trimEnd = true)
         finishChunk()
-        return TextLayout(runs, finishRuns())
+        val box = finishRuns()
+        return TextLayout(runs, placedDecorations, box)
     }
 
     private fun visit(el: SvgElement, view: PropView, style: Style) {
-        levels += readLevel(view, style)
+        levels += readLevel(el, view, style)
         for (node in el.content.orEmpty()) {
             when (node) {
                 is String -> {
@@ -168,15 +209,77 @@ internal class TextLayouter(
         levels.removeAt(levels.lastIndex)
     }
 
-    private fun readLevel(view: PropView, style: Style): Level =
+    private fun readLevel(el: SvgElement, view: PropView, style: Style): Level =
         Level(
             view.lengths("x").map { it.resolve(vp.w, style.fontSize) },
             view.lengths("y").map { it.resolve(vp.h, style.fontSize) },
             view.lengths("dx").map { it.resolve(vp.w, style.fontSize) },
             view.lengths("dy").map { it.resolve(vp.h, style.fontSize) },
+            levels.lastOrNull()?.decorations.orEmpty() + decorationsOf(view, style),
+            (levels.lastOrNull()?.shift ?: 0.0) + ownShift(el, view, style),
         )
 
-    private fun emit(text: String, style: Style) {
+    /** Both move a whole element's text at once: its letters, and everything inside it. */
+    private fun ownShift(el: SvgElement, view: PropView, style: Style): Double {
+        val shifting = view.keyword("baseline-shift")
+        val aligning = view.keyword("alignment-baseline")
+        if (shifting == null && aligning == null) return 0.0
+        val glyphs = cache.get(style, 0f, "x")
+        val scale = style.fontSize / TextSupport.NOMINAL_SIZE
+        val height = round(glyphs.ascent * scale) + round(glyphs.descent * scale)
+        val shift =
+            when (shifting) {
+                null, "baseline" -> 0.0
+                "sub" -> height / 2.0
+                "super" -> -height / 2.0
+                else -> parseLengthOrNull(shifting)?.let { -it.resolve(style.fontSize, style.fontSize) } ?: 0.0
+            }
+        // A plain `text` element has nothing around it to line up with, yet browsers still move it, as if its own baseline were the parent's.
+        return shift + (aligning?.let { baselineOffset(it, glyphs, scale) } ?: 0.0)
+    }
+
+    /** `text-decoration` is not inherited, but it does draw across everything inside the element that asks for it. */
+    private fun decorationsOf(view: PropView, style: Style): List<ActiveDecoration> {
+        val text = view.keyword("text-decoration-line") ?: view.keyword("text-decoration") ?: return emptyList()
+        val out = ArrayList<ActiveDecoration>(1)
+        for (token in splitList(text)) {
+            when (token) {
+                "underline" -> out += ActiveDecoration(ActiveDecoration.UNDERLINE, style)
+                "overline" -> out += ActiveDecoration(ActiveDecoration.OVERLINE, style)
+                "line-through" -> out += ActiveDecoration(ActiveDecoration.LINE_THROUGH, style)
+            }
+        }
+        return out
+    }
+
+    /** Case changes work on what will be drawn, while whether a letter starts a word depends on what came before, so it is kept. */
+    private fun transformCase(text: String, style: Style): String =
+        when (style.textTransform) {
+            "uppercase" -> {
+                text.uppercase(Locale.ROOT)
+            }
+
+            "lowercase" -> {
+                text.lowercase(Locale.ROOT)
+            }
+
+            "capitalize" -> {
+                val out = StringBuilder(text.length)
+                for (c in text) {
+                    val isLetterOrDigit = c.isLetterOrDigit()
+                    out.append(if (isLetterOrDigit && !insideWord) c.titlecaseChar() else c)
+                    insideWord = isLetterOrDigit || c == '\'' || c == '\u2019'
+                }
+                out.toString()
+            }
+
+            else -> {
+                text
+            }
+        }
+
+    private fun emit(rawText: String, style: Style) {
+        val text = transformCase(rawText, style)
         var i = 0
         while (i < text.length) {
             val codePoint = text.codePointAt(i)
@@ -194,6 +297,7 @@ internal class TextLayouter(
                 lastWasSpace = false
             }
             placeCharacter(character, style)
+            if (character == ' '.code) owedWordSpacing += style.wordSpacing.resolve(vp.diagonal, style.fontSize)
         }
     }
 
@@ -210,6 +314,11 @@ internal class TextLayouter(
             if (dy == null) dy = level.dys.getOrNull(level.index)
         }
         for (level in levels) level.index++
+        if (owedWordSpacing != 0.0) {
+            flush(trimEnd = false)
+            penX += owedWordSpacing
+            owedWordSpacing = 0.0
+        }
         if (x != null || y != null) {
             flush(trimEnd = false)
             finishChunk()
@@ -223,8 +332,12 @@ internal class TextLayouter(
             penX += dx ?: 0.0
             penY += dy ?: 0.0
         }
-        if (pendingStyle !== style) flush(trimEnd = false)
+        val decorations = levels.lastOrNull()?.decorations.orEmpty()
+        val shift = levels.lastOrNull()?.shift ?: 0.0
+        if (pendingStyle !== style || pendingDecorations !== decorations || pendingShift != shift) flush(trimEnd = false)
         pendingStyle = style
+        pendingDecorations = decorations
+        pendingShift = shift
         pending.appendCodePoint(character)
     }
 
@@ -239,20 +352,25 @@ internal class TextLayouter(
         val spacingEm = (spacing / style.fontSize).toFloat()
         val glyphs = cache.get(style, spacingEm, text)
         val scale = style.fontSize / TextSupport.NOMINAL_SIZE
-        runs += PlacedRun(style, text, penX, penY + baselineShift(style, glyphs, scale), glyphs, spacingEm)
+        val y = penY + pendingShift + baselineOffset(style.baseline, glyphs, scale)
+        runs += PlacedRun(style, text, penX, y, glyphs, spacingEm, pendingDecorations)
         penX += glyphs.advance * scale
     }
 
-    private fun baselineShift(style: Style, glyphs: GlyphRun, scale: Double): Double =
-        when (style.baseline) {
+    /** Browsers work with these metrics rounded to whole pixels, so an edge they measure from lands there too. */
+    private fun baselineOffset(baseline: String, glyphs: GlyphRun, scale: Double): Double {
+        val ascent = round(glyphs.ascent * scale)
+        val descent = round(glyphs.descent * scale)
+        return when (baseline) {
             "middle" -> glyphs.xHeight * scale / 2.0
-            "central" -> (glyphs.ascent - glyphs.descent) * scale / 2.0
-            "hanging" -> glyphs.ascent * scale * 0.8
-            "text-before-edge", "text-top" -> glyphs.ascent * scale
-            "text-after-edge", "text-bottom", "ideographic" -> -glyphs.descent * scale
-            "mathematical" -> glyphs.ascent * scale * 0.5
+            "central" -> (ascent - descent) / 2.0
+            "hanging" -> ascent * 0.8
+            "text-before-edge" -> ascent
+            "text-after-edge", "ideographic" -> -descent
+            "mathematical" -> ascent * 0.5
             else -> 0.0
         }
+    }
 
     private fun finishChunk() {
         if (chunkStart >= runs.size) return
@@ -279,13 +397,36 @@ internal class TextLayouter(
             if (glyphs.hasOutline) {
                 val placed = Path()
                 matrix.setScale(scale.toFloat(), scale.toFloat())
-                matrix.postTranslate(run.x.toFloat(), run.y.toFloat())
+                matrix.postTranslate((run.x + run.glyphShift).toFloat(), run.y.toFloat())
                 glyphs.path.transform(matrix, placed)
                 run.path = placed
             }
             val cell = Box(run.x, run.y - glyphs.ascent * scale, glyphs.advance * scale, (glyphs.ascent + glyphs.descent) * scale)
             box = box?.union(cell) ?: cell
+            for (decoration in run.decorations) placedDecorations += placeDecoration(run, decoration, scale)
         }
         return box
+    }
+
+    /** Sizes and places a line the way browsers do: its thickness is a tenth of the font size, set off from the baseline by half that. */
+    private fun placeDecoration(run: PlacedRun, decoration: ActiveDecoration, scale: Double): PlacedDecoration {
+        val fontSize = run.style.fontSize
+        val thickness = maxOf(1.0, fontSize / 10.0)
+        val ascent = round(run.glyphs.ascent * scale)
+        val top =
+            when (decoration.kind) {
+                ActiveDecoration.UNDERLINE -> run.y + maxOf(1.0, ceil(thickness / 2.0))
+                ActiveDecoration.OVERLINE -> run.y - ascent - thickness
+                else -> run.y - ascent / 3.0 - thickness / 2.0
+            }
+        val path = Path()
+        path.addRect(
+            run.x.toFloat(),
+            top.toFloat(),
+            (run.x + run.glyphs.advance * scale).toFloat(),
+            (top + thickness).toFloat(),
+            Path.Direction.CW,
+        )
+        return PlacedDecoration(path, decoration.style, decoration.kind == ActiveDecoration.LINE_THROUGH)
     }
 }

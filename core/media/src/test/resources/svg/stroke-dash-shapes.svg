@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Where the pattern starts on a closed shape shows up as a short or long first dash. -->
+  <g fill="none" stroke="#cc3333" stroke-width="5" stroke-dasharray="30 6">
+    <circle cx="50" cy="50" r="35"/>
+    <rect x="110" y="15" width="70" height="70"/>
+    <rect x="15" y="110" width="70" height="70" rx="15"/>
+    <ellipse cx="150" cy="130" rx="40" ry="20"/>
+    <polygon points="110,160 190,160 150,195"/>
+  </g>
+</svg>

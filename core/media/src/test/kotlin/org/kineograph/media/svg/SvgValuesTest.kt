@@ -6,6 +6,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.cos
+import kotlin.math.sin
 
 class SvgValuesTest {
     private fun px(text: String): Double = checkNotNull(parseLengthOrNull(text)) { "could not read $text" }.px
@@ -43,7 +45,6 @@ class SvgValuesTest {
     @Test
     fun `odd number forms are read`() {
         assertEquals(0.5, px(".5"), 1e-9)
-        assertEquals(5.0, px("5."), 1e-9)
         assertEquals(-3.0, px("-3"), 1e-9)
         assertEquals(3.0, px("+3"), 1e-9)
         assertEquals(1000.0, px("1e3"), 1e-9)
@@ -56,6 +57,8 @@ class SvgValuesTest {
         assertNull(parseLengthOrNull("10foo"))
         assertNull(parseLengthOrNull(""))
         assertNull(parseLengthOrNull("10 px"))
+        // A dot with no digit after it is a mistake in the eyes of Chromium and Firefox alike, though SVG 1.1 allowed it.
+        assertNull(parseLengthOrNull("5."))
         assertNull(parseLengthOrNull("NaN"))
         assertNull(parseLengthOrNull("Infinity"))
     }
@@ -188,26 +191,158 @@ class SvgValuesTest {
     }
 
     @Test
-    fun `transform lists read both syntaxes`() {
+    fun `the transform attribute has its own syntax`() {
         assertEquals(
             listOf(TransformOp.Translate(Length(px = 10.0), Length(px = 20.0)), TransformOp.Rotate(45.0, 1.0, 2.0)),
             parseTransformList("translate(10 20) rotate(45 1 2)"),
         )
-        assertEquals(
-            listOf(TransformOp.Translate(Length(px = 10.0), Length(pct = 50.0)), TransformOp.Rotate(90.0)),
-            parseTransformList("translate(10px, 50%) rotate(.25turn)"),
-        )
         assertEquals(listOf<TransformOp>(), parseTransformList("none"))
         assertEquals(listOf(TransformOp.Scale(2.0, 2.0)), parseTransformList("scale(2)"))
-        assertEquals(listOf(TransformOp.Scale(1.5, 1.5)), parseTransformList("scale(150%)"))
-        assertEquals(listOf(TransformOp.Translate(Length.ZERO, Length(px = 5.0))), parseTransformList("translateY(5px)"))
         assertEquals(listOf(TransformOp.Skew(30.0, 0.0)), parseTransformList("skewX(30)"))
         assertEquals(listOf(TransformOp.Raw(Mat2D(1.0, 2.0, 3.0, 4.0, 5.0, 6.0))), parseTransformList("matrix(1 2 3 4 5 6)"))
         assertEquals(listOf(TransformOp.Raw(Mat2D(1.0, 2.0, 3.0, 4.0, 5.0, 6.0))), parseTransformList("matrix(1,2,3,4,5,6)"))
+        assertEquals(2, parseTransformList("translate(1),rotate(2)")?.size)
         assertNull(parseTransformList("rotate(abc)"))
         assertNull(parseTransformList("matrix(1 2 3)"))
         assertNull(parseTransformList("explode(1)"))
         assertNull(parseTransformList("translate(10"))
+        // CSS forms are mistakes here. Browsers answer them with no transform at all, and so does this.
+        assertNull(parseTransformList("translate(10px, 50%)"))
+        assertNull(parseTransformList("rotate(45deg)"))
+        assertNull(parseTransformList("translateY(5)"))
+        assertNull(parseTransformList("scale(150%)"))
+    }
+
+    @Test
+    fun `the transform property has CSS syntax`() {
+        assertEquals(
+            listOf(TransformOp.Translate(Length(px = 10.0), Length(pct = 50.0)), TransformOp.Rotate(90.0)),
+            parseCssTransformList("translate(10px, 50%) rotate(.25turn)"),
+        )
+        assertEquals(listOf(TransformOp.Scale(1.5, 1.5)), parseCssTransformList("scale(150%)"))
+        assertEquals(listOf(TransformOp.Translate(Length.ZERO, Length(px = 5.0))), parseCssTransformList("translateY(5px)"))
+        assertEquals(listOf(TransformOp.Translate(Length.ZERO, Length.ZERO)), parseCssTransformList("translate(0, 0)"))
+        assertEquals(listOf(TransformOp.Rotate(0.0)), parseCssTransformList("rotate(0)"))
+        assertEquals(listOf<TransformOp>(), parseCssTransformList("none"))
+        // These are the attribute's forms, and mistakes here.
+        assertNull(parseCssTransformList("translate(10, 20)"))
+        assertNull(parseCssTransformList("rotate(45)"))
+        assertNull(parseCssTransformList("rotate(45deg 1 2)"))
+        assertNull(parseCssTransformList("translate(1px 2px)"))
+        assertNull(parseCssTransformList("translate(1px), rotate(2deg)"))
+    }
+
+    @Test
+    fun `lengths in a stylesheet need units, except where browsers exempt them`() {
+        assertNull(parseProperty("font-size", "20", css = true))
+        assertNull(parseProperty("letter-spacing", "4", css = true))
+        assertNull(parseProperty("transform-origin", "30 170", css = true))
+        assertEquals(LengthValue(Length(px = 20.0)), parseProperty("font-size", "20"))
+        assertEquals(LengthValue(Length(px = 20.0)), parseProperty("font-size", "20px", css = true))
+        assertEquals(LengthValue(Length(px = 0.0)), parseProperty("font-size", "0", css = true))
+        assertEquals(LengthValue(Length(px = 5.0)), parseProperty("stroke-width", "5", css = true))
+        assertEquals(LengthValue(Length(px = 50.0)), parseProperty("x", "50", css = true))
+        assertEquals(LengthValue(Length(px = 20.0)), parseProperty("r", "20", css = true))
+    }
+
+    @Test
+    fun `rem is measured from the outermost element`() {
+        assertEquals("20.0px", resolveRem("2rem", 10.0))
+        assertEquals("translate(15.0px, 5px)", resolveRem("translate(1.5rem, 5px)", 10.0))
+        assertEquals("-5.0px", resolveRem("-.5REM", 10.0))
+        assertEquals("2em", resolveRem("2em", 10.0))
+        assertEquals("remember", resolveRem("remember", 10.0))
+    }
+
+    @Test
+    fun `media queries are answered for a plain screen with the size of the picture`() {
+        val context = MediaContext(200.0, 100.0)
+        assertTrue(mediaMatches("", context))
+        assertTrue(mediaMatches("screen", context))
+        assertTrue(mediaMatches("all", context))
+        assertFalse(mediaMatches("print", context))
+        assertTrue(mediaMatches("print, screen", context))
+        assertFalse(mediaMatches("not screen", context))
+        assertTrue(mediaMatches("not print", context))
+        assertTrue(mediaMatches("only screen", context))
+        assertTrue(mediaMatches("(min-width: 100px)", context))
+        assertFalse(mediaMatches("(min-width: 10000px)", context))
+        assertTrue(mediaMatches("screen and (max-width: 300px) and (max-height: 100px)", context))
+        assertFalse(mediaMatches("screen and (max-height: 50px)", context))
+        assertTrue(mediaMatches("(orientation: landscape)", context))
+        assertFalse(mediaMatches("(orientation: portrait)", context))
+        assertTrue(mediaMatches("(prefers-color-scheme: light)", context))
+        assertFalse(mediaMatches("(prefers-color-scheme: dark)", context))
+        assertTrue(mediaMatches("(prefers-reduced-motion: no-preference)", context))
+        assertFalse(mediaMatches("(prefers-reduced-motion: reduce)", context))
+        assertFalse(mediaMatches("(no-such-feature: 1)", context))
+    }
+
+    @Test
+    fun `the newer colour functions come out as sRGB`() {
+        fun assertColor(text: String, r: Int, g: Int, b: Int, a: Double = 1.0) {
+            val color = checkNotNull(parseColor(text)) { text }
+            assertEquals(text, r.toDouble(), color.r, 1.5)
+            assertEquals(text, g.toDouble(), color.g, 1.5)
+            assertEquals(text, b.toDouble(), color.b, 1.5)
+            assertEquals(text, a, color.a, 0.01)
+        }
+        assertColor("hwb(120 0% 0%)", 0, 255, 0)
+        assertColor("hwb(240 20% 30%)", 51, 51, 179)
+        assertColor("hwb(0 60% 60%)", 128, 128, 128)
+        assertColor("lab(50% 40 59.5)", 191, 87, 0)
+        assertColor("lch(50% 72 56)", 191, 87, 0)
+        assertColor("oklab(100% 0 0)", 255, 255, 255)
+        assertColor("oklch(0% 0 0)", 0, 0, 0)
+        assertColor("oklch(62.8% 0.2577 29.23)", 255, 0, 0)
+        assertColor("color(srgb 0.2 0.6 0.8 / 50%)", 51, 153, 204, 0.5)
+        assertColor("color(srgb-linear 1 1 1)", 255, 255, 255)
+        assertColor("color(display-p3 1 1 1)", 255, 255, 255)
+        assertColor("color-mix(in srgb, red, blue)", 128, 0, 128)
+        assertColor("color-mix(in srgb, red 25%, blue)", 64, 0, 191)
+        assertColor("rgb(none 100 0)", 0, 100, 0)
+        assertColor("hsl(120 100 50)", 0, 255, 0)
+        assertColor("Canvas", 255, 255, 255)
+        assertColor("CanvasText", 0, 0, 0)
+    }
+
+    @Test
+    fun `the old way of writing colours stays strict`() {
+        assertNull(parseColor("rgb(50%, 100, 0)"))
+        assertNull(parseColor("hsl(120, 100, 50)"))
+        assertNull(parseColor("rgb(none, 100, 0)"))
+        assertNull(parseColor("rgb(1 2)"))
+        assertNotNull(parseColor("rgb(50% 100 0)"))
+    }
+
+    @Test
+    fun `linear easing goes through its points`() {
+        val even = checkNotNull(parseEasing("linear(0, 0.9, 1)"))
+        assertEquals(0.45, even.ease(0.25), 1e-9)
+        assertEquals(0.9, even.ease(0.5), 1e-9)
+        assertEquals(1.0, even.ease(1.0), 1e-9)
+        val placed = checkNotNull(parseEasing("linear(0, 0.25 75%, 1)"))
+        assertEquals(0.125, placed.ease(0.375), 1e-9)
+        assertEquals(0.625, placed.ease(0.875), 1e-9)
+        val flat = checkNotNull(parseEasing("linear(0 0%, 0.5 25% 75%, 1 100%)"))
+        assertEquals(0.5, flat.ease(0.5), 1e-9)
+        assertEquals(0.25, flat.ease(0.125), 1e-9)
+        assertNull(parseEasing("linear(0)"))
+        assertNull(parseEasing("linear(a, b)"))
+    }
+
+    @Test
+    fun `matrices blend the way a browser blends them`() {
+        val half = blendMatrices(Mat2D.IDENTITY, Mat2D.rotate(90.0), 0.5)
+        assertEquals(cos(Math.toRadians(45.0)), half.a, 1e-9)
+        assertEquals(sin(Math.toRadians(45.0)), half.b, 1e-9)
+        // A half turn goes in the positive direction, for all that either way round is as short.
+        val quarter = blendMatrices(Mat2D.IDENTITY, Mat2D.rotate(180.0), 0.5)
+        assertEquals(1.0, quarter.b, 1e-9)
+        // With no area left, a matrix cannot be taken apart, and it flips half way.
+        val flat = Mat2D.scale(0.0, 1.0)
+        assertEquals(Mat2D.IDENTITY, blendMatrices(Mat2D.IDENTITY, flat, 0.25))
+        assertEquals(flat, blendMatrices(Mat2D.IDENTITY, flat, 0.75))
     }
 
     @Test

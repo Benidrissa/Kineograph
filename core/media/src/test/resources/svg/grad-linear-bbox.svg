@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="h"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/></linearGradient>
+    <linearGradient id="v" x2="0" y2="1"><stop offset="0" stop-color="#ffff00"/><stop offset="1" stop-color="#00aa00"/></linearGradient>
+    <!-- A box that is not square skews a diagonal gradient, and that must show. -->
+    <linearGradient id="d" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#000000"/><stop offset="0.5" stop-color="#ffffff"/><stop offset="1" stop-color="#ff0000"/></linearGradient>
+    <linearGradient id="p" x1="25%" y1="0%" x2="75%" y2="0%"><stop offset="0%" stop-color="#00ffff"/><stop offset="100%" stop-color="#ff00ff"/></linearGradient>
+  </defs>
+  <rect x="10" y="10" width="180" height="30" fill="url(#h)"/>
+  <rect x="10" y="50" width="40" height="60" fill="url(#v)"/>
+  <rect x="60" y="50" width="130" height="60" fill="url(#d)"/>
+  <rect x="10" y="120" width="180" height="30" fill="url(#p)"/>
+  <circle cx="50" cy="175" r="20" fill="url(#h)"/>
+  <ellipse cx="140" cy="175" rx="50" ry="20" fill="url(#d)"/>
+</svg>

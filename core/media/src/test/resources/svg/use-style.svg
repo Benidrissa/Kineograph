@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    .inst { fill: #33aa33 }
+    #t { stroke: #000000 }
+    use rect { fill: #ff0000 }
+    .dark rect { stroke-width: 6 }
+  </style>
+  <defs>
+    <rect id="t" width="40" height="30"/>
+    <rect id="own" width="40" height="30" fill="#3366cc"/>
+    <g id="grp"><rect width="40" height="30"/></g>
+  </defs>
+  <!-- Rules match the original, not its place in the use. Inherited values come through the use. -->
+  <use class="inst" href="#t" x="10" y="10"/>
+  <use href="#t" x="60" y="10" stroke="#ff0000" fill="#cc9900"/>
+  <use href="#own" fill="#ff0000" x="110" y="10"/>
+  <g class="dark" stroke="#990099" fill="#ffcc66"><use href="#grp" x="10" y="60"/></g>
+  <g fill="#00aaaa"><use href="#own" x="60" y="60" opacity=".5"/><use href="#t" x="110" y="60" opacity=".5" fill-opacity=".5"/></g>
+  <use href="#t" x="10" y="110" style="fill: #555555; stroke-width: 4"/>
+  <!-- Inherited font size feeds em lengths in the original. -->
+  <defs><rect id="em" width="2em" height="1em" fill="#aa5500"/></defs>
+  <use href="#em" font-size="30" x="70" y="110"/>
+  <use href="#em" font-size="10" x="140" y="110"/>
+</svg>

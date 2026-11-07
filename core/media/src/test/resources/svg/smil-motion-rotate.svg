@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs><path id="p" d="M30 30 L100 30 C150 30 170 70 170 100 A70 70 0 0 1 30 100 Z"/><path id="a" d="M-12 -6 L12 0 L-12 6 Z"/></defs>
+  <use href="#p" fill="none" stroke="#cccccc"/>
+  <use href="#a" fill="#cc3333"><animateMotion dur="2s" fill="freeze" rotate="auto"><mpath href="#p"/></animateMotion></use>
+  <use href="#a" fill="#3366cc" opacity=".6"><animateMotion dur="2s" fill="freeze" rotate="auto-reverse" begin="0s" path="M30 60 h60 v60"/></use>
+  <use href="#a" fill="#cc9900"><animateMotion dur="2s" fill="freeze" rotate="0" path="M20 180 h80"/></use>
+</svg>

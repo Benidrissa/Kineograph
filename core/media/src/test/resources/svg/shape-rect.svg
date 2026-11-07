@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <rect x="10" y="10" width="50" height="30" fill="#cc3333"/>
+  <rect x="70" y="10" width="50" height="30" rx="8" fill="#3366cc"/>
+  <rect x="130" y="10" width="50" height="30" ry="8" fill="#33aa33"/>
+  <rect x="10" y="50" width="50" height="30" rx="20" ry="5" fill="#cc9900"/>
+  <!-- Radii are limited to half the side. -->
+  <rect x="70" y="50" width="50" height="30" rx="100" fill="#990099"/>
+  <rect x="130" y="50" width="50" height="30" rx="100" ry="5" fill="#00aaaa"/>
+  <!-- A negative radius is invalid, and counts as left out. -->
+  <rect x="10" y="90" width="50" height="30" rx="-5" ry="10" fill="#aa5500"/>
+  <rect x="70" y="90" width="50" height="30" rx="0" ry="10" fill="#555555"/>
+  <!-- Nothing at all for zero or negative sizes. -->
+  <rect x="130" y="90" width="0" height="30" fill="#000000" stroke="#000000"/>
+  <rect x="150" y="90" width="-10" height="30" fill="#000000" stroke="#000000"/>
+  <rect x="10" y="130" width="50" height="50" rx="10" fill="#ffcc66" stroke="#663300" stroke-width="6"/>
+  <rect x="75" y="130" width="50" height="50" fill="none" stroke="#663300" stroke-width="6" stroke-linejoin="round"/>
+  <rect x="140" y="130" width="50" height="50" rx="5%" ry="10%" fill="#66ccff"/>
+</svg>

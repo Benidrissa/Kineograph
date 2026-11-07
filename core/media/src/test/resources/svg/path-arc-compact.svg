@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Flags are single digits and need no separator. Written as compressors write them. -->
+  <path d="M20 30a20 20 0 1130 0" fill="#ffcc66" stroke="#663300" stroke-width="2"/>
+  <path d="M80 30a20,20 0 01 30,0" fill="#99ccff" stroke="#003366" stroke-width="2"/>
+  <path d="M140 30a15 25 30 0020 20" fill="#99ff99" stroke="#006600" stroke-width="2"/>
+  <path d="M20 100A25 25 0 0060 100" fill="#ffccff" stroke="#660066" stroke-width="2"/>
+  <path d="M80 100a20 20 0 11.5.5" fill="#cccccc" stroke="#000000" stroke-width="2"/>
+  <!-- Implicit repeats of an arc. -->
+  <path d="M20 170a10 10 0 0120 0 10 10 0 0120 0 10 10 0 0020 0a10 10 0 1 1 20 0" fill="none" stroke="#cc3333" stroke-width="3"/>
+</svg>

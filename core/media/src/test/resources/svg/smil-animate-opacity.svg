@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <rect width="200" height="200" fill="#dddddd"/>
+  <rect x="10" y="10" width="50" height="50" fill="#cc3333"><animate attributeName="opacity" from="1" to="0" dur="2s" fill="freeze"/></rect>
+  <rect x="70" y="10" width="50" height="50" fill="#3366cc" opacity=".5"><animate attributeName="opacity" to="1" dur="2s" fill="freeze"/></rect>
+  <rect x="130" y="10" width="50" height="50" fill="#33aa33"><animate attributeName="fill-opacity" values="0;1;.25" dur="2s" fill="freeze"/></rect>
+  <rect x="10" y="70" width="50" height="50" fill="none" stroke="#cc9900" stroke-width="10"><animate attributeName="stroke-opacity" values="1;0" dur="2s" fill="freeze"/></rect>
+  <g opacity="1"><animate attributeName="opacity" from="1" to=".25" dur="2s" fill="freeze"/><rect x="70" y="70" width="50" height="50" fill="#990099"/><rect x="100" y="100" width="50" height="50" fill="#00aaaa"/></g>
+  <rect x="10" y="130" width="50" height="50" fill="#aa5500"><animate attributeName="opacity" from="-1" to="2" dur="2s" fill="freeze"/></rect>
+</svg>

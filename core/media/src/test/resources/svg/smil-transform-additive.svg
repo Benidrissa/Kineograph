@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- replace ignores the element's transform; sum keeps it and adds on the right. -->
+  <rect width="30" height="20" fill="#cc3333" transform="translate(10 10) rotate(10)"><animateTransform attributeName="transform" type="translate" from="0 0" to="60 0" dur="2s" fill="freeze"/></rect>
+  <rect width="30" height="20" fill="#3366cc" transform="translate(110 10) rotate(10)"><animateTransform attributeName="transform" type="translate" from="0 0" to="60 0" dur="2s" fill="freeze" additive="sum"/></rect>
+  <!-- Two animations stacked, one adding to the other. -->
+  <rect width="30" height="20" fill="#33aa33"><animateTransform attributeName="transform" type="translate" from="20 70" to="20 110" dur="2s" fill="freeze"/><animateTransform attributeName="transform" type="rotate" from="0" to="90" dur="2s" fill="freeze" additive="sum"/></rect>
+  <rect width="30" height="20" fill="#cc9900" transform="translate(140 90)"><animateTransform attributeName="transform" type="rotate" from="0" to="90" dur="2s" fill="freeze" additive="sum"/><animateTransform attributeName="transform" type="scale" from="1" to="2" dur="2s" fill="freeze" additive="sum"/></rect>
+  <g transform="translate(30 170)"><rect width="30" height="20" fill="#990099"><animateTransform attributeName="transform" type="translate" from="0" to="40" dur="2s" additive="sum" fill="freeze"/><animateTransform attributeName="transform" type="translate" from="0" to="40" dur="2s" additive="replace" fill="freeze"/></rect></g>
+</svg>

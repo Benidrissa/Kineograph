@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <line x1="0" y1="30" x2="200" y2="30" stroke="#cccccc"/>
+  <line x1="0" y1="70" x2="200" y2="70" stroke="#cccccc"/>
+  <line x1="0" y1="110" x2="200" y2="110" stroke="#cccccc"/>
+  <line x1="0" y1="150" x2="200" y2="150" stroke="#cccccc"/>
+  <g font-size="20" font-family="sans-serif">
+    <text x="5" y="30" dominant-baseline="auto">Aux</text>
+    <text x="50" y="30" dominant-baseline="alphabetic" fill="#cc3333">Alp</text>
+    <text x="100" y="30" dominant-baseline="middle" fill="#3366cc">Mid</text>
+    <text x="150" y="30" dominant-baseline="central" fill="#33aa33">Cen</text>
+    <text x="5" y="70" dominant-baseline="hanging" fill="#cc9900">Han</text>
+    <text x="50" y="70" dominant-baseline="text-before-edge" fill="#990099">Bef</text>
+    <text x="100" y="70" dominant-baseline="text-after-edge" fill="#00aaaa">Aft</text>
+    <text x="150" y="70" dominant-baseline="ideographic" fill="#aa5500">Ide</text>
+    <text x="5" y="110" dominant-baseline="mathematical" fill="#555555">Mat</text>
+    <text x="50" y="110" alignment-baseline="middle" fill="#ff6600">Ali</text>
+    <text x="100" y="110"><tspan dominant-baseline="middle" fill="#0066ff">Tsp</tspan></text>
+    <text x="150" y="110" baseline-shift="super" fill="#66cc00">Sup</text>
+    <text x="5" y="150"><tspan baseline-shift="10" fill="#ff00ff">Shi</tspan></text>
+    <text x="50" y="150" dominant-baseline="text-top" fill="#00aaff">Top</text>
+    <text x="100" y="150" dominant-baseline="text-bottom" fill="#aa00ff">Bot</text>
+  </g>
+</svg>

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    @keyframes f { from { fill: #ff0000 } to { fill: #0000ff } }
+    @keyframes op { from { opacity: 0 } to { opacity: 1 } }
+    /* An important rule beats an animation. An animation beats everything else. */
+    .imp { fill: #00ff00 !important; animation: f 2s linear forwards }
+    .ins { animation: f 2s linear forwards; }
+    .parent { animation: f 2s linear forwards }
+    .missing { animation: gone 2s linear forwards; fill: #cc9900 }
+    .zero { animation: f 0s linear forwards }
+    .neg { animation: f -1s linear forwards; fill: #00aaaa }
+  </style>
+  <rect class="imp" x="10" y="10" width="40" height="40"/>
+  <rect class="ins" x="70" y="10" width="40" height="40" style="fill: #00ff00" fill="#ffff00"/>
+  <!-- A child inherits an animated value. -->
+  <g class="parent"><rect x="130" y="10" width="40" height="40"/><rect x="130" y="60" width="40" height="40" fill="#555555"/></g>
+  <rect class="missing" x="10" y="70" width="40" height="40"/>
+  <rect class="zero" x="70" y="70" width="40" height="40"/>
+  <rect class="neg" x="10" y="130" width="40" height="40"/>
+</svg>

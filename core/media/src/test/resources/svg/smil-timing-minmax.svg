@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- min stretches an active period, max cuts it. -->
+  <rect x="10" y="10" width="20" height="20" fill="#cc3333"><animate attributeName="x" from="10" to="170" dur="2s" max="1s" fill="freeze"/></rect>
+  <rect x="10" y="40" width="20" height="20" fill="#3366cc"><animate attributeName="x" from="10" to="170" dur="1s" min="2s"/></rect>
+  <rect x="10" y="70" width="20" height="20" fill="#33aa33"><animate attributeName="x" from="10" to="170" dur="1s" min="2s" fill="freeze"/></rect>
+  <rect x="10" y="100" width="20" height="20" fill="#cc9900"><animate attributeName="x" from="10" to="170" dur="1s" repeatCount="indefinite" max="1.5s"/></rect>
+  <rect x="10" y="130" width="20" height="20" fill="#990099"><animate attributeName="x" from="10" to="170" dur="2s" end="0.5s" min="1s" fill="freeze"/></rect>
+</svg>

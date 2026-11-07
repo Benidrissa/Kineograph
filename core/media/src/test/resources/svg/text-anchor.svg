@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <line x1="100" y1="0" x2="100" y2="200" stroke="#cccccc"/>
+  <g font-size="18" font-family="sans-serif">
+    <text x="100" y="30" text-anchor="start">Start</text>
+    <text x="100" y="60" text-anchor="middle" fill="#cc3333">Middle</text>
+    <text x="100" y="90" text-anchor="end" fill="#3366cc">End</text>
+    <g text-anchor="middle"><text x="100" y="120" fill="#33aa33">Inherited</text></g>
+    <!-- A tspan with x begins a new chunk, which is anchored on its own. -->
+    <text x="100" y="150" text-anchor="end" fill="#cc9900">one<tspan x="100" y="170" text-anchor="start" fill="#990099">two</tspan></text>
+    <text x="100" y="190" text-anchor="middle">a<tspan fill="#00aaaa">bb</tspan>c</text>
+  </g>
+</svg>

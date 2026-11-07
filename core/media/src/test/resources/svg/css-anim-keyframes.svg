@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    @keyframes three { 0% { transform: translateX(10px) } 25% { transform: translateX(160px) } 100% { transform: translateX(60px) } }
+    /* No end keyframe: it runs back to the element's own value. */
+    @keyframes noend { from { transform: translateX(160px) } }
+    @keyframes nostart { to { transform: translateX(160px) } }
+    @keyframes shared { 0%, 100% { transform: translateX(10px) } 50% { transform: translateX(160px) } }
+    /* Each keyframe's own timing function applies from it to the next. */
+    @keyframes each { 0% { transform: translateX(10px); animation-timing-function: step-end } 50% { transform: translateX(90px); animation-timing-function: linear } 100% { transform: translateX(170px) } }
+    /* A property missing from one keyframe spans it. */
+    @keyframes sparse { 0% { transform: translateX(10px); fill: #000000 } 50% { fill: #ffff00 } 100% { transform: translateX(170px); fill: #000000 } }
+    /* Last one of the same name wins, whole. */
+    @keyframes dup { from { transform: translateX(100px) } to { transform: translateX(100px) } }
+    @keyframes dup { from { transform: translateX(10px) } to { transform: translateX(170px) } }
+    /* important does not count in a keyframe. */
+    @keyframes imp { from { transform: translateX(10px) } to { transform: translateX(170px) !important } }
+    /* Out of order and out of range. */
+    @keyframes order { 100% { transform: translateX(170px) } 0% { transform: translateX(10px) } 150% { transform: translateX(0) } }
+    rect { animation-duration: 2s; animation-timing-function: linear; animation-fill-mode: forwards }
+    .three { animation-name: three }
+    .noend { animation-name: noend; transform: translateX(40px) }
+    .nostart { animation-name: nostart; transform: translateX(40px) }
+    .shared { animation-name: shared }
+    .each { animation-name: each }
+    .sparse { animation-name: sparse }
+    .dup { animation-name: dup }
+    .imp { animation-name: imp }
+    .order { animation-name: order }
+  </style>
+  <rect class="three" y="2" width="20" height="18" fill="#cc3333"/>
+  <rect class="noend" y="24" width="20" height="18" fill="#3366cc"/>
+  <rect class="nostart" y="46" width="20" height="18" fill="#33aa33"/>
+  <rect class="shared" y="68" width="20" height="18" fill="#cc9900"/>
+  <rect class="each" y="90" width="20" height="18" fill="#990099"/>
+  <rect class="sparse" y="112" width="20" height="18"/>
+  <rect class="dup" y="134" width="20" height="18" fill="#555555"/>
+  <rect class="imp" y="156" width="20" height="18" fill="#ff6600"/>
+  <rect class="order" y="178" width="20" height="18" fill="#0066ff"/>
+</svg>

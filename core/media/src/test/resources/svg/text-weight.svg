@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <g font-size="20" font-family="sans-serif">
+    <text x="10" y="25" font-weight="bold">Bold</text>
+    <text x="100" y="25" font-weight="700" fill="#cc3333">Bold 700</text>
+    <text x="10" y="50" font-weight="normal">Normal</text>
+    <text x="100" y="50" font-weight="400" fill="#3366cc">Regular</text>
+    <text x="10" y="75" font-style="italic">Italic</text>
+    <text x="100" y="75" font-weight="bold" font-style="italic" fill="#33aa33">Both It</text>
+    <text x="10" y="100" font-weight="100" fill="#cc9900">Thin</text>
+    <text x="100" y="100" font-weight="900" fill="#990099">Black</text>
+    <g font-weight="bold"><text x="10" y="125">Inh<tspan font-weight="normal">Norm</tspan></text><text x="100" y="125" font-weight="lighter">Light</text></g>
+    <text x="10" y="150" font-family="serif" font-weight="bold">Serif B</text>
+    <text x="100" y="150" font-family="serif" font-style="italic" fill="#00aaaa">Serif I</text>
+    <text x="10" y="175" font-family="monospace">Mono</text>
+    <text x="100" y="175" style="font: italic bold 16px serif" fill="#aa5500">Font short</text>
+  </g>
+</svg>

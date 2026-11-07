@@ -9,7 +9,6 @@ import android.graphics.Shader
 import android.os.Build
 import androidx.annotation.RequiresApi
 import kotlin.math.floor
-import kotlin.math.hypot
 import kotlin.math.sqrt
 
 internal class GradientStop(val offset: Double, val color: Rgba)
@@ -61,21 +60,15 @@ internal object GradientShaders {
         box: Box?,
     ): Shader {
         val expanded = expand(stops)
-        // SVG keeps the focal point inside the circle. On the edge the gradient would have a cone-shaped hole.
-        val dx = fx - cx
-        val dy = fy - cy
-        val distance = hypot(dx, dy)
-        val limit = r * 0.998
-        val focalX = if (distance > limit) cx + dx * limit / distance else fx
-        val focalY = if (distance > limit) cy + dy * limit / distance else fy
-        val isPlain = focalX == cx && focalY == cy && fr == 0.0
+        // A focal point outside the circle is not moved back in. As SVG 2 says, the gradient then becomes a cone, with nothing outside it.
+        val isPlain = fx == cx && fy == cy && fr == 0.0
         if (isPlain) return plainRadial(cx, cy, r, expanded, spread, matrix)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !forceSoftwareFocal) {
-            val shader = twoPointRadial(cx, cy, r, focalX, focalY, fr, expanded, spread)
+            val shader = twoPointRadial(cx, cy, r, fx, fy, fr, expanded, spread)
             shader.setLocalMatrix(matrix.toAndroid())
             return shader
         }
-        return softwareFocal(cx, cy, r, focalX, focalY, fr, expanded, spread, matrix, box)
+        return softwareFocal(cx, cy, r, fx, fy, fr, expanded, spread, matrix, box)
     }
 
     private fun plainRadial(cx: Double, cy: Double, r: Double, stops: List<GradientStop>, spread: Shader.TileMode, matrix: Mat2D): Shader {

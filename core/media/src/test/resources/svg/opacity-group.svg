@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- The two overlapping squares blend together first and fade as one, so the overlap does not show through. -->
+  <rect x="0" y="80" width="200" height="40" fill="#000000"/>
+  <g opacity="0.5">
+    <rect x="20" y="20" width="60" height="100" fill="#cc3333"/>
+    <rect x="50" y="50" width="60" height="100" fill="#3366cc"/>
+  </g>
+  <rect x="120" y="20" width="60" height="100" fill="#cc3333" opacity="0.5"/>
+  <rect x="150" y="50" width="40" height="100" fill="#3366cc" opacity="0.5"/>
+</svg>

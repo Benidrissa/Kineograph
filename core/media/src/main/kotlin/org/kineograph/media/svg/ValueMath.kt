@@ -9,7 +9,8 @@ import kotlin.math.sqrt
  * a colour and a gradient, or two paths with different commands. The callers then fall back to a discrete flip.
  */
 internal object ValueMath {
-    fun interpolate(a: SvgValue?, b: SvgValue?, p: Double, current: Rgba): SvgValue? {
+    /** [smil] picks between the two sets of rules that exist for these. They differ on colours with opacity, and on dash patterns. */
+    fun interpolate(a: SvgValue?, b: SvgValue?, p: Double, current: Rgba, smil: Boolean = false): SvgValue? {
         if (a == null || b == null) return null
         if (a is NumberValue && b is NumberValue) return NumberValue(a.value + (b.value - a.value) * p)
         if (a is LengthValue && b is LengthValue) return LengthValue(a.length + (b.length - a.length) * p)
@@ -19,18 +20,17 @@ internal object ValueMath {
             if (x.size != y.size) return null
             return LengthListValue(List(x.size) { x[it] + (y[it] - x[it]) * p })
         }
-        if (a is DashValue && b is DashValue) return interpolateDash(a, b, p)
+        if (a is DashValue && b is DashValue) {
+            // In SMIL only lists of one length can be mixed. CSS is what repeats them until they line up.
+            return if (smil && a.items.size != b.items.size) null else interpolateDash(a, b, p)
+        }
         if (a is PaintValue && b is PaintValue) {
             val x = solid(a, current) ?: return null
             val y = solid(b, current) ?: return null
-            return PaintValue.Solid(x.mix(y, p))
+            return PaintValue.Solid(if (smil) x.mixStraight(y, p) else x.mix(y, p))
         }
         if (a is TransformValue && b is TransformValue) return TransformValue(interpolateTransforms(a.ops, b.ops, p))
-        if (a is PathValue && b is PathValue) {
-            if (!a.data.hasSameCommands(b.data)) return null
-            val args = DoubleArray(a.data.args.size) { a.data.args[it] + (b.data.args[it] - a.data.args[it]) * p }
-            return PathValue(PathData(a.data.commands, args))
-        }
+        if (a is PathValue && b is PathValue) return a.data.interpolate(b.data, p)?.let { PathValue(it) }
         return null
     }
 

@@ -93,12 +93,71 @@ internal fun parseEasing(raw: String): Easing? {
     }
     val open = text.indexOf('(')
     if (open < 0 || !text.endsWith(")")) return null
-    val args = splitList(text.substring(open + 1, text.length - 1))
+    val inner = text.substring(open + 1, text.length - 1)
+    val args = splitList(inner)
     return when (text.substring(0, open).trim()) {
         "cubic-bezier" -> parseCubicBezier(args)
         "steps" -> parseSteps(args)
+        "linear" -> parseLinearFunction(inner)
         else -> null
     }
+}
+
+/** `linear(0, 0.25 75%, 1)`: straight lines through a list of points, used to approximate any curve. */
+internal class LinearPoints(private val inputs: DoubleArray, private val outputs: DoubleArray) : Easing {
+    override fun ease(p: Double): Double {
+        // Past the ends, the line through the two nearest points carries on, except where two points share one input.
+        var i = inputs.lastIndex - 1
+        for (k in 0 until inputs.lastIndex) {
+            if (p < inputs[k + 1]) {
+                i = k
+                break
+            }
+        }
+        val span = inputs[i + 1] - inputs[i]
+        if (span <= 0.0) return outputs[i + 1]
+        return outputs[i] + (outputs[i + 1] - outputs[i]) * (p - inputs[i]) / span
+    }
+}
+
+private fun parseLinearFunction(inner: String): Easing? {
+    val outputs = ArrayList<Double>()
+    val inputs = ArrayList<Double?>()
+    for (part in splitTopLevel(inner, ',')) {
+        val tokens = splitList(part)
+        val percents = tokens.filter { it.endsWith("%") }
+        val numbers = tokens.filter { !it.endsWith("%") }
+        if (numbers.size != 1 || percents.size > 2) return null
+        val output = parseNumberOrNull(numbers[0]) ?: return null
+        if (percents.isEmpty()) {
+            outputs += output
+            inputs += null
+        }
+        for (percent in percents) {
+            outputs += output
+            inputs += parseFraction(percent) ?: return null
+        }
+    }
+    if (outputs.size < 2) return null
+    // The rules for points with no position: the ends go to 0 and 1, positions never go backwards, and gaps are shared out evenly.
+    if (inputs[0] == null) inputs[0] = 0.0
+    if (inputs[inputs.lastIndex] == null) inputs[inputs.lastIndex] = 1.0
+    var largest = Double.NEGATIVE_INFINITY
+    for (i in inputs.indices) {
+        val value = inputs[i] ?: continue
+        largest = maxOf(largest, value)
+        inputs[i] = largest
+    }
+    var start = 0
+    while (start < inputs.lastIndex) {
+        var end = start + 1
+        while (inputs[end] == null) end++
+        val from = inputs[start] ?: 0.0
+        val to = inputs[end] ?: 1.0
+        for (k in start + 1 until end) inputs[k] = from + (to - from) * (k - start) / (end - start)
+        start = end
+    }
+    return LinearPoints(DoubleArray(inputs.size) { inputs[it] ?: 0.0 }, outputs.toDoubleArray())
 }
 
 internal fun parseCubicBezier(args: List<String>): Easing? {

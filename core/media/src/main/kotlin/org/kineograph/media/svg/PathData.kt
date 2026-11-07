@@ -63,6 +63,21 @@ internal class PathData(val commands: CharArray, val args: DoubleArray) {
 
     fun hasSameCommands(other: PathData): Boolean = commands.contentEquals(other.commands)
 
+    /** Null unless both paths use the same commands. The two flags of an arc are not amounts, so they change in one step, half way. */
+    fun interpolate(other: PathData, p: Double): PathData? {
+        if (!hasSameCommands(other) || args.size != other.args.size) return null
+        val mixed = DoubleArray(args.size) { args[it] + (other.args[it] - args[it]) * p }
+        var i = 0
+        for (command in commands) {
+            if (command == 'A') {
+                mixed[i + 3] = if (p < 0.5) args[i + 3] else other.args[i + 3]
+                mixed[i + 4] = if (p < 0.5) args[i + 4] else other.args[i + 4]
+            }
+            i += argumentCount(command)
+        }
+        return PathData(commands, mixed)
+    }
+
     fun walk(sink: PathSink) {
         var i = 0
         var cx = 0.0

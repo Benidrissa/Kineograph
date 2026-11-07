@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <rect x="0" y="0" width="200" height="200" fill="#dddddd"/>
+  <defs>
+    <linearGradient id="alpha"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff" stop-opacity="0"/></linearGradient>
+    <!-- Two colours fading: a browser mixes the colours and the opacity separately. -->
+    <linearGradient id="tr"><stop offset="0" stop-color="#ff0000" stop-opacity="1"/><stop offset="1" stop-color="#00ff00" stop-opacity=".2"/></linearGradient>
+    <!-- Offsets that go backwards are moved up to the one before. -->
+    <linearGradient id="back"><stop offset=".6" stop-color="#ff0000"/><stop offset=".3" stop-color="#00ff00"/><stop offset="1" stop-color="#0000ff"/></linearGradient>
+    <linearGradient id="out"><stop offset="-1" stop-color="#ff0000"/><stop offset=".5" stop-color="#ffff00"/><stop offset="2" stop-color="#0000ff"/></linearGradient>
+    <linearGradient id="pct"><stop offset="25%" stop-color="#000000"/><stop offset="75%" stop-color="#ffffff"/></linearGradient>
+    <linearGradient id="hard"><stop offset=".5" stop-color="#ff00ff"/><stop offset=".5" stop-color="#00ffff"/></linearGradient>
+    <linearGradient id="one"><stop offset=".5" stop-color="#cc9900"/></linearGradient>
+    <linearGradient id="none"/>
+    <linearGradient id="style"><stop offset="0" style="stop-color: #990099; stop-opacity: .5"/><stop offset="1" style="stop-color: rgb(0,170,170)"/></linearGradient>
+    <linearGradient id="first"><stop offset=".25" stop-color="#ff0000"/><stop offset=".75" stop-color="#0000ff"/></linearGradient>
+    <linearGradient id="same"><stop offset="0" stop-color="#ff0000"/><stop offset="0" stop-color="#00ff00"/><stop offset="1" stop-color="#0000ff"/><stop offset="1" stop-color="#ffff00"/></linearGradient>
+  </defs>
+  <rect x="10" y="5" width="180" height="15" fill="url(#alpha)"/>
+  <rect x="10" y="22" width="180" height="15" fill="url(#tr)"/>
+  <rect x="10" y="39" width="180" height="15" fill="url(#back)"/>
+  <rect x="10" y="56" width="180" height="15" fill="url(#out)"/>
+  <rect x="10" y="73" width="180" height="15" fill="url(#pct)"/>
+  <rect x="10" y="90" width="180" height="15" fill="url(#hard)"/>
+  <rect x="10" y="107" width="85" height="15" fill="url(#one)"/>
+  <!-- No stops at all paints nothing. -->
+  <rect x="105" y="107" width="85" height="15" fill="url(#none)" stroke="#000000"/>
+  <rect x="10" y="124" width="180" height="15" fill="url(#style)"/>
+  <rect x="10" y="141" width="180" height="15" fill="url(#first)"/>
+  <rect x="10" y="158" width="180" height="15" fill="url(#same)"/>
+</svg>

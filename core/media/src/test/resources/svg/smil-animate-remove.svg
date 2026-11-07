@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Without freeze the element goes back to its own value at the end. -->
+  <rect x="20" y="10" width="30" height="30" fill="#cc3333"><animate attributeName="x" from="100" to="160" dur="2s"/></rect>
+  <rect x="20" y="50" width="30" height="30" fill="#3366cc"><animate attributeName="x" from="100" to="160" dur="2s" fill="remove"/></rect>
+  <rect x="20" y="90" width="30" height="30" fill="#33aa33"><animate attributeName="x" from="100" to="160" dur="2s" fill="freeze"/></rect>
+  <rect x="20" y="130" width="30" height="30" fill="#cc9900"><animate attributeName="x" from="100" to="160" begin="1s" dur="1s"/></rect>
+</svg>

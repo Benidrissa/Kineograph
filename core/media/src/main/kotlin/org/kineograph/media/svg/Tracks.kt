@@ -16,10 +16,13 @@ internal abstract class Track(val property: String, val documentOrder: Int) {
     /** The value at [time], given what lies beneath it in the stack. Null means no effect at this moment. */
     abstract fun evaluate(time: Double, underlying: SvgValue?, current: Rgba): SvgValue?
 
-    /** Stacks tracks in SMIL's priority order: later starts win, and CSS animations win over all of SMIL. */
+    /**
+     * Stacks tracks in priority order: later starts win, and CSS animations win over all of SMIL. SMIL's text would also put an animation
+     * above one it syncs to, even when they start together. Browsers do not, so what is later in the file wins there too.
+     */
     companion object {
         fun stackOrder(time: Double): Comparator<Track> =
-            compareBy<Track>({ it.isCss }, { if (it.isCss) 0.0 else it.beginAt(time) }, { it.syncDepth }, { it.documentOrder })
+            compareBy<Track>({ it.isCss }, { if (it.isCss) 0.0 else it.beginAt(time) }, { it.documentOrder })
     }
 }
 
@@ -105,7 +108,7 @@ internal class SmilValueTrack(
         val eased = splines?.getOrNull(segment)?.ease(local) ?: local
         val from = values[segment] ?: underlying
         val to = values[segment + 1] ?: underlying
-        return ValueMath.interpolate(from, to, eased, current) ?: if (eased < 0.5) from ?: to else to ?: from
+        return ValueMath.interpolate(from, to, eased, current, smil = true) ?: if (eased < 0.5) from ?: to else to ?: from
     }
 
     private fun discreteIndex(progress: Double, n: Int): Int {
@@ -381,7 +384,24 @@ internal class CssTrack(
         val a = from.value ?: underlying
         val b = to.value ?: underlying
         if (property == "visibility") return interpolateVisibility(a, b, eased)
+        if (property == "display") return interpolateDisplay(a, b, eased)
         return ValueMath.interpolate(a, b, eased, current) ?: if (eased < 0.5) a else b
+    }
+
+    /** The same idea for `display`: `none` only takes hold at the very end of the animation, so the element can still be seen fading. */
+    private fun interpolateDisplay(a: SvgValue?, b: SvgValue?, p: Double): SvgValue? {
+        if (p <= 0.0) return a
+        if (p >= 1.0) return b
+        val none = KeywordValue("none")
+        return if (a == none && b != none) {
+            b
+        } else if (b == none && a != none) {
+            a
+        } else if (p < 0.5) {
+            a
+        } else {
+            b
+        }
     }
 
     /** CSS keeps `visibility` visible for the whole of a transition that touches `visible`, instead of flipping half way. */

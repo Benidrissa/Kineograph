@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    @import url("nothing-here.css");
+    @charset "utf-8";
+    @media screen { rect.a { fill: #3366cc } }
+    @media print { rect.a { fill: #000000 } }
+    @media (min-width: 10000px) { rect.a { fill: #000000 } }
+    @supports (display: grid) { rect.b { fill: #33aa33 } }
+    @font-face { font-family: Nope; src: url(nope.woff) }
+    rect.c { fill: #cc9900 }
+    rect.d{fill:#990099;stroke:#000;stroke-width:2}rect.e{fill:#00aaaa}
+    :root { --accent: #aa5500; --w: 4px }
+    rect.f { fill: var(--accent) }
+    rect.g { fill: var(--missing, #ff6600) }
+    rect.h { fill: var(--accent); stroke: var(--accent); stroke-width: var(--w) }
+    RECT.i { fill: #000000 }
+    rect.J { fill: #ff00ff }
+  </style>
+  <rect class="a" x="5" y="5" width="30" height="30"/>
+  <rect class="b" x="45" y="5" width="30" height="30"/>
+  <rect class="c" x="85" y="5" width="30" height="30"/>
+  <rect class="d" x="125" y="5" width="30" height="30"/>
+  <rect class="e" x="165" y="5" width="30" height="30"/>
+  <rect class="f" x="5" y="45" width="30" height="30"/>
+  <rect class="g" x="45" y="45" width="30" height="30"/>
+  <rect class="h" x="85" y="45" width="30" height="30"/>
+  <rect class="i" x="125" y="45" width="30" height="30" fill="#cc3333"/>
+  <rect class="j" x="165" y="45" width="30" height="30" fill="#66cc00"/>
+  <style><![CDATA[ rect.k > x, rect.k { fill: #0066ff } ]]></style>
+  <rect class="k" x="5" y="85" width="30" height="30"/>
+  <style type="text/plain"> rect.l { fill: #000000 } </style>
+  <rect class="l" x="45" y="85" width="30" height="30" fill="#ff0000"/>
+  <style media="print"> rect.m { fill: #000000 } </style>
+  <rect class="m" x="85" y="85" width="30" height="30" fill="#00ff00"/>
+</svg>

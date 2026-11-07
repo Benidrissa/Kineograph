@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <g color="#cc3333">
+    <rect x="10" y="10" width="40" height="40" fill="currentColor"/>
+    <rect x="60" y="10" width="40" height="40" fill="none" stroke="currentColor" stroke-width="4"/>
+    <g color="#3366cc">
+      <rect x="110" y="10" width="40" height="40" fill="currentColor"/>
+      <rect x="160" y="10" width="30" height="40" style="fill: currentcolor; color: #33aa33"/>
+    </g>
+    <!-- currentColor is inherited as itself, so it follows color lower down. -->
+    <g fill="currentColor">
+      <rect x="10" y="60" width="40" height="40"/>
+      <rect x="60" y="60" width="40" height="40" color="#cc9900"/>
+      <g color="#990099"><rect x="110" y="60" width="40" height="40"/></g>
+    </g>
+    <defs>
+      <linearGradient id="g"><stop offset="0" stop-color="currentColor"/><stop offset="1" stop-color="#ffffff"/></linearGradient>
+      <linearGradient id="h" color="#00aaaa"><stop offset="0" stop-color="currentColor"/><stop offset="1" stop-color="#ffffff"/></linearGradient>
+    </defs>
+    <rect x="10" y="110" width="80" height="30" fill="url(#g)" color="#009900"/>
+    <rect x="110" y="110" width="80" height="30" fill="url(#h)"/>
+  </g>
+  <rect x="10" y="150" width="40" height="40" fill="currentColor"/>
+  <rect x="60" y="150" width="40" height="40" stroke="currentColor" stroke-width="4" fill="none" color="inherit"/>
+</svg>

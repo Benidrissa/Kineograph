@@ -379,10 +379,11 @@ class SvgPaintServerTest {
     }
 
     @Test
-    fun `a focal point outside the circle is brought back to its edge`() {
+    fun `a focal point outside the circle makes a cone with nothing outside it`() {
         val f = gradientRect("""<radialGradient id="g" fx="-5" fy="0.5">$redToBlue</radialGradient>""")
-        assertEquals(0.0, f.mix(1, 50), 0.1)
-        assertEquals(0.5, f.mix(50, 50), 0.06)
+        // The cone opens from far off to the left, and only just misses this corner.
+        f.assertPixel(1, 1, CLEAR)
+        assertEquals(255, Color.alpha(f.getPixel(1, 50)))
     }
 
     @Test

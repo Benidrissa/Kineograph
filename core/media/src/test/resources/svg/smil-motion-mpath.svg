@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs><path id="track" d="M20 20 Q100 180 180 20"/></defs>
+  <use href="#track" fill="none" stroke="#cccccc"/>
+  <circle r="8" fill="#cc3333"><animateMotion dur="2s" fill="freeze"><mpath href="#track"/></animateMotion></circle>
+  <!-- mpath wins over path, which wins over values, which win over from and to. -->
+  <rect x="-6" y="-6" width="12" height="12" fill="#3366cc"><animateMotion dur="2s" fill="freeze" path="M0 0 H200" from="0,0" to="0,200" values="0,0;10,10"><mpath xlink:href="#track"/></animateMotion></rect>
+  <rect x="-6" y="-6" width="12" height="12" fill="#33aa33"><animateMotion dur="2s" fill="freeze" path="M20 190 H180" values="0,0;10,10" from="0,0" to="0,200"/></rect>
+  <!-- A transform on the referenced path is not used. -->
+  <path id="moved" d="M10 150 H50" transform="translate(100 0)" fill="none"/>
+  <rect x="-6" y="-6" width="12" height="12" fill="#cc9900"><animateMotion dur="2s" fill="freeze"><mpath href="#moved"/></animateMotion></rect>
+</svg>

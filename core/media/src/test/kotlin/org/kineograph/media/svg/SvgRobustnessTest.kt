@@ -461,10 +461,14 @@ class SvgRobustnessTest {
     }
 
     @Test
-    fun `shapes in clip-path warn`() {
-        val document = parse(svg("""<rect width="100" height="100" fill="red" style="clip-path: circle(10%)"/>"""))
-        assertTrue(SvgWarning.UNSUPPORTED_FEATURE_IGNORED in document.warnings)
-        document.frame().assertPixel(5, 5, RED)
+    fun `a shape we know clips, and one we do not warns and clips nothing`() {
+        val circle = parse(svg("""<rect width="100" height="100" fill="red" style="clip-path: circle(10%)"/>"""))
+        assertEquals(emptySet<SvgWarning>(), circle.warnings)
+        circle.frame().assertPixel(5, 5, CLEAR)
+        circle.frame().assertPixel(50, 50, RED)
+        val unknown = parse(svg("""<rect width="100" height="100" fill="red" style="clip-path: star(5)"/>"""))
+        assertTrue(SvgWarning.UNSUPPORTED_FEATURE_IGNORED in unknown.warnings)
+        unknown.frame().assertPixel(5, 5, RED)
     }
 
     @Test

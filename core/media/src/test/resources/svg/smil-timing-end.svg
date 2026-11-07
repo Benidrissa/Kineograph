@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- end cuts the animation short; dur can be left out when there is a to-value. -->
+  <rect x="10" y="10" width="20" height="20" fill="#cc3333"><animate attributeName="x" from="10" to="170" dur="2s" end="1s" fill="freeze"/></rect>
+  <rect x="10" y="40" width="20" height="20" fill="#3366cc"><animate attributeName="x" from="10" to="170" dur="2s" end="1s"/></rect>
+  <rect x="10" y="70" width="20" height="20" fill="#33aa33"><animate attributeName="x" from="10" to="170" dur="1s" repeatCount="indefinite" end="2.5s" fill="freeze"/></rect>
+  <!-- The first end after each begin counts. -->
+  <rect x="10" y="100" width="20" height="20" fill="#cc9900"><animate attributeName="x" from="10" to="170" dur="4s" begin="0s;2s" end="1s;3s"/></rect>
+  <!-- An end before the begin means it never plays. -->
+  <rect x="10" y="130" width="20" height="20" fill="#990099"><animate attributeName="x" from="10" to="170" dur="2s" begin="2s" end="1s"/></rect>
+  <set attributeName="fill" to="#00ff00" xlink:href="#ended" end="1.5s"/>
+  <rect id="ended" x="10" y="160" width="20" height="20" fill="#000000"/>
+  <rect x="40" y="160" width="20" height="20" fill="#000000"><set attributeName="x" to="100" begin="1s" end="2s" dur="5s"/></rect>
+</svg>

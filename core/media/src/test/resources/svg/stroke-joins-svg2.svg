@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- arcs and miter-clip are newer join names. Browsers without them fall back to the inherited value, miter. -->
+  <g fill="none" stroke-width="14">
+    <path d="M15 60 L45 15 L75 60" stroke="#cc3333" stroke-linejoin="arcs"/>
+    <path d="M115 60 L145 15 L175 60" stroke="#33aa33" stroke-linejoin="miter-clip"/>
+    <path d="M15 130 L45 85 L75 130" stroke="#3366cc" stroke-linejoin="nonsense"/>
+  </g>
+</svg>

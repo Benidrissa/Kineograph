@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <g font-size="18" font-family="sans-serif">
+    <text x="10" y="25" style="text-transform: uppercase">upper case</text>
+    <text x="10" y="50" style="text-transform: lowercase" fill="#cc3333">LOWER case</text>
+    <text x="10" y="75" style="text-transform: capitalize" fill="#3366cc">cap this one</text>
+    <text x="10" y="100" font-variant="small-caps" fill="#33aa33">small Caps</text>
+    <text x="10" y="125" font-stretch="condensed" fill="#cc9900">Condensed</text>
+    <text x="10" y="150" style="font-kerning: none" fill="#990099">AVAVA kern</text>
+    <text x="10" y="175" style="white-space: pre" fill="#00aaaa">a   b   c</text>
+  </g>
+</svg>

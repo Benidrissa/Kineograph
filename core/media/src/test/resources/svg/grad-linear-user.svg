@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="u" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="200" y2="0"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/></linearGradient>
+    <linearGradient id="d" gradientUnits="userSpaceOnUse" x1="20" y1="100" x2="180" y2="180"><stop offset="0" stop-color="#ffff00"/><stop offset="1" stop-color="#00aa00"/></linearGradient>
+    <linearGradient id="p" gradientUnits="userSpaceOnUse" x1="25%" y1="50%" x2="75%" y2="50%"><stop offset="0" stop-color="#000000"/><stop offset="1" stop-color="#ffffff"/></linearGradient>
+    <linearGradient id="z" gradientUnits="userSpaceOnUse" x1="50" y1="0" x2="50" y2="0"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#00ff00"/></linearGradient>
+  </defs>
+  <!-- Shapes in different places see different parts of the one gradient. -->
+  <rect x="10" y="10" width="50" height="30" fill="url(#u)"/>
+  <rect x="140" y="10" width="50" height="30" fill="url(#u)"/>
+  <g transform="translate(0 40)"><rect x="70" y="10" width="60" height="30" fill="url(#u)"/></g>
+  <rect x="20" y="100" width="160" height="40" fill="url(#d)"/>
+  <rect x="20" y="145" width="160" height="20" fill="url(#p)"/>
+  <!-- No length: paints with the last colour. -->
+  <rect x="20" y="170" width="160" height="20" fill="url(#z)"/>
+</svg>

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- to alone starts from the element's value; by adds to it; from and by together. -->
+  <rect x="50" y="10" width="20" height="20" fill="#cc3333"><animate attributeName="x" to="150" dur="2s" fill="freeze"/></rect>
+  <rect x="50" y="40" width="20" height="20" fill="#3366cc"><animate attributeName="x" by="100" dur="2s" fill="freeze"/></rect>
+  <rect x="50" y="70" width="20" height="20" fill="#33aa33"><animate attributeName="x" from="10" by="100" dur="2s" fill="freeze"/></rect>
+  <!-- values wins over from and to. -->
+  <rect x="50" y="100" width="20" height="20" fill="#cc9900"><animate attributeName="x" values="10;170;90" from="0" to="0" dur="2s" fill="freeze"/></rect>
+  <!-- With only from, nothing is defined to move towards. -->
+  <rect x="50" y="130" width="20" height="20" fill="#990099"><animate attributeName="x" from="100" dur="2s" fill="freeze"/></rect>
+  <rect x="50" y="160" width="20" height="20" fill="#00aaaa"><animate attributeName="x" values="150" dur="2s"/></rect>
+  <rect x="100" y="160" width="20" height="20" fill="#555555"><animate attributeName="y" values="160;bad;180" dur="2s"/></rect>
+</svg>

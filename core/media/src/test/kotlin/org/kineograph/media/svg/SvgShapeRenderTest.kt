@@ -975,7 +975,7 @@ class SvgShapeRenderTest {
         assertEquals("monospace", TextSupport.genericFamily("NoSuchFont, Consolas"))
         assertEquals("cursive", TextSupport.genericFamily("Comic Sans MS"))
         assertEquals("sans-serif", TextSupport.genericFamily("NoSuchFont"))
-        assertEquals("sans-serif", TextSupport.genericFamily(""))
+        assertEquals("serif", TextSupport.genericFamily(""))
     }
 
     @Test

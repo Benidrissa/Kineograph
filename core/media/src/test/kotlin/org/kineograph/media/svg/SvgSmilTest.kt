@@ -604,9 +604,10 @@ class SvgSmilTest {
     }
 
     @Test
-    fun `a discrete to animation holds the value all the way`() {
+    fun `a discrete to animation flips half way, as both Chromium and Firefox do`() {
         val doc = opacityProbe("""<animate attributeName="opacity" to="0.5" dur="2s" calcMode="discrete"/>""", base = "0.2")
-        assertAlpha(doc, 0.5, 0.5)
+        assertAlpha(doc, 0.5, 0.2)
+        assertAlpha(doc, 1.5, 0.5)
     }
 
     @Test
@@ -1278,9 +1279,13 @@ class SvgSmilTest {
     }
 
     @Test
-    fun `animate on the transform attribute interpolates lists`() {
-        val doc = transformProbe("""<animate attributeName="transform" from="translate(0 0)" to="translate(40 0)" dur="1s"/>""")
-        doc.frame(0.5).assertPixel(25, 5, RED)
+    fun `animate and set do nothing to a transform, since browsers leave that to animateTransform`() {
+        val animate = transformProbe("""<animate attributeName="transform" from="translate(0 0)" to="translate(40 0)" dur="1s"/>""")
+        animate.frame(0.5).assertPixel(5, 5, RED)
+        animate.frame(0.5).assertPixel(25, 5, CLEAR)
+        assertTrue(SvgWarning.INVALID_CONTENT_IGNORED in animate.warnings)
+        val set = transformProbe("""<set attributeName="transform" to="translate(40 0)" dur="1s"/>""")
+        set.frame(0.5).assertPixel(5, 5, RED)
     }
 
     @Test

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    @keyframes mv { from { transform: translateX(10px) } to { transform: translateX(160px) } }
+    @keyframes dn { from { transform: translateY(0) } to { transform: translateY(40px) } }
+    @keyframes fd { from { opacity: 1 } to { opacity: .2 } }
+    @keyframes co { from { fill: #ff0000 } to { fill: #0000ff } }
+    /* Several at once; on the same property, the last in the list wins. */
+    .a { animation: mv 2s linear forwards, fd 2s linear forwards }
+    .b { animation: mv 2s linear forwards, dn 1s linear forwards }
+    .c { animation: dn 1s linear forwards, mv 2s linear forwards }
+    /* Longhands repeat as needed to match the names. */
+    .d { animation-name: mv, co, fd; animation-duration: 2s, 1s; animation-timing-function: linear; animation-fill-mode: forwards }
+    .e { animation: fd 1s linear 3 alternate, co 3s steps(3) forwards }
+  </style>
+  <rect class="a" y="10" width="20" height="20" fill="#cc3333"/>
+  <rect class="b" y="40" width="20" height="20" fill="#3366cc"/>
+  <rect class="c" y="70" width="20" height="20" fill="#33aa33"/>
+  <rect class="d" y="120" width="20" height="20"/>
+  <rect class="e" x="10" y="150" width="20" height="20"/>
+</svg>

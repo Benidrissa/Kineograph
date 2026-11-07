@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <rect x="10" y="10" width="80" height="50" fill="#cc3333" style="clip-path: ellipse(40% 30%)"/>
+  <rect x="110" y="10" width="80" height="50" fill="#3366cc" style="clip-path: circle(20px at 25% 75%)"/>
+  <rect x="10" y="70" width="80" height="50" fill="#33aa33" style="clip-path: inset(5px 10px 15px 20px round 8px)"/>
+  <rect x="110" y="70" width="80" height="50" fill="#cc9900" style="clip-path: polygon(50% 0, 100% 100%, 0 100%)"/>
+  <rect x="10" y="130" width="80" height="50" fill="#990099" style="clip-path: path('M0 0 H80 L40 50 Z')"/>
+  <rect x="110" y="130" width="80" height="50" fill="#00aaaa" stroke="#000000" stroke-width="8" style="clip-path: inset(0) fill-box"/>
+</svg>

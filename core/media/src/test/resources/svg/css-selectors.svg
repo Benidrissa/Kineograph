@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style type="text/css">
+    /* A comment, then the kinds of selector. */
+    * { stroke: #000000; stroke-width: 1 }
+    rect { fill: #cc3333 }
+    .cls { fill: #3366cc }
+    #idd { fill: #33aa33 }
+    g rect { fill-opacity: 1 }
+    g.outer rect { fill: #cc9900 }
+    g.outer g rect { fill: #990099 }
+    circle, ellipse, .also { fill: #00aaaa }
+    .one.two { fill: #aa5500 }
+    rect.cls2 { fill: #555555 }
+    g > path { fill: #ff6600 }
+    g > g > path { fill: #0066ff }
+    rect + circle { fill: #ff00ff }
+    rect ~ polygon { fill: #66cc00 }
+    [data-x] { fill: #00ff00 }
+    [data-y="yes"] { fill: #ffff00 }
+    [data-z~="b"] { fill: #00ffff }
+    line:first-child { stroke: #ff0000 }
+    .nope, circle.bad:hover, rect:unknownpseudo { fill: #000000 }
+  </style>
+  <rect x="5" y="5" width="30" height="30"/>
+  <rect x="45" y="5" width="30" height="30" class="cls"/>
+  <rect x="85" y="5" width="30" height="30" id="idd"/>
+  <g class="outer">
+    <rect x="125" y="5" width="30" height="30"/>
+    <g><rect x="165" y="5" width="30" height="30"/></g>
+  </g>
+  <circle cx="20" cy="60" r="15"/>
+  <ellipse cx="60" cy="60" rx="15" ry="10"/>
+  <rect x="85" y="45" width="30" height="30" class="also"/>
+  <rect x="125" y="45" width="30" height="30" class=" one  two "/>
+  <rect x="165" y="45" width="30" height="30" class="cls2"/>
+  <g><path d="M5 85 h30 v30 h-30 z"/><g><path d="M45 85 h30 v30 h-30 z"/></g></g>
+  <svg x="0" y="0" width="200" height="200">
+    <rect x="85" y="85" width="30" height="30" fill="none"/>
+    <circle cx="140" cy="100" r="15"/>
+    <polygon points="165,85 195,85 180,115"/>
+  </svg>
+  <rect x="5" y="125" width="30" height="30" data-x="1"/>
+  <rect x="45" y="125" width="30" height="30" data-y="yes"/>
+  <rect x="85" y="125" width="30" height="30" data-z="a b c"/>
+  <rect x="125" y="125" width="30" height="30" data-z="abc"/>
+  <g><line x1="5" y1="170" x2="95" y2="170" stroke-width="5"/><line x1="105" y1="170" x2="195" y2="170" stroke-width="5"/></g>
+</svg>

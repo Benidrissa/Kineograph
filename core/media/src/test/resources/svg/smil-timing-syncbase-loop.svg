@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Two animations taking turns forever, each started by the end of the other. -->
+  <rect x="10" y="20" width="30" height="30" fill="#cc3333"><animate id="x1" attributeName="x" from="10" to="160" begin="0s;x2.end" dur="1s"/></rect>
+  <rect x="10" y="70" width="30" height="30" fill="#3366cc"><animate id="x2" attributeName="x" from="10" to="160" begin="x1.end" dur="1.5s"/></rect>
+  <rect x="10" y="120" width="30" height="30" fill="#33aa33"><animate attributeName="x" from="10" to="160" begin="x1.begin+0.5s" dur="0.5s"/></rect>
+</svg>

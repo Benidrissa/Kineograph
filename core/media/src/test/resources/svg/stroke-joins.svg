@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <g fill="none" stroke-width="14">
+    <path d="M15 60 L45 15 L75 60" stroke="#cc3333" stroke-linejoin="miter"/>
+    <path d="M85 60 L115 15 L145 60" stroke="#33aa33" stroke-linejoin="round"/>
+    <path d="M15 130 L45 85 L75 130" stroke="#3366cc" stroke-linejoin="bevel"/>
+    <path d="M85 130 h40 v-40 z" stroke="#cc9900" stroke-linejoin="round"/>
+    <polygon points="150,90 190,90 170,130" stroke="#990099" stroke-linejoin="bevel"/>
+    <rect x="20" y="150" width="40" height="30" stroke="#00aaaa" stroke-linejoin="miter"/>
+    <rect x="85" y="150" width="40" height="30" stroke="#aa5500" stroke-linejoin="round"/>
+    <path d="M150 180 Q170 130 190 180" stroke="#555555" stroke-linejoin="round" stroke-width="8"/>
+  </g>
+</svg>

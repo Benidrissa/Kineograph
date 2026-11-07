@@ -1,0 +1,207 @@
+bounce-smil.svg 0 0.5 1 size=100
+clip-basic.svg 0
+clip-chain.svg 0
+clip-on-effects.svg 0
+clip-rule.svg 0
+clip-units.svg 0
+color-current.svg 0
+color-formats.svg 0
+color-modern.svg 0
+color-named.svg 0
+css-anim-bbox-change.svg 0 1 2
+css-anim-dash.svg 0 0.5 1 1.5 2
+css-anim-direction.svg 0 0.25 0.75 1 1.25 1.75 2 3
+css-anim-discrete.svg 0 0.4 0.6 1 1.4 2
+css-anim-easing.svg 0 0.2 0.4 0.5 0.6 0.8 1
+css-anim-fill-mode.svg 0 0.5 1 1.5 2 3
+css-anim-geometry.svg 0 0.5 1 2 letters
+css-anim-individual.svg 0 0.5 1 2
+css-anim-keyframes.svg 0 0.25 0.5 0.75 1 1.5 2
+css-anim-linear-fn.svg 0 0.25 0.5 0.75 1
+css-anim-mixed.svg 0 0.5 1 1.5 2
+css-anim-more.svg 0 0.25 0.5 1 1.5 2
+css-anim-multiple.svg 0 0.5 1 1.5 2 3
+css-anim-origin.svg 0 0.5 1 1.5 2
+css-anim-override.svg 0 1 2
+css-anim-paint.svg 0 0.5 1 1.5 2
+css-anim-paintservers.svg 0 0.5 1 2
+css-anim-shorthand.svg 0 0.5 1 1.5 2 2.5 3 4
+css-anim-steps.svg 0 0.1 0.3 0.5 0.7 0.9 1
+css-anim-timing.svg 0 0.5 1 1.5 2 2.5 3 4
+css-anim-transform-lists.svg 0 0.5 1 1.5 2
+css-anim-transform.svg 0 0.5 1 1.5 2
+css-anim-use.svg 0 1 2
+css-at-rules.svg 0
+css-cascade.svg 0
+css-geometry.svg 0
+css-inherit.svg 0
+css-selectors-more.svg 0
+css-selectors.svg 0
+css-units-strict.svg 0 letters
+css-values-case.svg 0
+display-visibility.svg 0
+feature-blend.svg 0
+feature-conditions.svg 0
+feature-external-image.svg 0
+feature-external.svg 0
+feature-filter-blur.svg 0
+feature-filter-css.svg 0
+feature-foreign-object.svg 0
+feature-script.svg 0 1
+feature-text-path.svg 0 letters
+grad-href.svg 0
+grad-linear-bbox.svg 0
+grad-linear-spread.svg 0
+grad-linear-transform.svg 0
+grad-linear-user.svg 0
+grad-radial-bbox.svg 0
+grad-radial-focal.svg 0
+grad-radial-spread.svg 0
+grad-radial-transform.svg 0
+grad-radial-user.svg 0
+grad-stops.svg 0
+grad-targets.svg 0
+illustrator-style.svg 0 size=100
+image-aspect.svg 0
+image-data.svg 0
+image-svg-slice.svg 0
+kitchen-sink.svg 0 0.5 1 2 letters
+marker-basic.svg 0
+marker-doubling.svg 0
+marker-more.svg 0
+marker-orient.svg 0
+marker-styles.svg 0
+marker-units.svg 0
+mask-alpha.svg 0
+mask-effects.svg 0
+mask-luminance.svg 0
+mask-shorthand.svg 0
+mask-units.svg 0
+opacity-group.svg 0
+opacity-kinds.svg 0
+paint-fallback.svg 0
+path-arc-compact.svg 0
+path-arc-degenerate.svg 0
+path-arc-flags.svg 0
+path-close-and-continue.svg 0
+path-cubic.svg 0
+path-errors.svg 0
+path-fill-rule.svg 0
+path-lines.svg 0
+path-number-grammar.svg 0
+path-quad.svg 0
+path-zero-length.svg 0
+pattern-basic.svg 0
+pattern-transforms.svg 0
+root-css.svg 0
+root-overflow.svg 0 size=100
+root-style.svg 0
+root-transform.svg 0
+scripted.svg 0 size=100
+shape-circle-ellipse.svg 0
+shape-line-poly.svg 0
+shape-rect.svg 0
+shapes-css-basic.svg 0
+shapes-css-more.svg 0
+smil-accumulate.svg 0 0.5 1 1.5 2 2.5 3 4
+smil-additive.svg 0 0.5 1 2 3
+smil-animate-color-paint.svg 0 1 1.5 2
+smil-animate-color.svg 0 0.5 1 1.5 2
+smil-animate-dash.svg 0 0.5 1 1.5 2
+smil-animate-lengths.svg 0 0.5 1 2
+smil-animate-number.svg 0 0.5 1 1.5 2 3
+smil-animate-opacity.svg 0 0.5 1 2
+smil-animate-path-d.svg 0 0.5 1 1.5 2
+smil-animate-points.svg 0 0.5 1 2
+smil-animate-remove.svg 0 1 1.9 2 3
+smil-attributes.svg 0 0.5 1.1 1.5 2 letters
+smil-calcmode-discrete.svg 0 0.3 0.7 1 1.4 1.9 2
+smil-calcmode-linear.svg 0 0.5 1 1.5 2
+smil-calcmode-paced-transform.svg 0 0.25 0.5 1 1.5 2
+smil-calcmode-paced.svg 0 0.25 0.5 1 1.5 2
+smil-calcmode-spline.svg 0 0.25 0.5 1 1.5 1.75 2
+smil-clip-mask-pattern.svg 0 0.5 1 2
+smil-discrete-values.svg 0 0.4 1 1.4 2 2.4 3 letters
+smil-dur-special.svg 0 1 2 3
+smil-freeze-repeat.svg 0 0.5 1 1.5 2 3 4 5
+smil-gradient.svg 0 0.5 1 2
+smil-motion-keypoints.svg 0 0.5 1 1.5 2
+smil-motion-more.svg 0 0.5 1 1.5 2
+smil-motion-mpath.svg 0 1 2
+smil-motion-path.svg 0 0.5 1 1.5 2 3
+smil-motion-rotate-angle.svg 0 1 2
+smil-motion-rotate.svg 0 0.5 1 1.5 2
+smil-motion-values.svg 0 0.5 1 1.5 2
+smil-repeat-spline.svg 0 0.2 0.7 1.2 1.7
+smil-sandwich.svg 0 0.5 1 1.5 2 2.5 3
+smil-set.svg 0 0.5 1 1.5 2 2.5 3
+smil-target.svg 0 1 2
+smil-text.svg 0 1 2 letters
+smil-timing-begin.svg 0 0.5 1 1.5 2 2.5 3 4
+smil-timing-end.svg 0 0.5 1 1.5 2 3 4
+smil-timing-event.svg 0 1 2 3
+smil-timing-minmax.svg 0 0.5 1.2 1.5 2 3
+smil-timing-repeat-event.svg 0 0.5 1.25 1.75
+smil-timing-repeat.svg 0 0.5 1.2 1.5 2.5 3.2 5
+smil-timing-restart.svg 0 0.5 1 1.5 2 2.5 3.5
+smil-timing-syncbase-loop.svg 0 0.5 1 1.25 2 2.5 3 3.5 4.5
+smil-timing-syncbase.svg 0 0.5 1 1.5 2 2.5 3 3.5 4 5
+smil-transform-accumulate.svg 0 0.5 1.5 2 3 3.5
+smil-transform-additive.svg 0 0.5 1 2
+smil-transform-rotate.svg 0 0.5 1 2 2.5 4
+smil-transform-scale.svg 0 0.5 1 2
+smil-transform-skew.svg 0 1 2
+smil-transform-translate.svg 0 0.5 1 2 3
+smil-use-instances.svg 0 1 2
+smil-values-kinds.svg 0 0.5 1 1.5 2 3
+smil-viewport.svg 0 1 2
+spinner-css.svg 0 0.25 1 size=100
+stroke-caps.svg 0
+stroke-dash-basic.svg 0
+stroke-dash-caps.svg 0
+stroke-dash-pathlength.svg 0
+stroke-dash-shapes.svg 0
+stroke-dash-units.svg 0
+stroke-joins-svg2.svg 0
+stroke-joins.svg 0
+stroke-miterlimit.svg 0
+stroke-paint-order.svg 0
+stroke-transforms.svg 0
+structure-odd.svg 0 letters
+svg-nested.svg 0
+text-anchor.svg 0 letters
+text-baseline.svg 0 letters
+text-basic.svg 0 letters
+text-decoration-skip.svg 0 letters
+text-decoration.svg 0 letters
+text-effects.svg 0 letters
+text-family-unknown.svg 0 letters
+text-family.svg 0 letters
+text-list-attrs.svg 0 letters
+text-paint.svg 0 letters
+text-transform-variant.svg 0 letters
+text-tspan.svg 0 letters
+text-weight.svg 0 letters
+transform-attribute-css-syntax.svg 0
+transform-css.svg 0
+transform-individual.svg 0
+transform-list.svg 0
+transform-nested.svg 0
+transform-origin.svg 0
+units-lengths.svg 0
+units-percent-viewbox.svg 0
+units-relative.svg 0
+use-basic.svg 0
+use-paint-box.svg 0
+use-style.svg 0
+use-symbol.svg 0
+viewbox-align-meet.svg 0
+viewbox-align-slice.svg 0
+viewbox-offset.svg 0
+viewbox-root-commas.svg 0
+viewbox-root-default.svg 0
+viewbox-root-invalid.svg 0
+viewbox-root-meet.svg 0
+viewbox-root-none.svg 0
+viewbox-root-nosize.svg 0
+viewbox-root-slice.svg 0

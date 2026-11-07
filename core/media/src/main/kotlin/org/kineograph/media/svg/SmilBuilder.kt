@@ -9,6 +9,7 @@ internal class SmilBuilder(
     private val root: SvgElement,
     private val byId: Map<String, SvgElement>,
     private val warnings: MutableSet<SvgWarning>,
+    private val rootFontSize: Double,
 ) {
     val timings: ArrayList<SmilTiming> = ArrayList()
     var foundAnimation: Boolean = false
@@ -163,13 +164,18 @@ internal class SmilBuilder(
             warnings += SvgWarning.UNSUPPORTED_FEATURE_IGNORED
             return
         }
+        // Transforms have their own element for this. Browsers ignore animate and set on them, so a file that tries shows no motion.
+        if (def.kind == PropKind.TRANSFORM && tag != "animateTransform") {
+            warnings += SvgWarning.INVALID_CONTENT_IGNORED
+            return
+        }
         val timing = readTiming(element)
         val parse: (String) -> SvgValue? =
             if (tag == "animateTransform") {
                 val type = attrs["type"]?.trim() ?: "translate"
                 ({ text -> parseAnimateTransformValue(type, text) })
             } else {
-                ({ text -> parseProperty(property, text) })
+                ({ text -> parseProperty(property, resolveRem(text, rootFontSize)) })
             }
         val interpolable = tag == "animateTransform" || (def.kind != PropKind.KEYWORD && def.kind != PropKind.RAW)
         val requestedMode =
@@ -180,7 +186,7 @@ internal class SmilBuilder(
                 else -> if (tag == "set") CalcMode.DISCRETE else CalcMode.LINEAR
             }
         val mode = if (interpolable) requestedMode else CalcMode.DISCRETE
-        val spec = readValueSpec(element, parse, mode)
+        val spec = readValueSpec(element, parse)?.takeUnless { property == "stroke-dasharray" && it.mentionsNoDashes }
         if (spec == null) {
             warnings += SvgWarning.INVALID_CONTENT_IGNORED
             return
@@ -211,9 +217,12 @@ internal class SmilBuilder(
         )
     }
 
-    private class ValueSpec(val values: List<SvgValue?>, val additiveByDefinition: Boolean, val isToAnimation: Boolean)
+    private class ValueSpec(val values: List<SvgValue?>, val additiveByDefinition: Boolean, val isToAnimation: Boolean) {
+        /** `none` is fine as a dash pattern, but SMIL's lists have no way to reach it, so browsers drop the whole animation. */
+        val mentionsNoDashes: Boolean get() = values.any { it is DashValue && it.items.isEmpty() }
+    }
 
-    private fun readValueSpec(element: SvgElement, parse: (String) -> SvgValue?, mode: CalcMode): ValueSpec? {
+    private fun readValueSpec(element: SvgElement, parse: (String) -> SvgValue?): ValueSpec? {
         val attrs = element.attrs
         if (element.tag == "set") {
             val to = readOne(attrs["to"], parse) ?: return null
@@ -245,13 +254,9 @@ internal class SmilBuilder(
                 ValueSpec(listOf(zero, by.value), additiveByDefinition = true, isToAnimation = false)
             }
 
+            // Even when discrete. SMIL's text says this should hold the target all the way, but both Chromium and Firefox flip half way.
             to != null -> {
-                // A discrete `to` animation holds the target value all the way, instead of flipping half way through.
-                if (mode == CalcMode.DISCRETE) {
-                    ValueSpec(listOf(to.value), additiveByDefinition = false, isToAnimation = false)
-                } else {
-                    ValueSpec(listOf(null, to.value), additiveByDefinition = false, isToAnimation = true)
-                }
+                ValueSpec(listOf(null, to.value), additiveByDefinition = false, isToAnimation = true)
             }
 
             else -> {

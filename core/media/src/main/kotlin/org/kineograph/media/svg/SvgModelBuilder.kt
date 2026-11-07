@@ -23,13 +23,14 @@ internal class SvgModelBuilder(
     private var foundCssAnimation = false
     private val parseCache = HashMap<String, SvgValue?>()
     private var trackOrder = 0
+    private var rootFontSize = DEFAULT_ROOT_FONT_SIZE
 
     fun build(): BuiltModel {
         index(root)
         readStylesheets(root)
         val rules = RuleIndex(sheet.rules)
         cascade(root, emptyMap(), rules)
-        val smil = SmilBuilder(root, byId, warnings)
+        val smil = SmilBuilder(root, byId, warnings, rootFontSize)
         smil.build()
         val summary =
             AnimationSummary.of(smil.foundAnimation || foundCssAnimation, smil.timings, cssTimings, embeddedAnimations, limits)
@@ -58,13 +59,25 @@ internal class SvgModelBuilder(
         if (element.tag == "style") {
             val type = element.attrs["type"]?.trim()?.lowercase()
             val media = element.attrs["media"]
-            if ((type == null || type.isEmpty() || type == "text/css") && (media == null || mediaMatches(media))) {
+            val context = mediaContext()
+            if ((type == null || type.isEmpty() || type == "text/css") && (media == null || mediaMatches(media, context))) {
                 val text = element.content?.joinToString("") { it as? String ?: "" }.orEmpty()
-                CssParser(text, sheet, warnings).parse()
+                CssParser(text, sheet, warnings, context).parse()
             }
             return
         }
         for (child in element.children) readStylesheets(child)
+    }
+
+    /** Media queries come before the cascade, so this is the plain attributes' idea of the size, which is all a rule can rely on anyway. */
+    private fun mediaContext(): MediaContext {
+        val box = root.attrs["viewBox"]?.let(::parseNumberList)?.takeIf { it.size == 4 }
+
+        fun absolute(name: String): Double? = root.attrs[name]?.let(::parseLengthOrNull)?.takeIf { it.pct == 0.0 }?.let {
+            it.px +
+                it.em * 16.0
+        }
+        return MediaContext(absolute("width") ?: box?.get(2) ?: DEFAULT_WIDTH, absolute("height") ?: box?.get(3) ?: DEFAULT_HEIGHT)
     }
 
     /** Finds candidate rules by what their rightmost part requires, so a big stylesheet is not tested in full on every element. */
@@ -127,6 +140,7 @@ internal class SvgModelBuilder(
             }
         }
 
+        if (element === root) rootFontSize = readRootFontSize(ordered)
         val state = CascadeState(element, custom)
         for ((name, value) in element.attrs) state.applyAttribute(name, value)
         for (declaration in ordered) state.applyDeclaration(declaration)
@@ -136,6 +150,16 @@ internal class SvgModelBuilder(
         readImage(element, state)
         buildCssAnimations(element, state)
         for (child in element.children) cascade(child, custom, rules)
+    }
+
+    /** Everything measured in `rem` depends on this, including on the outermost element itself, so it is read before that is styled. */
+    private fun readRootFontSize(declarations: List<Declaration>): Double {
+        var size = root.attrs["font-size"]?.let { parseProperty("font-size", it) } as? LengthValue
+        for (declaration in declarations) {
+            if (declaration.name != "font-size") continue
+            (parseProperty("font-size", declaration.value, css = true) as? LengthValue)?.let { size = it }
+        }
+        return size?.length?.resolve(DEFAULT_ROOT_FONT_SIZE, DEFAULT_ROOT_FONT_SIZE)?.takeIf { it > 0.0 } ?: DEFAULT_ROOT_FONT_SIZE
     }
 
     private inner class CascadeState(val element: SvgElement, val custom: Map<String, String>) {
@@ -177,6 +201,11 @@ internal class SvgModelBuilder(
                     expandFont(value)?.forEach { (longhand, part) -> store(longhand, part, true, declaration.important) }
                 }
 
+                // The parts of the CSS masks model that a picture from this file format can mean.
+                name == "mask-image" || name == "-webkit-mask-image" || name == "-webkit-mask" -> {
+                    store("mask", value, true, declaration.important)
+                }
+
                 name == "marker" -> {
                     store("marker-start", value, true, declaration.important)
                     store("marker-mid", value, true, declaration.important)
@@ -200,8 +229,8 @@ internal class SvgModelBuilder(
             // An empty attribute says nothing, so there is nothing to warn about.
             if (rawValue.isBlank()) return
             // A plain presentation attribute may not use var(), but real files do, and browsers treat it as a declaration.
-            val text = if ("var(" in rawValue) substitute(rawValue, custom) ?: return else rawValue
-            val value = parsedValue(name, text)
+            val text = resolveRem(if ("var(" in rawValue) substitute(rawValue, custom) ?: return else rawValue, rootFontSize)
+            val value = parsedValue(name, text, fromCss)
             if (value == null) {
                 warnings += SvgWarning.INVALID_CONTENT_IGNORED
                 return
@@ -212,10 +241,10 @@ internal class SvgModelBuilder(
         }
     }
 
-    private fun parsedValue(name: String, text: String): SvgValue? {
-        val key = "$name\u0000$text"
+    private fun parsedValue(name: String, text: String, css: Boolean): SvgValue? {
+        val key = "$name\u0000$css\u0000$text"
         if (parseCache.containsKey(key)) return parseCache[key]
-        val value = parseProperty(name, text)
+        val value = parseProperty(name, text, css)
         parseCache[key] = value
         return value
     }
@@ -237,7 +266,8 @@ internal class SvgModelBuilder(
 
             "clip-path", "mask" -> {
                 val text = (value as? KeywordValue)?.text.orEmpty()
-                if (!text.equals("none", ignoreCase = true) && urlReference(text) == null) {
+                val isShape = name == "clip-path" && parseBasicShape(text) != null
+                if (!isShape && !text.equals("none", ignoreCase = true) && urlReference(text) == null) {
                     warnings +=
                         if (text.startsWith("url(", ignoreCase = true)) {
                             SvgWarning.EXTERNAL_REFERENCE_IGNORED
@@ -397,7 +427,7 @@ internal class SvgModelBuilder(
                 val def = PROPERTIES[declaration.name] ?: continue
                 if (!def.css) continue
                 val text = substitute(declaration.value, state.custom) ?: continue
-                val value = parsedValue(declaration.name, text) ?: continue
+                val value = parsedValue(declaration.name, resolveRem(text, rootFontSize), css = true) ?: continue
                 // inherit in a keyframe would need the parent at each frame. Reading it as "the underlying value" looks the same.
                 val entry = CssFrame(frame.offset, value.takeUnless { it === InheritValue || it === InitialValue }, easing)
                 val list = perProperty.getOrPut(declaration.name) { ArrayList(4) }
@@ -469,6 +499,7 @@ internal class SvgModelBuilder(
         const val DEFAULT_WIDTH = 300.0
         const val DEFAULT_HEIGHT = 150.0
         const val EXPANSION_CAP = 1L shl 56
+        const val DEFAULT_ROOT_FONT_SIZE = 16.0
     }
 }
 
@@ -579,7 +610,7 @@ internal fun expandFont(value: String): List<Pair<String, String>>? {
 
             else -> {
                 val size = token.substringBefore('/')
-                if (parseProperty("font-size", size) == null) return null
+                if (parseProperty("font-size", size, css = true) == null) return null
                 out += "font-size" to size
                 val family = tokens.subList(index + 1, tokens.size).joinToString(" ")
                 if (family.isEmpty()) return null

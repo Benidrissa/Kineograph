@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Coordinates instead of a path. -->
+  <circle r="8" fill="#cc3333"><animateMotion from="20,20" to="180,20" dur="2s" fill="freeze"/></circle>
+  <circle cx="20" cy="50" r="8" fill="#3366cc"><animateMotion by="160,0" dur="2s" fill="freeze"/></circle>
+  <circle cx="0" cy="80" r="8" fill="#33aa33"><animateMotion values="20,0;180,0;100,30" dur="2s" fill="freeze"/></circle>
+  <!-- Paced by default: equal speed, so the short hop takes less time. -->
+  <circle cx="0" cy="140" r="8" fill="#cc9900"><animateMotion values="20,0;40,0;180,0" dur="2s" fill="freeze"/></circle>
+  <circle cx="0" cy="170" r="8" fill="#990099"><animateMotion values="20,0;40,0;180,0" calcMode="linear" dur="2s" fill="freeze"/></circle>
+  <circle cx="100" cy="190" r="8" fill="#00aaaa"><animateMotion to="50,0" dur="2s" fill="freeze"/></circle>
+</svg>

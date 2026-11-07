@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs><path id="p" d="M20 30 H180"/></defs>
+  <use href="#p" fill="none" stroke="#cccccc"/>
+  <circle r="8" fill="#cc3333"><animateMotion dur="2s" fill="freeze" keyPoints="0;1;.5" keyTimes="0;.5;1" calcMode="linear" path="M20 30 H180"/></circle>
+  <!-- Motion is paced by default, so keyTimes do nothing without calcMode. -->
+  <circle r="8" fill="#3366cc"><animateMotion dur="2s" fill="freeze" keyPoints="0;.25;1" keyTimes="0;.5;1" path="M20 70 H180"/></circle>
+  <circle r="8" fill="#33aa33"><animateMotion dur="2s" fill="freeze" keyPoints="1;0" keyTimes="0;1" calcMode="linear" path="M20 110 H180"/></circle>
+  <circle r="8" fill="#cc9900"><animateMotion dur="2s" fill="freeze" keyPoints="0;.5;1" keyTimes="0;.25;1" calcMode="spline" keySplines=".5 0 .5 1;.5 0 .5 1" path="M20 150 H180"/></circle>
+  <circle r="8" fill="#990099"><animateMotion dur="2s" fill="freeze" keyPoints="0;.5;1" keyTimes="0;.25;1" calcMode="discrete" path="M20 190 H180"/></circle>
+</svg>

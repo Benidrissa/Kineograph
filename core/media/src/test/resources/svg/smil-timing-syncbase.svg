@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <rect x="10" y="10" width="20" height="20" fill="#cc3333"><animate id="a" attributeName="x" from="10" to="170" dur="1s" fill="freeze"/></rect>
+  <!-- Starts half a second after a ends. -->
+  <rect x="10" y="40" width="20" height="20" fill="#3366cc"><animate id="b" attributeName="x" from="10" to="170" begin="a.end+0.5s" dur="1s" fill="freeze"/></rect>
+  <!-- Follows b, which follows a. -->
+  <rect x="10" y="70" width="20" height="20" fill="#33aa33"><animate id="c" attributeName="x" from="10" to="170" begin="b.end" dur="1s" fill="freeze"/></rect>
+  <rect x="10" y="100" width="20" height="20" fill="#cc9900"><animate attributeName="x" from="10" to="170" begin="a.begin+0.25s" dur="1s" fill="freeze"/></rect>
+  <rect x="10" y="130" width="20" height="20" fill="#990099"><animate attributeName="x" from="10" to="170" begin="c.begin-0.5s" dur="1s" fill="freeze"/></rect>
+  <!-- Two ways to start, and a missing source that never comes. -->
+  <rect x="10" y="160" width="20" height="20" fill="#00aaaa"><animate attributeName="x" from="10" to="170" begin="b.begin; c.end+0.5s" dur="1s"/></rect>
+  <rect x="10" y="185" width="10" height="10" fill="#000000"><animate attributeName="x" from="10" to="170" begin="nothing.end" dur="1s"/></rect>
+  <rect x="30" y="185" width="10" height="10" fill="#555555"><animate attributeName="x" from="30" to="170" begin="a.end" end="c.begin" dur="10s"/></rect>
+</svg>

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <rect id="r" width="30" height="20"/>
+    <g id="g"><circle cx="15" cy="15" r="15" fill="#3366cc"/><rect x="5" y="5" width="20" height="20" fill="inherit"/></g>
+  </defs>
+  <use href="#r" fill="#cc3333" x="10" y="10"/>
+  <use xlink:href="#r" fill="#33aa33" x="50" y="10"/>
+  <use href="#r" fill="#cc9900" transform="translate(90 10)"/>
+  <use href="#r" fill="#990099" x="10" y="10" transform="translate(120 0) rotate(20)"/>
+  <use href="#g" fill="#ffffff" x="10" y="50"/>
+  <use href="#g" fill="#000000" x="10" y="50" transform="translate(50 0) scale(1.5)"/>
+  <!-- A use of a use, and use on its original's own position. -->
+  <rect id="shown" x="10" y="110" width="30" height="20" fill="#00aaaa"/>
+  <use id="once" href="#shown" x="40"/>
+  <use href="#once" x="80"/>
+  <!-- Missing or self-referring targets draw nothing. -->
+  <use href="#absent" fill="#000000"/>
+  <use id="self" href="#self"/>
+  <g id="loop"><use href="#loop" x="5"/><rect x="160" y="110" width="30" height="20" fill="#555555"/></g>
+  <!-- width and height mean nothing on a use of a plain shape. -->
+  <use href="#r" fill="#aa5500" x="10" y="150" width="100" height="100"/>
+</svg>

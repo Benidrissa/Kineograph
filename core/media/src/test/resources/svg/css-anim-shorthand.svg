@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    @keyframes mv { from { transform: translateX(10px) } to { transform: translateX(170px) } }
+    @keyframes infinite { from { transform: translateX(10px) } to { transform: translateX(90px) } }
+    /* Any order; the first time is the duration and the second the delay. */
+    .a { animation: 1s mv }
+    .b { animation: mv linear 1s 1s }
+    .c { animation: 1s 1s linear both mv }
+    .d { animation: reverse mv 2s linear }
+    .e { animation: infinite 1s linear mv }
+    .f { animation: alternate 3 ease-in mv 1s forwards }
+    /* A name that sounds like a keyword is the name once the keyword has been used. */
+    .g { animation: infinite infinite 1s linear }
+    .h { animation: mv 1s linear paused }
+    .i { animation-name: mv; animation: 1s linear }
+    .j { animation: none }
+  </style>
+  <rect class="a" y="2" width="20" height="18" fill="#cc3333"/>
+  <rect class="b" y="24" width="20" height="18" fill="#3366cc"/>
+  <rect class="c" y="46" width="20" height="18" fill="#33aa33"/>
+  <rect class="d" y="68" width="20" height="18" fill="#cc9900"/>
+  <rect class="e" y="90" width="20" height="18" fill="#990099"/>
+  <rect class="f" y="112" width="20" height="18" fill="#00aaaa"/>
+  <rect class="g" y="134" width="20" height="18" fill="#555555"/>
+  <rect class="i" y="156" width="20" height="18" fill="#ff6600"/>
+  <rect class="j" y="178" width="20" height="18" fill="#0066ff"/>
+</svg>

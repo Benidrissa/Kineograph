@@ -2,10 +2,12 @@ package org.kineograph.media.svg
 
 import android.graphics.Matrix
 import kotlin.math.abs
+import kotlin.math.acos
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlin.math.tan
 
 /**
@@ -170,36 +172,99 @@ internal fun combine(ops: List<TransformOp>, context: TransformContext): Mat2D {
 }
 
 /**
- * Reads both SVG transform attributes, `rotate(45 10 10)`, and CSS transforms, `rotate(45deg) translate(10px, 5%)`, with one
- * parser. Files mix the two forms freely, so being strict about which is which would only break pictures. Returns null when
- * the list is malformed, which the caller treats as "no transform", as browsers do.
+ * Reads a `transform` attribute, whose numbers have no units and whose `rotate` can name a centre. It is a different language from the
+ * CSS property of the same name, see [parseCssTransformList]. Mixing them up is a mistake browsers answer with no transform at all,
+ * so the picture a file is known by is one without it. Returns null when the list is malformed.
  */
 internal fun parseTransformList(raw: String): List<TransformOp>? {
     val text = raw.trim()
     if (text.isEmpty() || text.equals("none", ignoreCase = true)) return emptyList()
+    return parseFunctions(text, commaBetween = true) { name, args -> parseAttributeFunction(name, args) }
+}
+
+/** Reads the CSS `transform` property: lengths and angles have units, arguments are split by commas, and functions by spaces only. */
+internal fun parseCssTransformList(raw: String): List<TransformOp>? {
+    val text = raw.trim()
+    if (text.isEmpty() || text.equals("none", ignoreCase = true)) return emptyList()
+    return parseFunctions(text, commaBetween = false) { name, args ->
+        // Whitespace alone between arguments is the attribute's way of writing them. In CSS it joins them into one bad argument.
+        val parts = splitTopLevel(args, ',').map { it.trim() }
+        if (parts.any { it.isEmpty() || splitList(it).size != 1 }) null else parseCssFunction(name.lowercase(), parts)
+    }
+}
+
+private inline fun parseFunctions(text: String, commaBetween: Boolean, parseOne: (String, String) -> TransformOp?): List<TransformOp>? {
     val ops = ArrayList<TransformOp>()
     var pos = 0
     while (pos < text.length) {
-        while (pos < text.length && (isSvgSpace(text[pos]) || text[pos] == ',')) pos++
+        while (pos < text.length && (isSvgSpace(text[pos]) || (commaBetween && text[pos] == ','))) pos++
         if (pos >= text.length) break
         val open = text.indexOf('(', pos)
         if (open < 0) return null
         val close = text.indexOf(')', open)
         if (close < 0) return null
-        val name = text.substring(pos, open).trim().lowercase()
-        val op = parseTransformFunction(name, splitList(text.substring(open + 1, close))) ?: return null
-        ops += op
+        ops += parseOne(text.substring(pos, open).trim(), text.substring(open + 1, close)) ?: return null
         pos = close + 1
     }
     return ops
 }
 
-private fun parseTransformFunction(name: String, args: List<String>): TransformOp? {
+private fun parseAttributeFunction(name: String, text: String): TransformOp? {
+    val args = parseNumberList(text) ?: return null
+    return when (name) {
+        "translate" -> {
+            when (args.size) {
+                1 -> TransformOp.Translate(Length(px = args[0]), Length.ZERO)
+                2 -> TransformOp.Translate(Length(px = args[0]), Length(px = args[1]))
+                else -> null
+            }
+        }
+
+        "scale" -> {
+            when (args.size) {
+                1 -> TransformOp.Scale(args[0], args[0])
+                2 -> TransformOp.Scale(args[0], args[1])
+                else -> null
+            }
+        }
+
+        "rotate" -> {
+            when (args.size) {
+                1 -> TransformOp.Rotate(args[0])
+                3 -> TransformOp.Rotate(args[0], args[1], args[2])
+                else -> null
+            }
+        }
+
+        "skewX" -> {
+            if (args.size == 1) TransformOp.Skew(args[0], 0.0) else null
+        }
+
+        "skewY" -> {
+            if (args.size == 1) TransformOp.Skew(0.0, args[0]) else null
+        }
+
+        "matrix" -> {
+            if (args.size == 6) TransformOp.Raw(Mat2D(args[0], args[1], args[2], args[3], args[4], args[5])) else null
+        }
+
+        else -> {
+            null
+        }
+    }
+}
+
+/** A bare number is only a length or an angle in CSS when it is zero. */
+private fun cssLength(text: String?): Length? = text?.takeIf { hasCssUnit(it) }?.let(::parseLengthOrNull)
+
+private fun cssAngle(text: String?): Double? = text?.takeIf { hasCssUnit(it) }?.let(::parseAngle)
+
+private fun parseCssFunction(name: String, args: List<String>): TransformOp? {
     fun number(i: Int): Double? = args.getOrNull(i)?.let(::parseFraction)
 
-    fun length(i: Int): Length? = args.getOrNull(i)?.let(::parseLengthOrNull)
+    fun length(i: Int): Length? = cssLength(args.getOrNull(i))
 
-    fun angle(i: Int): Double? = args.getOrNull(i)?.let(::parseAngle)
+    fun angle(i: Int): Double? = cssAngle(args.getOrNull(i))
     return when (name) {
         "translate" -> {
             val x = length(0) ?: return null
@@ -241,12 +306,8 @@ private fun parseTransformFunction(name: String, args: List<String>): TransformO
         }
 
         "rotate", "rotatez" -> {
-            val a = angle(0) ?: return null
-            if (args.size >= 3) {
-                TransformOp.Rotate(a, parseNumberOrNull(args[1]) ?: return null, parseNumberOrNull(args[2]) ?: return null)
-            } else {
-                TransformOp.Rotate(a)
-            }
+            if (args.size != 1) return null
+            TransformOp.Rotate(angle(0) ?: return null)
         }
 
         // Seen straight on, without perspective, a turn around x or y only squashes the picture along the other axis.
@@ -298,7 +359,7 @@ private fun parseRotate3d(args: List<String>): TransformOp? {
     val x = parseNumberOrNull(args[0]) ?: return null
     val y = parseNumberOrNull(args[1]) ?: return null
     val z = parseNumberOrNull(args[2]) ?: return null
-    val angle = parseAngle(args[3]) ?: return null
+    val angle = cssAngle(args[3]) ?: return null
     return when {
         x == 0.0 && y == 0.0 -> TransformOp.Rotate(if (z < 0) -angle else angle)
         x == 0.0 && z == 0.0 -> TransformOp.Scale(cos(Math.toRadians(angle)), 1.0)
@@ -325,17 +386,25 @@ internal fun zeroLike(op: TransformOp): TransformOp =
         else -> identityLike(op)
     }
 
-/** Interpolates two transform lists: function by function when they match, as blended matrices when they do not. */
+/**
+ * Interpolates two transform lists. As far as their functions match, they go function by function, with a list that is too short
+ * padded out by functions that do nothing. From the first pair that does not match, what is left of each is blended as matrices.
+ */
 internal fun interpolateTransforms(a: List<TransformOp>, b: List<TransformOp>, p: Double): List<TransformOp> {
     if (a.isEmpty() && b.isEmpty()) return a
-    val from = if (a.isEmpty()) b.map(::identityLike) else a
-    val to = if (b.isEmpty()) a.map(::identityLike) else b
-    if (from.size == to.size) {
-        val merged = ArrayList<TransformOp>(from.size)
-        for (i in from.indices) merged += interpolateOp(from[i], to[i], p) ?: return listOf(TransformOp.Blend(from, to, p))
-        return merged
+    val size = maxOf(a.size, b.size)
+    val from = if (a.size == size) a else a + b.subList(a.size, size).map(::identityLike)
+    val to = if (b.size == size) b else b + a.subList(b.size, size).map(::identityLike)
+    val merged = ArrayList<TransformOp>(size)
+    for (i in 0 until size) {
+        val op = interpolateOp(from[i], to[i], p)
+        if (op == null) {
+            merged += TransformOp.Blend(from.subList(i, size), to.subList(i, size), p)
+            return merged
+        }
+        merged += op
     }
-    return listOf(TransformOp.Blend(from, to, p))
+    return merged
 }
 
 private fun interpolateOp(a: TransformOp, b: TransformOp, p: Double): TransformOp? {
@@ -401,79 +470,78 @@ internal fun scaleTransformsNumerically(a: List<TransformOp>, k: Double): List<T
     return out
 }
 
+/**
+ * A flat matrix taken apart into translate, rotate, skew and scale. Blending the parts rather than the entries keeps a shape from
+ * collapsing through a point half way through a rotation. The rotation is kept as half-angle sine and cosine, a flat quaternion,
+ * since the direction a half turn goes in comes from how those are blended.
+ */
 private class Decomposed(
     val tx: Double,
     val ty: Double,
     val sx: Double,
     val sy: Double,
-    val angle: Double,
-    val m11: Double,
-    val m12: Double,
-    val m21: Double,
-    val m22: Double,
+    val skew: Double,
+    val quaternionZ: Double,
+    val quaternionW: Double,
 )
 
-/**
- * The matrix decomposition from the CSS Transforms specification: blending the parts rather than the entries keeps a shape from
- * collapsing through a point half way through a rotation.
- */
-private fun decompose(m: Mat2D): Decomposed {
-    var row0x = m.a
-    var row0y = m.b
-    var row1x = m.c
-    var row1y = m.d
-    var sx = hypot(row0x, row0y)
-    var sy = hypot(row1x, row1y)
-    if (row0x * row1y - row0y * row1x < 0) {
-        if (row0x < row1y) sx = -sx else sy = -sy
+/** Null for a matrix with no area left to it, which no angle or scale can describe. */
+private fun decompose(m: Mat2D): Decomposed? {
+    val determinant = m.determinant
+    if (determinant == 0.0 || !determinant.isFinite()) return null
+    var m11 = m.a
+    var m21 = m.b
+    var m12 = m.c
+    var m22 = m.d
+    // A mirror image has to flip one scale. Flipping both would be the same as turning by 180 degrees.
+    var sx = 1.0
+    var sy = 1.0
+    if (determinant < 0.0) {
+        if (m11 < m22) sx = -1.0 else sy = -1.0
     }
-    if (sx != 0.0) {
-        row0x /= sx
-        row0y /= sx
-    }
-    if (sy != 0.0) {
-        row1x /= sy
-        row1y /= sy
-    }
-    val angleRadians = atan2(row0y, row0x)
-    if (angleRadians != 0.0) {
-        val sn = -row0y
-        val cs = row0x
-        val m11 = row0x
-        val m12 = row0y
-        val m21 = row1x
-        val m22 = row1y
-        row0x = cs * m11 + sn * m21
-        row0y = cs * m12 + sn * m22
-        row1x = -sn * m11 + cs * m21
-        row1y = -sn * m12 + cs * m22
-    }
-    return Decomposed(m.e, m.f, sx, sy, Math.toDegrees(angleRadians), row0x, row0y, row1x, row1y)
+    sx *= hypot(m11, m21)
+    m11 /= sx
+    m21 /= sx
+    val shear = m11 * m12 + m21 * m22
+    m12 -= m11 * shear
+    m22 -= m21 * shear
+    sy *= hypot(m12, m22)
+    val angle = atan2(m21, m11)
+    return Decomposed(m.e, m.f, sx, sy, shear / sy, sin(angle / 2.0), cos(angle / 2.0))
 }
 
+/** How a browser blends two matrices that have no function-by-function match. A matrix that cannot be taken apart flips half way. */
 internal fun blendMatrices(a: Mat2D, b: Mat2D, p: Double): Mat2D {
-    val da = decompose(a)
-    val db = decompose(b)
-    var sxA = da.sx
-    var syA = da.sy
-    var angleA = da.angle
-    var angleB = db.angle
-    if ((sxA < 0 && db.sy < 0) || (syA < 0 && db.sx < 0)) {
-        sxA = -sxA
-        syA = -syA
-        angleA += if (angleA < 0) 180.0 else -180.0
-    }
-    if (angleA == 0.0) angleA = 360.0
-    if (angleB == 0.0) angleB = 360.0
-    if (abs(angleA - angleB) > 180.0) {
-        if (angleA > angleB) angleA -= 360.0 else angleB -= 360.0
-    }
+    val from = decompose(a)
+    val to = decompose(b)
+    if (from == null || to == null) return if (p < 0.5) a else b
 
     fun mix(x: Double, y: Double): Double = x + (y - x) * p
-    val inner = Mat2D(mix(da.m11, db.m11), mix(da.m12, db.m12), mix(da.m21, db.m21), mix(da.m22, db.m22))
-    // The decomposition took the scale off first and the rotation second, so they go back on in the reverse order.
-    return Mat2D.translate(mix(da.tx, db.tx), mix(da.ty, db.ty)) *
-        inner *
-        Mat2D.rotate(mix(angleA, angleB)) *
-        Mat2D.scale(mix(sxA, db.sx), mix(syA, db.sy))
+    var fromZ = from.quaternionZ
+    var fromW = from.quaternionW
+    var dot = fromZ * to.quaternionZ + fromW * to.quaternionW
+    // The shorter way round.
+    if (dot < 0.0) {
+        dot = -dot
+        fromZ = -fromZ
+        fromW = -fromW
+    }
+    dot = dot.coerceAtMost(1.0)
+    val z: Double
+    val w: Double
+    if (dot > 0.9995) {
+        z = mix(fromZ, to.quaternionZ)
+        w = mix(fromW, to.quaternionW)
+    } else {
+        val theta = acos(dot)
+        val toShare = sin(p * theta) / sqrt(1.0 - dot * dot)
+        val fromShare = cos(p * theta) - dot * toShare
+        z = fromZ * fromShare + to.quaternionZ * toShare
+        w = fromW * fromShare + to.quaternionW * toShare
+    }
+    val degrees = Math.toDegrees(2.0 * atan2(z, w))
+    return Mat2D.translate(mix(from.tx, to.tx), mix(from.ty, to.ty)) *
+        Mat2D.rotate(degrees) *
+        Mat2D(c = mix(from.skew, to.skew)) *
+        Mat2D.scale(mix(from.sx, to.sx), mix(from.sy, to.sy))
 }

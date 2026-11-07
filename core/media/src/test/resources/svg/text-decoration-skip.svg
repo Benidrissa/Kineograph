@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- A browser breaks an underline around a letter's tail. We draw it straight through. -->
+  <text x="10" y="60" font-size="40" font-family="sans-serif" text-decoration="underline" fill="#555555">Biggy</text>
+</svg>

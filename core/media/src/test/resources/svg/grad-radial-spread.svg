@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <radialGradient id="pad" r=".2"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#0000ff"/></radialGradient>
+    <radialGradient id="ref" r=".2" spreadMethod="reflect"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#0000ff"/></radialGradient>
+    <radialGradient id="rep" r=".2" spreadMethod="repeat"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#0000ff"/></radialGradient>
+    <radialGradient id="fref" r=".2" fx=".55" fy=".55" spreadMethod="reflect"><stop offset="0" stop-color="#ffff00"/><stop offset="1" stop-color="#cc0000"/></radialGradient>
+    <radialGradient id="frep" r=".2" fx=".45" fy=".5" spreadMethod="repeat"><stop offset="0" stop-color="#ffff00"/><stop offset="1" stop-color="#00aa00"/></radialGradient>
+  </defs>
+  <rect x="5" y="5" width="60" height="90" fill="url(#pad)"/>
+  <rect x="70" y="5" width="60" height="90" fill="url(#ref)"/>
+  <rect x="135" y="5" width="60" height="90" fill="url(#rep)"/>
+  <rect x="5" y="105" width="90" height="90" fill="url(#fref)"/>
+  <rect x="105" y="105" width="90" height="90" fill="url(#frep)"/>
+</svg>

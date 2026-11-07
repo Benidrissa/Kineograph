@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <g font-size="16" font-family="sans-serif">
+    <text x="10" y="20">a<tspan dy="10" fill="#cc3333">dy10</tspan><tspan dy="-10" dx="5" fill="#3366cc">back</tspan></text>
+    <text x="10" y="60">line1<tspan x="10" dy="18" fill="#33aa33">line2</tspan><tspan x="10" dy="18" fill="#cc9900">line3</tspan></text>
+    <!-- A list gives each letter its own place. -->
+    <text x="110 130 150 170" y="30 40 30 40" fill="#990099">ABCD</text>
+    <text x="110" y="70" dx="0 5 10 15" dy="0 3 3 3" fill="#00aaaa">abcd</text>
+    <text x="10" y="130"><tspan font-size="24">Big</tspan><tspan font-size="10" fill="#aa5500">small</tspan><tspan font-weight="bold" fill="#555555">bold</tspan></text>
+    <!-- Whitespace collapses, including around child elements. -->
+    <text x="10" y="155">   spaced     out
+       <tspan fill="#cc3333">  words  </tspan>  here   </text>
+    <text x="10" y="180" xml:space="preserve" fill="#3366cc">  keep   it</text>
+    <text x="120" y="110" letter-spacing="3" fill="#ff6600">wide</text>
+    <text x="120" y="130" word-spacing="10" fill="#0066ff">a b c</text>
+    <text x="120" y="180" letter-spacing="2" text-anchor="middle" fill="#00aa00">mid<tspan fill="#aa0000">dle</tspan></text>
+  </g>
+</svg>

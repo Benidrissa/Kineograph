@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <g font-family="sans-serif">
+    <text x="10" y="30" font-size="20">Hello SVG</text>
+    <text x="10" y="60" font-size="14" fill="#cc3333">Small red text</text>
+    <text x="10" y="90" font-size="24" fill="none" stroke="#3366cc" stroke-width="1">Outline</text>
+    <text x="10" y="125" font-size="24" fill="#ffcc66" stroke="#663300" stroke-width="1.5">Both</text>
+    <text x="100" y="125" font-size="1.5em" fill="#33aa33">1.5em</text>
+    <text x="10" y="150" style="font-size: 16px" fill-opacity=".5">half opacity</text>
+    <text x="10" y="180" font-size="30" transform="rotate(-5 10 180)" fill="#990099">Rotate</text>
+  </g>
+</svg>

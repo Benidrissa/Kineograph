@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <rect x="10" y="10" width="20" height="20" fill="#cc3333"><animate attributeName="x" from="10" to="170" dur="2s" calcMode="spline" keySplines=".42 0 .58 1" keyTimes="0;1" fill="freeze"/></rect>
+  <rect x="10" y="40" width="20" height="20" fill="#3366cc"><animate attributeName="x" values="10;170;90" dur="2s" calcMode="spline" keySplines="0 0 1 1;.5 0 .5 1" keyTimes="0;.5;1" fill="freeze"/></rect>
+  <rect x="10" y="70" width="20" height="20" fill="#33aa33"><animate attributeName="x" values="10;170;90" dur="2s" calcMode="spline" keySplines=".1,.8,.2,1 ; .9,0,.8,.2" fill="freeze"/></rect>
+  <rect x="10" y="100" width="20" height="20" fill="#cc9900"><animateTransform attributeName="transform" type="translate" from="0" to="160" dur="2s" calcMode="spline" keySplines="1 0 .5 1" keyTimes="0;1" fill="freeze"/></rect>
+  <!-- Too few splines, or numbers out of range: the animation is cancelled. -->
+  <rect x="10" y="130" width="20" height="20" fill="#990099"><animate attributeName="x" values="10;170;90" dur="2s" calcMode="spline" keySplines=".5 0 .5 1" fill="freeze"/></rect>
+  <rect x="10" y="160" width="20" height="20" fill="#00aaaa"><animate attributeName="x" from="10" to="170" dur="2s" calcMode="spline" keySplines="1.5 0 .5 1" fill="freeze"/></rect>
+  <rect x="60" y="185" width="10" height="10" fill="#555555"><animate attributeName="x" from="60" to="170" dur="2s" calcMode="spline" fill="freeze"/></rect>
+</svg>

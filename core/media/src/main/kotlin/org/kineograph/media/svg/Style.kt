@@ -25,8 +25,11 @@ internal class Style {
     var fontWeight: Int = 400
     var italic: Boolean = false
     var letterSpacing: Length = Length.ZERO
+    var wordSpacing: Length = Length.ZERO
     var textAnchor: Int = ANCHOR_START
     var baseline: String = "auto"
+    var textTransform: String = "none"
+    var fontFeatures: String = ""
     var visible: Boolean = true
     var crispEdges: Boolean = false
     var pixelatedImages: Boolean = false
@@ -56,8 +59,11 @@ internal class Style {
         s.fontWeight = fontWeight
         s.italic = italic
         s.letterSpacing = letterSpacing
+        s.wordSpacing = wordSpacing
         s.textAnchor = textAnchor
         s.baseline = baseline
+        s.textTransform = textTransform
+        s.fontFeatures = fontFeatures
         s.visible = visible
         s.crispEdges = crispEdges
         s.pixelatedImages = pixelatedImages
@@ -83,6 +89,7 @@ internal class Style {
             "stroke-dashoffset" -> LengthValue(dashOffset)
             "font-size" -> LengthValue(Length(px = fontSize))
             "letter-spacing" -> LengthValue(letterSpacing)
+            "word-spacing" -> LengthValue(wordSpacing)
             "visibility" -> KeywordValue(if (visible) "visible" else "hidden")
             else -> null
         }
@@ -153,6 +160,11 @@ internal fun deriveStyle(parent: Style, view: PropView): Style {
         InitialValue -> style.letterSpacing = Length.ZERO
         else -> Unit
     }
+    when (val spacing = view["word-spacing"]) {
+        is LengthValue -> style.wordSpacing = absolute(spacing.length)
+        InitialValue -> style.wordSpacing = Length.ZERO
+        else -> Unit
+    }
     keywordOf(view, "fill-rule")?.let { style.fillEvenOdd = it == "evenodd" }
     keywordOf(view, "clip-rule")?.let { style.clipEvenOdd = it == "evenodd" }
     when (keywordOf(view, "stroke-linecap")) {
@@ -181,6 +193,25 @@ internal fun deriveStyle(parent: Style, view: PropView): Style {
         "end" -> style.textAnchor = Style.ANCHOR_END
     }
     keywordOf(view, "dominant-baseline")?.let { style.baseline = it }
+    keywordOf(view, "text-transform")?.let { style.textTransform = it }
+    val variant = keywordOf(view, "font-variant")
+    val kerning = keywordOf(view, "font-kerning")
+    if (variant != null || kerning != null) {
+        val current = style.fontFeatures
+        style.fontFeatures =
+            listOfNotNull(
+                when (variant) {
+                    null -> "smcp".takeIf { "smcp" in current }
+                    "small-caps" -> "smcp"
+                    else -> null
+                },
+                when (kerning) {
+                    null -> "\"kern\" 0".takeIf { "kern" in current }
+                    "none" -> "\"kern\" 0"
+                    else -> null
+                },
+            ).joinToString(", ")
+    }
     keywordOf(view, "visibility")?.let { style.visible = it == "visible" }
     keywordOf(view, "shape-rendering")?.let { style.crispEdges = it == "crispedges" || it == "optimizespeed" }
     keywordOf(view, "image-rendering")?.let { style.pixelatedImages = it == "pixelated" || it == "crisp-edges" || it == "optimizespeed" }
@@ -216,6 +247,9 @@ private val INITIAL_KEYWORDS =
         "font-style" to "normal",
         "text-anchor" to "start",
         "dominant-baseline" to "auto",
+        "text-transform" to "none",
+        "font-variant" to "normal",
+        "font-kerning" to "auto",
         "visibility" to "visible",
         "shape-rendering" to "auto",
         "image-rendering" to "auto",

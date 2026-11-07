@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    @keyframes mv { from { transform: translate(10px, 10px) } to { transform: translate(150px, 10px) } }
+    .a { animation: mv 2s linear forwards }
+  </style>
+  <!-- A CSS and a SMIL animation on one element. CSS animations go on top of SMIL. -->
+  <rect class="a" width="20" height="20" fill="#000000"><animate attributeName="fill" from="#ff0000" to="#0000ff" dur="2s" fill="freeze"/></rect>
+  <rect class="a" y="40" width="20" height="20" fill="#000000"><animateTransform attributeName="transform" type="translate" from="0 100" to="100 100" dur="2s" fill="freeze"/></rect>
+  <circle cx="30" cy="150" r="20" fill="#33aa33"><animate attributeName="cx" from="30" to="170" dur="2s" fill="freeze"/><animate attributeName="r" from="20" to="5" dur="1s" begin="1s" fill="freeze"/></circle>
+</svg>

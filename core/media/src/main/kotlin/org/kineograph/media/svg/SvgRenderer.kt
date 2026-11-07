@@ -8,6 +8,7 @@ import android.graphics.Color
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.DashPathEffect
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PathMeasure
@@ -15,7 +16,6 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
 import android.graphics.Shader
-import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.ceil
 import kotlin.math.hypot
@@ -141,8 +141,8 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
                 dest.height().toDouble(),
                 PreserveAspect.parse(view.keyword("preserveAspectRatio")),
             )
-        val overflow = view.keyword("overflow")
-        if (overflow != "visible" && overflow != "auto") canvas.clipRect(dest)
+        // Here `overflow` on the outermost element only decides whether a window scrolls, and what is outside its box is never painted.
+        canvas.clipRect(dest)
         concat(mapping)
         val vp = Viewport(vbW, vbH)
         // The outermost element is the one place whose default origin is its own centre, because it has a CSS box.
@@ -281,7 +281,17 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
         val scale = view.transform("scale")
         val motion = view.transform(MOTION_PROPERTY)
         val hasOwn = !transform.isNullOrEmpty() || !translate.isNullOrEmpty() || !rotate.isNullOrEmpty() || !scale.isNullOrEmpty()
-        if (!hasOwn && motion.isNullOrEmpty()) return null
+        // A use element's x and y count as one more transform after its own. So its clip and its mask move along with them.
+        val useShift =
+            if (el.tag == "use") {
+                Mat2D.translate(
+                    view.length("x")?.resolve(vp.w, style.fontSize) ?: 0.0,
+                    view.length("y")?.resolve(vp.h, style.fontSize) ?: 0.0,
+                )
+            } else {
+                null
+            }
+        if (!hasOwn && motion.isNullOrEmpty() && useShift == null) return null
         var result = Mat2D.IDENTITY
         if (!motion.isNullOrEmpty()) result = combine(motion, TransformContext(vp.w, vp.h, style.fontSize))
         if (hasOwn) {
@@ -321,6 +331,7 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
             own *= Mat2D.translate(-ox, -oy)
             result *= own
         }
+        if (useShift != null) result *= useShift
         return result
     }
 
@@ -331,14 +342,16 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
     private fun drawWithEffects(el: SvgElement, view: PropView, style: Style, vp: Viewport, body: (Double) -> Unit) {
         val opacity = (view.number("opacity") ?: 1.0).coerceIn(0.0, 1.0)
         if (opacity <= 0.0) return
-        val clipId = view.keyword("clip-path")?.let(::urlReference)
+        val clipText = view.keyword("clip-path")
+        val clipId = clipText?.let(::urlReference)
+        val shape = if (clipText != null && clipId == null) model.basicShape(clipText) else null
         val maskElement = view
             .keyword("mask")
             ?.let(::urlReference)
             ?.let { model.byId[it] }
             ?.takeIf { it.tag == "mask" && it !in active }
         val clip = clipId?.let { model.byId[it] }?.takeIf { it.tag == "clipPath" }
-        if (clip == null && maskElement == null && opacity >= 1.0) {
+        if (clip == null && shape == null && maskElement == null && opacity >= 1.0) {
             body(1.0)
             return
         }
@@ -347,6 +360,15 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
         if (clip != null) {
             val path = clipPathOf(clip, vp) { box }
             if (path != null) canvas.clipPath(path)
+        }
+        if (shape != null) {
+            val reference =
+                when (shape.box) {
+                    BasicShape.FILL_BOX -> box
+                    BasicShape.VIEW_BOX -> Box(0.0, 0.0, vp.w, vp.h)
+                    else -> box?.outset(strokeWidthOf(style, vp) / 2.0)
+                } ?: Box(0.0, 0.0, 0.0, 0.0)
+            canvas.clipPath(shape.path(reference, style.fontSize))
         }
         // A shape painted only once does not need a layer to composite as one, which saves a full-screen buffer per element.
         val directAlpha = maskElement == null && opacity < 1.0 && paintsOnce(el, style)
@@ -414,11 +436,7 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
             "use" -> {
                 val target = targetOf(view) ?: return null
                 if (target.tag != "text" && target.tag !in SHAPE_TAGS) return null
-                val inner = clipChildPath(target, style, vp) ?: return null
-                val x = view.length("x")?.resolve(vp.w, style.fontSize) ?: 0.0
-                val y = view.length("y")?.resolve(vp.h, style.fontSize) ?: 0.0
-                if (x != 0.0 || y != 0.0) inner.offset(x.toFloat(), y.toFloat())
-                path = inner
+                path = clipChildPath(target, style, vp) ?: return null
             }
 
             "text" -> {
@@ -543,17 +561,13 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
         val target = targetOf(view) ?: return
         // Marking the use element as well as the target is what also catches a loop that runs through use elements alone.
         if (target in active || !active.add(el)) return
-        val x = view.length("x")?.resolve(vp.w, style.fontSize) ?: 0.0
-        val y = view.length("y")?.resolve(vp.h, style.fontSize) ?: 0.0
-        withMatrix(Mat2D.translate(x, y)) {
-            when (target.tag) {
-                "symbol", "svg" -> {
-                    drawReferencedViewport(target, style, vp, view.length("width"), view.length("height"))
-                }
+        when (target.tag) {
+            "symbol", "svg" -> {
+                drawReferencedViewport(target, style, vp, view.length("width"), view.length("height"))
+            }
 
-                else -> {
-                    drawElement(target, style, vp)
-                }
+            else -> {
+                drawElement(target, style, vp)
             }
         }
         active -= el
@@ -605,34 +619,52 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
     }
 
     private fun strokePath(path: Path, box: Box?, view: PropView, style: Style, vp: Viewport, alpha: Double) {
-        var width = style.strokeWidth.resolve(vp.diagonal, style.fontSize)
+        val width = style.strokeWidth.resolve(vp.diagonal, style.fontSize)
         // Android reads zero as "one device pixel, whatever the scale", where SVG means "no stroke at all".
         if (width <= 0.0) return
         val paint = resolvePaint(style.stroke, style, box, vp) ?: return
         val opacity = style.strokeOpacity.coerceIn(0.0, 1.0) * alpha
         if (opacity <= 0.0) return
-        // A non-scaling stroke keeps its width on screen, so undo the scale that the canvas is about to apply.
-        var unitScale = 1.0
-        if (view.keyword("vector-effect") == "non-scaling-stroke") {
-            val scale = sqrt(abs(ctm.determinant))
-            if (scale > 0.0) unitScale = 1.0 / scale
-            width *= unitScale
-        }
         val p = preparePaint(paint, opacity, style)
         p.style = Paint.Style.STROKE
         p.strokeWidth = width.toFloat()
         p.strokeCap = style.lineCap
         p.strokeJoin = style.lineJoin
         p.strokeMiter = style.miterLimit.coerceAtLeast(1.0).toFloat()
-        p.pathEffect = dashEffect(path, view, style, vp, unitScale)
-        canvas.drawPath(path, p)
+        if (view.keyword("vector-effect") == "non-scaling-stroke") {
+            strokeOnScreen(path, p, view, style, vp, paint.shader)
+        } else {
+            p.pathEffect = dashEffect(path, view, style, vp)
+            canvas.drawPath(path, p)
+        }
     }
 
-    private fun dashEffect(path: Path, view: PropView, style: Style, vp: Viewport, unitScale: Double): DashPathEffect? {
+    /**
+     * A non-scaling stroke has its width, joins and dashes on screen, whatever the transforms ask of the shape. No single scale can
+     * undo a transform that stretches one way, so the path goes to screen space first, and the stroke is made there.
+     */
+    private fun strokeOnScreen(path: Path, paint: Paint, view: PropView, style: Style, vp: Viewport, shader: Shader?) {
+        val inverse = ctm.inverse() ?: return
+        val onScreen = Path()
+        path.transform(ctm.toAndroid(), onScreen)
+        val count = canvas.save()
+        canvas.concat(inverse.toAndroid())
+        if (shader != null) {
+            val local = Matrix()
+            shader.getLocalMatrix(local)
+            local.postConcat(ctm.toAndroid())
+            shader.setLocalMatrix(local)
+        }
+        paint.pathEffect = dashEffect(onScreen, view, style, vp)
+        canvas.drawPath(onScreen, paint)
+        canvas.restoreToCount(count)
+    }
+
+    private fun dashEffect(path: Path, view: PropView, style: Style, vp: Viewport): DashPathEffect? {
         val dashes = style.dashArray
         if (dashes.isEmpty()) return null
         val base = vp.diagonal
-        var values = DoubleArray(dashes.size) { dashes[it].resolve(base, style.fontSize) * unitScale }
+        var values = DoubleArray(dashes.size) { dashes[it].resolve(base, style.fontSize) }
         if (values.any { it < 0.0 } || values.all { it <= 0.0 }) return null
         // Android needs an even count, and SVG defines an odd list as repeated once.
         if (values.size % 2 != 0) values += values
@@ -640,7 +672,7 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
         val declaredLength = view.number("pathLength")
         val scale = if (declaredLength != null && declaredLength > 0.0) measureLength(path) / declaredLength else 1.0
         val intervals = FloatArray(values.size) { (values[it] * scale).toFloat() }
-        val offset = style.dashOffset.resolve(base, style.fontSize) * unitScale * scale
+        val offset = style.dashOffset.resolve(base, style.fontSize) * scale
         return DashPathEffect(intervals, offset.toFloat())
     }
 
@@ -849,7 +881,6 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
                 } else {
                     Mat2D.IDENTITY
                 }
-            val contentViewport = if (viewBox != null) Viewport(viewBox[2], viewBox[3]) else vp
             val savedCanvas = canvas
             val savedCtm = ctm
             val savedFill = contextFill
@@ -858,7 +889,8 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
                 canvas = Canvas(bitmap)
                 ctm = Mat2D.IDENTITY
                 concat(toBitmap * content)
-                drawChildren(owner, styleOf(owner), contentViewport)
+                // A pattern is not a viewport of its own: percentages inside it still mean the picture's.
+                drawChildren(owner, styleOf(owner), vp)
             } finally {
                 canvas = savedCanvas
                 ctm = savedCtm
@@ -943,8 +975,8 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
                 } else {
                     Mat2D.IDENTITY
                 }
-            val refX = (view.length("refX") ?: Length.ZERO).resolve(viewBox?.get(2) ?: width, style.fontSize)
-            val refY = (view.length("refY") ?: Length.ZERO).resolve(viewBox?.get(3) ?: height, style.fontSize)
+            val refX = (view.length("refX") ?: Length.ZERO).resolve(vp.w, style.fontSize)
+            val refY = (view.length("refY") ?: Length.ZERO).resolve(vp.h, style.fontSize)
             val anchorX = inner.mapX(refX, refY)
             val anchorY = inner.mapY(refX, refY)
             val savedCtm = ctm
@@ -953,10 +985,13 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
                 Mat2D.translate(vertex.x, vertex.y) * Mat2D.rotate(angle) * Mat2D.scale(scale, scale) *
                     Mat2D.translate(-anchorX, -anchorY),
             )
-            val overflow = view.keyword("overflow")
-            if (overflow != "visible" && overflow != "auto") canvas.clipRect(0f, 0f, width.toFloat(), height.toFloat())
-            concat(inner)
-            drawChildren(marker, style, if (viewBox != null) Viewport(viewBox[2], viewBox[3]) else Viewport(width, height))
+            drawWithEffects(marker, view, style, vp) {
+                val overflow = view.keyword("overflow")
+                if (overflow != "visible" && overflow != "auto") canvas.clipRect(0f, 0f, width.toFloat(), height.toFloat())
+                concat(inner)
+                // A marker is not a viewport of its own: percentages inside it still mean the picture's.
+                drawChildren(marker, style, vp)
+            }
             canvas.restoreToCount(count)
             ctm = savedCtm
         }
@@ -1031,8 +1066,9 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
         if (w <= 0.0 || h <= 0.0) return null
         val x = view.length("x")?.resolve(vp.w, fontSize) ?: 0.0
         val y = view.length("y")?.resolve(vp.h, fontSize) ?: 0.0
-        val rxGiven = view.length("rx")?.resolve(vp.w, fontSize)
-        val ryGiven = view.length("ry")?.resolve(vp.h, fontSize)
+        // A negative radius is invalid, which is the same as not having one.
+        val rxGiven = view.length("rx")?.resolve(vp.w, fontSize)?.takeIf { it >= 0.0 }
+        val ryGiven = view.length("ry")?.resolve(vp.h, fontSize)?.takeIf { it >= 0.0 }
         val rx = (rxGiven ?: ryGiven ?: 0.0).coerceIn(0.0, w / 2)
         val ry = (ryGiven ?: rxGiven ?: 0.0).coerceIn(0.0, h / 2)
         val path = Path()
@@ -1137,10 +1173,7 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
         active -= el
         val box = inner ?: return null
         val local = localTransform(target, targetView, targetStyle, vp, null)
-        val mapped = if (local != null) box.transformed(local) else box
-        val x = view.length("x")?.resolve(vp.w, style.fontSize) ?: 0.0
-        val y = view.length("y")?.resolve(vp.h, style.fontSize) ?: 0.0
-        return mapped.transformed(Mat2D.translate(x, y))
+        return if (local != null) box.transformed(local) else box
     }
 
     private fun imageBox(el: SvgElement, view: PropView, style: Style, vp: Viewport): Box? {
@@ -1230,18 +1263,29 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
 
     private fun drawText(el: SvgElement, view: PropView, style: Style, vp: Viewport, alpha: Double) {
         val layout = layoutText(el, view, style, vp)
+        for (decoration in layout.decorations) {
+            if (!decoration.isOverText) drawTextOutline(decoration.path, layout.box, view, decoration.style, vp, alpha)
+        }
         for (run in layout.runs) {
             if (!run.style.visible) continue
             val path = run.path
             if (path == null) {
                 drawGlyphsDirectly(run, alpha)
-                continue
+            } else {
+                drawTextOutline(path, layout.box, view, run.style, vp, alpha)
             }
-            for (step in run.style.paintOrder) {
-                when (step) {
-                    Style.PAINT_FILL -> fillPath(path, layout.box, run.style, vp, alpha)
-                    Style.PAINT_STROKE -> strokePath(path, layout.box, view, run.style, vp, alpha)
-                }
+        }
+        for (decoration in layout.decorations) {
+            if (decoration.isOverText) drawTextOutline(decoration.path, layout.box, view, decoration.style, vp, alpha)
+        }
+    }
+
+    private fun drawTextOutline(path: Path, box: Box?, view: PropView, style: Style, vp: Viewport, alpha: Double) {
+        if (!style.visible) return
+        for (step in style.paintOrder) {
+            when (step) {
+                Style.PAINT_FILL -> fillPath(path, box, style, vp, alpha)
+                Style.PAINT_STROKE -> strokePath(path, box, view, style, vp, alpha)
             }
         }
     }
@@ -1252,7 +1296,7 @@ internal class SvgRenderer(private val model: SvgModel, private var canvas: Canv
         paint.color = run.style.color.toArgb(alpha)
         val scale = run.style.fontSize / TextSupport.NOMINAL_SIZE
         val count = canvas.save()
-        canvas.translate(run.x.toFloat(), run.y.toFloat())
+        canvas.translate((run.x + run.glyphShift).toFloat(), run.y.toFloat())
         canvas.scale(scale.toFloat(), scale.toFloat())
         canvas.drawText(run.text, 0f, 0f, paint)
         canvas.restoreToCount(count)
@@ -1425,16 +1469,12 @@ private class MarkerSink : PathSink {
             val angle =
                 when {
                     hasIn && hasOut -> {
-                        val lengthIn = hypot(vertex.inX, vertex.inY)
-                        val lengthOut = hypot(vertex.outX, vertex.outY)
-                        val bx = vertex.inX / lengthIn + vertex.outX / lengthOut
-                        val by = vertex.inY / lengthIn + vertex.outY / lengthOut
-                        if (bx == 0.0 && by == 0.0) {
-                            // Doubling straight back has no bisector, and the outgoing direction is as good as any.
-                            Math.toDegrees(atan2(vertex.outY, vertex.outX))
-                        } else {
-                            Math.toDegrees(atan2(by, bx))
-                        }
+                        // Halfway between the two angles, the short way round. Doubling straight back has no short way, and goes as browsers do.
+                        var angleIn = Math.toDegrees(atan2(vertex.inY, vertex.inX))
+                        val angleOut = Math.toDegrees(atan2(vertex.outY, vertex.outX))
+                        val turn = angleIn - angleOut
+                        if (turn <= -180.0 || turn > 180.0) angleIn += 360.0
+                        (angleIn + angleOut) / 2.0
                     }
 
                     hasOut -> {

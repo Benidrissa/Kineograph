@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200" fill="#cc3333" stroke="#000000" stroke-width="3" font-size="20" opacity="0.5" color="#3366cc">
+  <!-- Whatever the outermost element sets, everything inside takes. -->
+  <rect x="10" y="10" width="80" height="80"/>
+  <circle cx="150" cy="50" r="40" fill="currentColor"/>
+  <rect x="10" y="110" width="4em" height="2em" fill="#33aa33"/>
+</svg>

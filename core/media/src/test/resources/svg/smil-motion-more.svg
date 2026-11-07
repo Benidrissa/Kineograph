@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs><path id="closed" d="M50 50 h60 v60 h-60 z"/><path id="two" d="M20 150 h40 M100 150 h40"/></defs>
+  <!-- Round a closed path, along two separate parts, and along an arc. -->
+  <circle r="6" fill="#cc3333"><animateMotion dur="2s" fill="freeze"><mpath href="#closed"/></animateMotion></circle>
+  <circle r="6" fill="#3366cc"><animateMotion dur="2s" fill="freeze"><mpath href="#two"/></animateMotion></circle>
+  <circle r="6" fill="#33aa33"><animateMotion dur="2s" fill="freeze" path="M130 30 A30 30 0 0 1 190 30"/></circle>
+  <!-- Relative to the element's own transform, inside a scaled group, with a transform-origin. -->
+  <g transform="translate(10 170) scale(.5)"><rect width="20" height="20" fill="#cc9900"><animateMotion dur="2s" fill="freeze" path="M0 0 h100"/></rect></g>
+  <rect x="-10" y="-5" width="20" height="10" fill="#990099" transform="rotate(30)"><animateMotion dur="2s" fill="freeze" path="M20 20 h60"/></rect>
+  <rect x="-10" y="-5" width="20" height="10" fill="#00aaaa" style="transform: rotate(30deg); transform-origin: 0 0"><animateMotion dur="2s" fill="freeze" rotate="auto" path="M100 10 l60 0"/></rect>
+  <!-- Accumulating and adding. -->
+  <circle r="4" fill="#555555"><animateMotion dur="1s" repeatCount="2" accumulate="sum" path="M10 190 h30" fill="freeze"/></circle>
+  <circle cy="185" r="4" fill="#ff6600"><animateMotion dur="1s" path="M100 0 h30" additive="sum" fill="freeze"/><animateMotion dur="1s" path="M0 0 h30" additive="sum" fill="freeze" begin="1s"/></circle>
+  <!-- An empty path, and an element with no path at all, do nothing. -->
+  <rect x="170" y="170" width="10" height="10" fill="#000000"><animateMotion dur="2s" path=""/></rect>
+  <rect x="185" y="170" width="10" height="10" fill="#000000"><animateMotion dur="2s"/></rect>
+</svg>

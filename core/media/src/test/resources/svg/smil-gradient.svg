@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="a"><stop offset="0" stop-color="#ff0000"><animate attributeName="stop-color" to="#ffff00" dur="2s" fill="freeze"/></stop><stop offset="1" stop-color="#0000ff"><animate attributeName="stop-opacity" from="1" to="0" dur="2s" fill="freeze"/></stop></linearGradient>
+    <linearGradient id="b"><stop offset="0" stop-color="#000000"/><stop offset=".5" stop-color="#ffffff"><animate attributeName="offset" from=".1" to=".9" dur="2s" fill="freeze"/></stop><stop offset="1" stop-color="#000000"/></linearGradient>
+    <linearGradient id="c" x1="0" x2="1"><animate attributeName="x2" from="1" to=".25" dur="2s" fill="freeze"/><animate attributeName="spreadMethod" values="pad;reflect" dur="2s" fill="freeze"/><stop offset="0" stop-color="#00ffff"/><stop offset="1" stop-color="#ff00ff"/></linearGradient>
+    <radialGradient id="d"><animate attributeName="r" from=".1" to=".7" dur="2s" fill="freeze"/><animate attributeName="fx" from=".5" to=".2" dur="2s" fill="freeze"/><stop offset="0" stop-color="#ffff00"/><stop offset="1" stop-color="#008800"/></radialGradient>
+    <linearGradient id="e"><animateTransform attributeName="gradientTransform" type="rotate" from="0 .5 .5" to="90 .5 .5" dur="2s" fill="freeze"/><stop offset="0" stop-color="#ff8800"/><stop offset="1" stop-color="#0088ff"/></linearGradient>
+    <linearGradient id="f" href="#b"/>
+  </defs>
+  <rect x="10" y="10" width="180" height="30" fill="url(#a)"/>
+  <rect x="10" y="50" width="180" height="30" fill="url(#b)"/>
+  <rect x="10" y="90" width="180" height="30" fill="url(#c)"/>
+  <rect x="10" y="130" width="60" height="60" fill="url(#d)"/>
+  <rect x="80" y="130" width="60" height="60" fill="url(#e)"/>
+  <rect x="150" y="130" width="40" height="60" fill="url(#f)"/>
+</svg>

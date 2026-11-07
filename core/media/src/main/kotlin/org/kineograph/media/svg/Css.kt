@@ -18,7 +18,12 @@ private val VENDOR_PREFIXES = listOf("-webkit-", "-moz-", "-ms-", "-o-")
  * A forgiving CSS reader: whatever it cannot understand is skipped up to the next rule, because a stylesheet with one odd line
  * should still style the rest of the picture.
  */
-internal class CssParser(text: String, private val sheet: Stylesheet, private val warnings: MutableSet<SvgWarning>) {
+internal class CssParser(
+    text: String,
+    private val sheet: Stylesheet,
+    private val warnings: MutableSet<SvgWarning>,
+    private val media: MediaContext,
+) {
     private val text: String = stripComments(text)
     private var pos = 0
 
@@ -70,7 +75,7 @@ internal class CssParser(text: String, private val sheet: Stylesheet, private va
         }
         val body = readBlock()
         when {
-            name == "media" -> if (mediaMatches(prelude)) nested(body)
+            name == "media" -> if (mediaMatches(prelude, media)) nested(body)
             name == "supports" -> nested(body)
             name == "font-face" -> if ("url(" in body.lowercase()) warnings += SvgWarning.EXTERNAL_REFERENCE_IGNORED
             name.endsWith("keyframes") -> parseKeyframes(prelude, body)
@@ -78,7 +83,7 @@ internal class CssParser(text: String, private val sheet: Stylesheet, private va
     }
 
     private fun nested(body: String) {
-        CssParser(body, sheet, warnings).parse()
+        CssParser(body, sheet, warnings, media).parse()
     }
 
     private fun parseKeyframes(rawName: String, body: String) {
@@ -215,19 +220,54 @@ private fun stripComments(css: String): String {
     return out.toString()
 }
 
-/** Queries are answered for an offline render with default settings, so every file gets its everyday look. */
-internal fun mediaMatches(query: String): Boolean {
+/** The picture's own size, which media queries about the window are answered with, since an import has no window. */
+internal class MediaContext(val width: Double, val height: Double)
+
+/** Queries are answered for an offline render on a screen with default settings, so every file gets its everyday look. */
+internal fun mediaMatches(query: String, context: MediaContext): Boolean {
     if (query.isBlank()) return true
-    return query.split(',').any { part ->
-        val q = part.trim().lowercase().replace(Regex("\\s+"), " ")
-        when {
-            q.startsWith("print") || q.startsWith("only print") -> false
-            q.startsWith("not print") -> true
-            q.startsWith("not ") -> false
-            "prefers-reduced-motion: reduce" in q || "prefers-reduced-motion:reduce" in q -> false
-            "prefers-color-scheme: dark" in q || "prefers-color-scheme:dark" in q -> false
-            else -> true
-        }
+    return splitTopLevel(query, ',').any { part -> singleQueryMatches(part.trim().lowercase(), context) }
+}
+
+private val MEDIA_FEATURE = Regex("""\(\s*([a-z-]+)\s*(?::\s*([^)]*?)\s*)?\)""")
+
+private fun singleQueryMatches(query: String, context: MediaContext): Boolean {
+    var rest = query
+    val negated = rest.startsWith("not ")
+    if (negated) rest = rest.removePrefix("not ").trim()
+    if (rest.startsWith("only ")) rest = rest.removePrefix("only ").trim()
+    var matches = true
+    if (!rest.startsWith("(")) {
+        val type = rest.substringBefore(' ').trim()
+        // A query with a type this renderer has never heard of is simply about some other device.
+        matches = type == "screen" || type == "all"
+        rest = rest.removePrefix(type).trim()
+    }
+    while (matches && rest.isNotEmpty()) {
+        if (rest.startsWith("and")) rest = rest.removePrefix("and").trim()
+        val feature = MEDIA_FEATURE.matchAt(rest, 0) ?: return false
+        matches = mediaFeatureMatches(feature.groupValues[1], feature.groupValues[2], context)
+        rest = rest.substring(feature.range.last + 1).trim()
+    }
+    return matches != negated
+}
+
+private fun mediaFeatureMatches(name: String, value: String, context: MediaContext): Boolean {
+    fun px(): Double? = parseLengthOrNull(value)?.let { it.px + it.em * 16.0 }
+    return when (name) {
+        "width" -> px()?.let { context.width == it } ?: false
+        "min-width" -> px()?.let { context.width >= it } ?: false
+        "max-width" -> px()?.let { context.width <= it } ?: false
+        "height" -> px()?.let { context.height == it } ?: false
+        "min-height" -> px()?.let { context.height >= it } ?: false
+        "max-height" -> px()?.let { context.height <= it } ?: false
+        "orientation" -> value == if (context.width > context.height) "landscape" else "portrait"
+        "prefers-color-scheme" -> value == "light"
+        "prefers-reduced-motion" -> value == "no-preference" || value.isEmpty()
+        "prefers-contrast" -> value == "no-preference" || value.isEmpty()
+        "color" -> true
+        "hover", "pointer", "any-hover", "any-pointer" -> value != "none"
+        else -> false
     }
 }
 
