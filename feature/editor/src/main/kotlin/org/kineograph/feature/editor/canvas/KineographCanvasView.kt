@@ -406,10 +406,7 @@ internal class KineographCanvasView(
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (isPlaying) {
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> tappingPlayback = true
-                MotionEvent.ACTION_UP -> if (tappingPlayback) listener.onPlaybackTapped()
-            }
+            onPlaybackTouch(event)
             return true
         }
         predictor?.record(event)
@@ -423,6 +420,36 @@ internal class KineographCanvasView(
         }
         return true
     }
+
+    /**
+     * Only a tap stops playback. With the system bars hidden, the swipe in from the edge that brings them back for a moment reaches this
+     * view too, and is about the system, not the animation.
+     */
+    private fun onPlaybackTouch(event: MotionEvent) {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                tappingPlayback = true
+                downX = event.x
+                downY = event.y
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                if (movedPastTap(event)) tappingPlayback = false
+            }
+
+            MotionEvent.ACTION_UP -> {
+                // A quick flick can lift without ever having sent a move.
+                if (tappingPlayback && !movedPastTap(event)) listener.onPlaybackTapped()
+                tappingPlayback = false
+            }
+
+            MotionEvent.ACTION_CANCEL -> {
+                tappingPlayback = false
+            }
+        }
+    }
+
+    private fun movedPastTap(event: MotionEvent): Boolean = hypot(event.x - downX, event.y - downY) > tapSlop * 2f
 
     private fun onDown(event: MotionEvent) {
         requestUnbufferedDispatch(event)
@@ -724,7 +751,26 @@ internal class KineographCanvasView(
         val scale = gestureSpan / oldSpan
         val rotation = Math.toDegrees((gestureAngle - oldAngle).toDouble()).toFloat()
         val project = session.state.value.project
-        transform = transform.afterGesture(project.width, project.height, oldX, oldY, gestureCentroidX, gestureCentroidY, scale, rotation)
+        val lowestZoom =
+            ViewTransform.lowestZoom(
+                width.coerceAtLeast(1),
+                height.coerceAtLeast(1),
+                project.width,
+                project.height,
+                FIT_PADDING_DP * density,
+            )
+        transform =
+            transform.afterGesture(
+                project.width,
+                project.height,
+                oldX,
+                oldY,
+                gestureCentroidX,
+                gestureCentroidY,
+                scale,
+                rotation,
+                lowestZoom,
+            )
         userMovedCanvas = true
         publishView()
         renderer?.requestRedraw()
@@ -802,7 +848,7 @@ internal class KineographCanvasView(
     }
 
     private fun finishFill(event: MotionEvent) {
-        if (hypot(event.x - downX, event.y - downY) > tapSlop * 2f) return
+        if (movedPastTap(event)) return
         val state = session.state.value
         if (!state.canDrawOnActiveLayer) {
             listener.onLayerNotDrawable()

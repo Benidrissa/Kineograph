@@ -61,13 +61,14 @@ The bouncing ball works from start to finish.
 - The tool bar's handle, the layer handle and frame cells are now all at least 48 dp, and switch labels, the hex field and the
   playback controls fit at the largest font size
 - Dragging a frame no longer stops short or goes the wrong way after frames were added or removed, and holding it at the end of
-  the strip scrolls, so a frame can go any distance in one drag
+  the strip scrolls, so a frame can go any distance in one drag. The strip stays with a frame you have moved, and otherwise follows
+  the current one wherever it goes, including on undo
 - Dragging a layer now lands on the row it was let go over
 - Playback is a full-screen preview: the whole canvas, upright, with the system bars out of the way, whatever the zoom and
-  rotation were. Stopping goes back to them
+  rotation were. Stopping goes back to them, and a swipe to bring the bars back for a moment does not stop it
 - Playback can be paused and resumed, and holding a frame costs no work
 - TalkBack now hears whether a switch is on, which tool is active and that tapping it again opens its options, and what the frame
-  rate buttons change. It can select a frame, reorder layers and move the tool bar without dragging
+  rate buttons change. It can select a frame, reorder layers and move the tool bar without dragging, and stays on a frame it moves
 - Photos now come out the way up they were taken, including mirrored ones, whichever way the camera stores that
 - A phone with no camera app now gets an explanation instead of a crash, and a picture that cannot be used now says so, in the
   editor or over the sheet that is open. Messages in general now show over an open sheet

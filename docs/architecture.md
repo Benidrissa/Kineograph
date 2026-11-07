@@ -89,7 +89,8 @@ Playback talks to the view, which hands its current frame to each new renderer.
 Touches go through the same canvas-to-view transform the renderer has, so they land where the canvas is shown, even in the
 moment after the project changes size and before the view has caught up. During playback the renderer is given the whole canvas,
 fitted and upright, worked out afresh each time, while the transform the user has placed stays as it is and goes on following
-changes of size, so stopping goes back to it.
+changes of size, so stopping goes back to it. Fitting has no lower limit on zoom, because a canvas can be any length: the limit is
+only on how far a pinch goes, and then only down to what shows the whole canvas.
 
 **Screen edges.** With gesture navigation, a stroke starting at a side edge could be taken as Back. The tool bar's handle and
 a band at the bottom of each edge are excluded from that gesture. Android grants 200 dp per edge, so the rest of each edge

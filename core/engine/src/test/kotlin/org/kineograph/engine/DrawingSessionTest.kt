@@ -1688,6 +1688,52 @@ class DrawingSessionTest {
     }
 
     @Test
+    fun `filling a translucent fill again replaces it, however faint, and it does not grow`() {
+        stroke(y = 50f, fromX = 0f, toX = 200f)
+        for (percent in listOf(1, 5, 20, 24)) {
+            val alpha = (percent * 255 / 100f + 0.5f).toInt()
+            session.fill(100, 80, Color.argb(alpha, 0, 0, 255), 32, 0, sampleAllLayers = false)
+            await()
+            val first = savedFrame(snapshot(), state.frameId)
+            assertEquals("$percent%", alpha.toFloat(), Color.alpha(first.getPixel(100, 80)).toFloat(), 1f)
+            val painted = paintedPixels(first)
+
+            session.fill(100, 80, Color.RED, 32, 0, sampleAllLayers = false)
+            await()
+            val again = savedFrame(snapshot(), state.frameId)
+            assertEquals("$percent%: no trace of the old colour, under or over the new one", Color.RED, again.getPixel(100, 80))
+            assertEquals("$percent%: the same area", painted, paintedPixels(again))
+
+            session.undo()
+            session.undo()
+            await()
+        }
+    }
+
+    private fun paintedPixels(image: Bitmap): Int {
+        val pixels = IntArray(image.width * image.height)
+        image.getPixels(pixels, 0, image.width, 0, 0, image.width, image.height)
+        return pixels.count { it ushr 24 != 0 }
+    }
+
+    @Test
+    fun `a tap on the faint edge of a line still goes behind the line`() {
+        val soft = pen.copy(sizePx = 24f, hardness = 0f)
+        stroke(spec = soft, y = 50f, fromX = 0f, toX = 200f)
+        val drawn = savedFrame(snapshot(), state.frameId)
+        val edge = (0 until 50).first { Color.alpha(drawn.getPixel(100, it)) in 20..50 }
+        val wasOnTop = Color.alpha(drawn.getPixel(100, edge))
+
+        session.fill(100, edge, Color.RED, 32, 0, sampleAllLayers = false)
+        await()
+        val filled = savedFrame(snapshot(), state.frameId)
+        assertEquals("the empty space beyond it is filled", Color.RED, filled.getPixel(100, 5))
+        val under = filled.getPixel(100, edge)
+        assertEquals("nothing shows through", 255, Color.alpha(under))
+        assertEquals("the line's edge is still on top", 255f * (255 - wasOnTop) / 255f, Color.red(under).toFloat(), 3f)
+    }
+
+    @Test
     fun `falling back to no margin still warns, because memory did run out`() {
         var allocationsAllowed = true
         marginlessSession { !allocationsAllowed }

@@ -697,6 +697,75 @@ class CanvasInputTest {
         assertTrue(snapshot().cels.isEmpty())
     }
 
+    /** With the bars hidden, the swipe that brings them back for a moment goes to the app as well as to the system. */
+    @Test
+    fun `a swipe in from the edge during playback does not stop it, and a tap afterwards does`() {
+        view.isPlaying = true
+        val down = clock
+        send(touch(MotionEvent.ACTION_DOWN, 200f to 0f, downTime = down))
+        clock += 8
+        send(touch(MotionEvent.ACTION_MOVE, 200f to 60f, downTime = down))
+        clock += 8
+        send(touch(MotionEvent.ACTION_MOVE, 200f to 120f, downTime = down))
+        clock += 8
+        send(touch(MotionEvent.ACTION_UP, 200f to 120f, downTime = down))
+        idle()
+        assertEquals(0, playbackTaps)
+
+        tap(200f, 200f)
+        assertEquals(1, playbackTaps)
+    }
+
+    @Test
+    fun `a flick too quick to send a move during playback is not a tap either`() {
+        view.isPlaying = true
+        val down = clock
+        send(touch(MotionEvent.ACTION_DOWN, 200f to 0f, downTime = down))
+        clock += 8
+        send(touch(MotionEvent.ACTION_UP, 200f to 120f, downTime = down))
+        idle()
+        assertEquals(0, playbackTaps)
+    }
+
+    @Test
+    fun `a swipe that comes back to where it began during playback is not a tap`() {
+        view.isPlaying = true
+        val down = clock
+        send(touch(MotionEvent.ACTION_DOWN, 200f to 100f, downTime = down))
+        clock += 8
+        send(touch(MotionEvent.ACTION_MOVE, 200f to 200f, downTime = down))
+        clock += 8
+        send(touch(MotionEvent.ACTION_MOVE, 200f to 100f, downTime = down))
+        clock += 8
+        send(touch(MotionEvent.ACTION_UP, 200f to 100f, downTime = down))
+        idle()
+        assertEquals(0, playbackTaps)
+    }
+
+    @Test
+    fun `a finger that wobbles a little during playback is still a tap`() {
+        view.isPlaying = true
+        val down = clock
+        send(touch(MotionEvent.ACTION_DOWN, 200f to 100f, downTime = down))
+        clock += 8
+        send(touch(MotionEvent.ACTION_MOVE, 203f to 102f, downTime = down))
+        clock += 8
+        send(touch(MotionEvent.ACTION_UP, 203f to 102f, downTime = down))
+        idle()
+        assertEquals(1, playbackTaps)
+    }
+
+    @Test
+    fun `a touch the system takes back during playback is not a tap`() {
+        view.isPlaying = true
+        val down = clock
+        send(touch(MotionEvent.ACTION_DOWN, 200f to 100f, downTime = down))
+        clock += 8
+        send(touch(MotionEvent.ACTION_CANCEL, 200f to 100f, downTime = down))
+        idle()
+        assertEquals(0, playbackTaps)
+    }
+
     @Test
     fun `a stroke under way when playback starts is dropped, and the editor does not wait for it`() {
         val down = clock

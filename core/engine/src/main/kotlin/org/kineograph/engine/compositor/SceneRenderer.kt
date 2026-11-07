@@ -168,7 +168,7 @@ public class SceneRenderer {
     /** The box and handles, drawn over everything, so a selection can still be grabbed under a layer above or at low opacity. */
     private fun drawSelectionFrame(canvas: Canvas, floating: FloatingDraw, zoom: Float) {
         val transform = floating.transform
-        val onePixel = 1f / zoom.coerceAtLeast(0.001f)
+        val onePixel = 1f / zoom.coerceAtLeast(SMALLEST_ZOOM)
         val corners = transform.corners()
         // Dark and light dashes together stay visible over any artwork.
         selectionPaint.strokeWidth = onePixel * SELECTION_STROKE_DP
@@ -203,6 +203,9 @@ public class SceneRenderer {
 
     public companion object {
         private const val NEAREST_NEIGHBOUR_ZOOM = 3f
+
+        /** Far below what the longest canvas Android can hold is fitted at. It is only there so as never to divide by nothing. */
+        private const val SMALLEST_ZOOM = 1e-9f
         private const val OVERFLOW_ALPHA = 90
         private const val BORDER_COLOR = 0x66000000
         private const val GRID_COLOR = 0x5500A0B0

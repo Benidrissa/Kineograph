@@ -101,6 +101,50 @@ class GeometryTest {
     }
 
     @Test
+    fun `fit shows all of a canvas, however long it is`() {
+        for ((width, height) in listOf(99_999 to 10, 30_000 to 1000, 10 to 99_999, 100_000_000 to 1)) {
+            val m = ViewTransform.fit(1080, 2000, width, height, 0f).toAffine(width, height)
+            val w = width.toFloat()
+            val h = height.toFloat()
+            assertTrue("$width x $height starts at ${m.mapX(0f, 0f)}", m.mapX(0f, 0f) >= -1f && m.mapY(0f, 0f) >= -1f)
+            assertTrue("$width x $height ends at ${m.mapX(w, h)}", m.mapX(w, h) <= 1081f && m.mapY(w, h) <= 2001f)
+        }
+    }
+
+    @Test
+    fun `fit still stops short of magnifying a tiny canvas beyond the limit`() {
+        assertEquals(ViewTransform.MAX_ZOOM, ViewTransform.fit(1000, 1000, 1, 1, 0f).zoom, 0f)
+    }
+
+    @Test
+    fun `touches still land on a canvas fitted at a tiny zoom`() {
+        val width = 100_000_000
+        val inverse = ViewTransform.fit(1080, 2000, width, 1, 0f).toAffine(width, 1).inverse()
+        assertNotNull("a small transform is not a collapsed one", inverse)
+        val i = inverse ?: return
+        assertEquals(width * 0.75f, i.mapX(810f, 1000f), width * 0.001f)
+    }
+
+    @Test
+    fun `a pinch goes as far as showing all of a long canvas, and to the usual limit on any other`() {
+        val lowest = ViewTransform.lowestZoom(1080, 2000, 99_999, 10, 12f)
+        assertEquals(ViewTransform.fit(1080, 2000, 99_999, 10, 12f).zoom, lowest, 0f)
+        val pinched = ViewTransform(540f, 1000f, 1f).afterGesture(99_999, 10, 540f, 1000f, 540f, 1000f, 1e-9f, 0f, lowest)
+        assertEquals(lowest, pinched.zoom, 0f)
+        assertEquals(ViewTransform.MIN_ZOOM, ViewTransform.lowestZoom(1080, 2000, 1280, 720, 12f), 0f)
+    }
+
+    @Test
+    fun `moving two fingers does not change a zoom already below the limit`() {
+        val fitted = ViewTransform.fit(1080, 2000, 99_999, 10, 0f)
+        assertTrue("the premise", fitted.zoom < ViewTransform.MIN_ZOOM)
+        val moved = fitted.afterGesture(99_999, 10, 500f, 500f, 530f, 480f, 1f, 0f)
+        assertEquals(fitted.zoom, moved.zoom, 0f)
+        assertNear(fitted.panX + 30f, moved.panX, 0.5f)
+        assertNear(fitted.panY - 20f, moved.panY, 0.5f)
+    }
+
+    @Test
     fun `small rotations snap back to upright`() {
         assertEquals(0f, ViewTransform(rotationDegrees = 2f).snappedRotation().rotationDegrees, 0f)
         assertEquals(30f, ViewTransform(rotationDegrees = 30f).snappedRotation().rotationDegrees, 0f)

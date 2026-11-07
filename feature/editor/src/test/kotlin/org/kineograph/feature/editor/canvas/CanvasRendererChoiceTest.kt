@@ -43,6 +43,7 @@ import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.LooperMode
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlin.math.hypot
 
 /** How the view looks after its renderer, with a stand-in for the low-latency one, whose library needs a real device. */
 @RunWith(RobolectricTestRunner::class)
@@ -387,7 +388,10 @@ class CanvasRendererChoiceTest {
     }
 
     /** Pinches the canvas to twice the size, and moves it, which is what happens before someone presses Play. */
-    private fun zoomAndPan() {
+    private fun zoomAndPan() = twoFingers(200f, 300f)
+
+    /** Two fingers go down at x = 100 and x = [from], and the second one moves to x = [to]. */
+    private fun twoFingers(from: Float, to: Float) {
         val down = clock
         fun pointers(action: Int, first: Float, second: Float?): MotionEvent {
             val xs = listOfNotNull(first, second)
@@ -425,10 +429,10 @@ class CanvasRendererChoiceTest {
         }
         send(pointers(MotionEvent.ACTION_DOWN, 100f, null))
         clock += 30
-        send(pointers(MotionEvent.ACTION_POINTER_DOWN or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT), 100f, 200f))
+        send(pointers(MotionEvent.ACTION_POINTER_DOWN or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT), 100f, from))
         clock += 200
-        send(pointers(MotionEvent.ACTION_MOVE, 100f, 300f))
-        send(pointers(MotionEvent.ACTION_POINTER_UP or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT), 100f, 300f))
+        send(pointers(MotionEvent.ACTION_MOVE, 100f, to))
+        send(pointers(MotionEvent.ACTION_POINTER_UP or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT), 100f, to))
         send(pointers(MotionEvent.ACTION_UP, 100f, null))
         clock += 2000
         idle()
@@ -478,6 +482,56 @@ class CanvasRendererChoiceTest {
         view.layout(0, 0, VIEW_W, VIEW_H)
         view.isPlaying = false
         assertEquals("one change of size and back again leaves it where it was", placed, fake.shownView)
+    }
+
+    private fun zoomOf(fake: FakeLowLatency): Float = hypot(checkNotNull(fake.shownView).a, checkNotNull(fake.shownView).b)
+
+    private fun assertCanvasAllInView(shown: Affine?) {
+        val project = session.state.value.project
+        val view = checkNotNull(shown)
+        val left = view.mapX(0f, 0f)
+        val right = view.mapX(project.width.toFloat(), project.height.toFloat())
+        assertTrue("from $left to $right, in a view $VIEW_W wide", left >= -0.5f && right <= VIEW_W + 0.5f)
+    }
+
+    @Test
+    fun `a canvas too long for the usual zoom limit is all there, in the editor and in playback`() {
+        surfaceCreated()
+        val fake = built.single()
+        resize(LONG_W, LONG_H)
+        assertCanvasAllInView(fake.shownView)
+
+        view.isPlaying = true
+        assertCanvasAllInView(fake.shownView)
+        assertEquals(wholeCanvasFit(), fake.shownView)
+        view.isPlaying = false
+
+        zoomAndPan()
+        view.fitToScreen()
+        assertCanvasAllInView(fake.shownView)
+    }
+
+    @Test
+    fun `playback decodes such a canvas at the size it shows it`() {
+        surfaceCreated()
+        resize(LONG_W, LONG_H)
+        assertEquals(VIEW_W.toFloat() / LONG_W, view.fitScale(), 0.0001f)
+    }
+
+    @Test
+    fun `a pinch on such a canvas neither jumps nor stops short of showing all of it`() {
+        surfaceCreated()
+        val fake = built.single()
+        resize(LONG_W, LONG_H)
+        val fitted = zoomOf(fake)
+        assertTrue("the premise", fitted < ViewTransform.MIN_ZOOM)
+
+        // A little way in, still below the limit, which it must not jump up to.
+        twoFingers(200f, 202f)
+        assertEquals(fitted * 1.02f, zoomOf(fake), fitted * 0.001f)
+
+        twoFingers(300f, 101f)
+        assertEquals("all of it, and no further", fitted, zoomOf(fake), fitted * 0.001f)
     }
 
     @Test
@@ -668,5 +722,9 @@ class CanvasRendererChoiceTest {
         // Just over the limit, in as few pixels as the rule allows, to keep the test's bitmaps small.
         const val OVER_LIMIT_W = 13200
         const val OVER_LIMIT_H = 1000
+
+        // Too long for the usual lower limit on zoom to show all of it in this view, and still within what the low-latency path takes.
+        const val LONG_W = 8180
+        const val LONG_H = 10
     }
 }

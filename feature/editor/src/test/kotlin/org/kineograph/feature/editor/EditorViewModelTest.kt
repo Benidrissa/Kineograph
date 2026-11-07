@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.Density
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
@@ -128,7 +129,11 @@ class EditorViewModelTest {
     private fun create(width: Int = 200, height: Int = 100): Project =
         runBlocking { repository.create("Test", width, height, 12, Background.Transparent, "Layer 1") }
 
-    private fun viewModelFor(id: String, backgroundFailed: Boolean = false): EditorViewModel {
+    private fun viewModelFor(
+        id: String,
+        backgroundFailed: Boolean = false,
+        savedState: SavedStateHandle = SavedStateHandle(),
+    ): EditorViewModel {
         val dependencies =
             EditorDependencies(
                 repository,
@@ -142,7 +147,8 @@ class EditorViewModelTest {
         val factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T = EditorViewModel(dependencies, id, backgroundFailed) as T
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    EditorViewModel(dependencies, id, backgroundFailed, savedState) as T
             }
         return ViewModelProvider(store, factory)[EditorViewModel::class.java]
     }
@@ -500,6 +506,23 @@ class EditorViewModelTest {
         val viewModel = viewModelFor(create().id, backgroundFailed = true)
         viewModel.awaitReady()
         assertEquals(EditorMessage.BACKGROUND_NOT_USED, nextMessage(viewModel))
+    }
+
+    @Test
+    fun `that is not said again when the system brings the screen back after killing the app`() {
+        val id = create().id
+        val saved = SavedStateHandle()
+        val first = viewModelFor(id, backgroundFailed = true, savedState = saved)
+        first.awaitReady()
+        assertEquals(EditorMessage.BACKGROUND_NOT_USED, nextMessage(first))
+        store.clear()
+
+        // The arguments come back the same, and so does what was saved, but nothing else does.
+        val restored = SavedStateHandle(saved.keys().associateWith { saved.get<Any>(it) })
+        val second = viewModelFor(id, backgroundFailed = true, savedState = restored)
+        second.awaitReady()
+        second.notify(EditorMessage.LAYER_LOCKED)
+        assertEquals("the first message is not about any picture", EditorMessage.LAYER_LOCKED, nextMessage(second))
     }
 
     @Test

@@ -114,4 +114,5 @@ long for its format scales down.
 A fill started on empty space or a soft edge goes behind what is there, so line art keeps its edges. Anything more solid than that
 counts as paint, and the fill goes over it. A translucent fill tints what it lands on, as replacing it would make a see-through hole,
 and an opaque one replaces it. This includes earlier translucent fills and marker strokes, because a new colour going underneath an
-old one is not what anyone tapping on it expects.
+old one is not what anyone tapping on it expects. Fill opacity goes down to 1%, fainter than most of a soft edge, so alpha alone cannot
+tell the two apart. What does is that a fill or marker is one flat colour, and a soft edge changes from pixel to pixel.

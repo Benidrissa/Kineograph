@@ -24,7 +24,7 @@ public data class ViewTransform(
 
     /**
      * The transform after a two-finger move: the canvas point under the old centroid ends up under
-     * the new one, and zoom and rotation pivot about it.
+     * the new one, and zoom and rotation pivot about it. Pinching out stops at [minZoom].
      */
     public fun afterGesture(
         canvasWidth: Int,
@@ -35,11 +35,13 @@ public data class ViewTransform(
         newCentroidY: Float,
         scaleBy: Float,
         rotateByDegrees: Float,
+        minZoom: Float = MIN_ZOOM,
     ): ViewTransform {
         val inverse = toAffine(canvasWidth, canvasHeight).inverse() ?: return this
         val anchorX = inverse.mapX(oldCentroidX, oldCentroidY)
         val anchorY = inverse.mapY(oldCentroidX, oldCentroidY)
-        val newZoom = (zoom * scaleBy).coerceIn(MIN_ZOOM, MAX_ZOOM)
+        // A smaller window or canvas can leave it below the limit. Fingers that only move must not make it jump back up.
+        val newZoom = (zoom * scaleBy).coerceIn(min(minZoom, zoom), MAX_ZOOM)
         val moved = copy(zoom = newZoom, rotationDegrees = wrapDegrees(rotationDegrees + rotateByDegrees))
         val mapped = moved.toAffine(canvasWidth, canvasHeight)
         return moved.copy(
@@ -52,17 +54,22 @@ public data class ViewTransform(
     public fun snappedRotation(): ViewTransform = if (abs(rotationDegrees) < ROTATION_SNAP_DEGREES) copy(rotationDegrees = 0f) else this
 
     public companion object {
+        /** How far a pinch goes on a canvas that is not long enough to need more. See [lowestZoom]. */
         public const val MIN_ZOOM: Float = 0.05f
         public const val MAX_ZOOM: Float = 64f
         private const val ROTATION_SNAP_DEGREES = 3f
 
-        /** Centres the whole canvas in the viewport at the largest size that fits, upright. */
+        /** Centres the whole canvas in the viewport at the largest size that fits, upright. A canvas of any length fits: it just gets small. */
         public fun fit(viewWidth: Int, viewHeight: Int, canvasWidth: Int, canvasHeight: Int, paddingPx: Float): ViewTransform {
             val availableWidth = (viewWidth - paddingPx * 2).coerceAtLeast(1f)
             val availableHeight = (viewHeight - paddingPx * 2).coerceAtLeast(1f)
-            val zoom = min(availableWidth / canvasWidth, availableHeight / canvasHeight).coerceIn(MIN_ZOOM, MAX_ZOOM)
+            val zoom = min(availableWidth / canvasWidth, availableHeight / canvasHeight).coerceAtMost(MAX_ZOOM)
             return ViewTransform(viewWidth * 0.5f, viewHeight * 0.5f, zoom, 0f)
         }
+
+        /** How far out a pinch can go on this canvas: to [MIN_ZOOM], or as far as it takes to see all of it. */
+        public fun lowestZoom(viewWidth: Int, viewHeight: Int, canvasWidth: Int, canvasHeight: Int, paddingPx: Float): Float =
+            min(MIN_ZOOM, fit(viewWidth, viewHeight, canvasWidth, canvasHeight, paddingPx).zoom)
 
         private fun wrapDegrees(degrees: Float): Float {
             var d = degrees % 360f

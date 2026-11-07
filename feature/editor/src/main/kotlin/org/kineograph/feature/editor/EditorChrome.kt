@@ -69,6 +69,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LocalPinnableContainer
+import androidx.compose.ui.layout.PinnableContainer
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
@@ -616,16 +617,28 @@ private fun rememberFrameActions(session: DrawingSession): FrameActions =
 internal fun FrameStrip(state: SessionState, thumbnails: ThumbnailLoader, actions: FrameActions, modifier: Modifier = Modifier) {
     val project = state.project
     val listState = rememberLazyListState()
-    // Follows the selection, not its position: a frame dragged across the current one should not pull the strip away from where it landed.
-    LaunchedEffect(state.frameId) {
-        val current = project.frameIndex(state.frameId)
-        if (current >= 0) {
-            val visible = listState.layoutInfo.visibleItemsInfo
-            val shown = visible.any {
-                it.index == current && it.offset >= 0 && it.offset + it.size <= listState.layoutInfo.viewportEndOffset
-            }
-            if (!shown) listState.animateScrollToItem(current)
+    val current = project.frameIndex(state.frameId)
+    // A frame the user has just moved, by dragging it or through TalkBack. The strip goes with that one, as the current frame may only
+    // have been passed on the way, and pulling the strip back to it would take away the one the user is looking at.
+    var moving by remember { mutableStateOf<FrameMove?>(null) }
+    val landed = moving?.takeIf { project.frameIndex(it.frameId) == it.to }
+    LaunchedEffect(landed) {
+        val move = landed ?: return@LaunchedEffect
+        try {
+            listState.keepInView(move.to)
+            moving = null
+        } finally {
+            move.letGo()
         }
+    }
+    // Otherwise it follows the current frame wherever that goes, as it does when selecting one or on an undo.
+    LaunchedEffect(state.frameId, current) {
+        if (landed == null && current >= 0) listState.keepInView(current)
+    }
+    val moveFrame: (FrameMove, Int) -> Unit = { move, from ->
+        moving?.letGo()
+        moving = move
+        actions.onMove(from, move.to)
     }
     val aspect = project.width.toFloat() / project.height
     val cellHeight = 56.dp
@@ -638,9 +651,26 @@ internal fun FrameStrip(state: SessionState, thumbnails: ThumbnailLoader, action
         verticalAlignment = Alignment.CenterVertically,
     ) {
         itemsIndexed(project.frames, key = { _, slot -> slot.id }) { index, slot ->
-            FrameCell(state, index, slot.id, slot.hold, thumbnails, actions, listState, cellWidth, cellHeight)
+            FrameCell(state, index, slot.id, slot.hold, thumbnails, actions, moveFrame, listState, cellWidth, cellHeight)
         }
     }
+}
+
+/** A frame on its way to the place [to] in the strip, kept in the list by [held] if it has to be there all the way. */
+private class FrameMove(val frameId: String, val to: Int, private var held: PinnableContainer.PinnedHandle? = null) {
+    fun letGo() {
+        held?.release()
+        held = null
+    }
+}
+
+/** Scrolls the item at [index] into view, if it is not all there. */
+private suspend fun LazyListState.keepInView(index: Int) {
+    // This runs ahead of the layout that puts the items in their new order, and that layout can move the list by itself.
+    withFrameNanos { }
+    val layout = layoutInfo
+    val shown = layout.visibleItemsInfo.any { it.index == index && it.offset >= 0 && it.offset + it.size <= layout.viewportEndOffset }
+    if (!shown) animateScrollToItem(index)
 }
 
 /**
@@ -662,6 +692,7 @@ private fun FrameCell(
     hold: Int,
     thumbnails: ThumbnailLoader,
     actions: FrameActions,
+    moveFrame: (FrameMove, from: Int) -> Unit,
     listState: LazyListState,
     width: Dp,
     height: Dp,
@@ -684,8 +715,12 @@ private fun FrameCell(
     val latestLastIndex by rememberUpdatedState(lastIndex)
     val latestStepPx by rememberUpdatedState(with(density) { (width + 4.dp).toPx() })
     val latestActions by rememberUpdatedState(actions)
+    val latestMoveFrame by rememberUpdatedState(moveFrame)
     val pinnable = LocalPinnableContainer.current
     val scope = rememberCoroutineScope()
+    // TalkBack stays on a frame only for as long as the list keeps it. A frame moved out of view would be thrown away before the strip
+    // caught up with it, and TalkBack would lose its place for the next move.
+    val moveByAction: (Int) -> Unit = { target -> moveFrame(FrameMove(frameId, target, pinnable?.pin()), index) }
     val description =
         if (hold > 1) {
             stringResource(R.string.frame_cell_description_held, index + 1, project.frames.size, hold)
@@ -756,7 +791,7 @@ private fun FrameCell(
                     if (!lifted) return@awaitEachGesture
                     if (moved) {
                         val target = (latestIndex + (travelled / latestStepPx).roundToInt()).coerceIn(0, latestLastIndex)
-                        if (target != latestIndex) latestActions.onMove(latestIndex, target)
+                        if (target != latestIndex) latestMoveFrame(FrameMove(frameId, target), latestIndex)
                     } else {
                         menuOpen = true
                     }
@@ -794,7 +829,7 @@ private fun FrameCell(
                         if (index > 0) {
                             add(
                                 CustomAccessibilityAction(moveEarlier) {
-                                    actions.onMove(index, index - 1)
+                                    moveByAction(index - 1)
                                     true
                                 },
                             )
@@ -802,7 +837,7 @@ private fun FrameCell(
                         if (index < lastIndex) {
                             add(
                                 CustomAccessibilityAction(moveLater) {
-                                    actions.onMove(index, index + 1)
+                                    moveByAction(index + 1)
                                     true
                                 },
                             )

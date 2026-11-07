@@ -130,6 +130,20 @@ class PlaybackPauseTest {
     private val slot get() = controller.state.value.slotIndex
 
     @Test
+    fun `a long canvas is decoded at the size it is shown, not at some larger minimum`() {
+        controller.start(project.copy(width = 30_000, height = 1_000), 0, PlaybackMode.LOOP, 0.036f, display)
+        val deadline = System.currentTimeMillis() + WAIT_MS
+        while (display.last == null) {
+            check(System.currentTimeMillis() < deadline) { "No frames were shown" }
+            runFor(16)
+            Thread.sleep(2)
+        }
+        val frame = checkNotNull(display.last)
+        assertEquals(1080f, frame.width.toFloat(), 1f)
+        assertEquals(36f, frame.height.toFloat(), 1f)
+    }
+
+    @Test
     fun `pausing holds the frame, for as long as it lasts`() {
         start()
         controller.togglePause()

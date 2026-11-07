@@ -33,6 +33,7 @@ import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
@@ -461,6 +462,191 @@ class FrameStripUiTest {
         compose.onNodeWithText("Duplicate").assertIsDisplayed()
         assertEquals(order, frames.map { it.id })
         compose.onNodeWithTag("frame_0").assertExists()
+    }
+
+    // ----- The strip follows the current frame -----
+
+    /** Drags a frame to the strip's end and holds it there, so that the strip scrolls along well past where it began. */
+    private fun dragFarAlong(tag: String) {
+        val strip = compose.onNodeWithTag("frame_strip").fetchSemanticsNode().boundsInRoot
+        val start = compose
+            .onNodeWithTag(tag)
+            .fetchSemanticsNode()
+            .boundsInRoot.center.x
+        pressAndHold(tag)
+        moveAlong(strip.right - with(compose.density) { 20.dp.toPx() } - start)
+        compose.mainClock.advanceTimeBy(3000)
+        lift()
+    }
+
+    /** Moves the strip by a finger, slowly, so that it stops when the finger does. */
+    private fun scrollStrip(by: Float) {
+        compose.onNodeWithTag("frame_strip").performTouchInput {
+            down(center)
+            repeat(10) { moveBy(Offset(by / 10f, 0f), delayMillis = 20) }
+            advanceEventTime(200)
+            up()
+        }
+        settle()
+    }
+
+    /** Twenty frames, with the strip at the start and showing all of the first two. */
+    private fun showTwentyFramesOn(current: Int) {
+        repeat(19) { session.addFrame() }
+        settle()
+        session.selectFrame(frames[current].id)
+        settle()
+        showBottomBar()
+    }
+
+    @Test
+    fun `undoing the drag of the current frame brings the strip back with it`() {
+        showTwentyFramesOn(1)
+        val current = frames[1].id
+        dragFarAlong("frame_1")
+        val landed = frames.indexOfFirst { it.id == current }
+        assertTrue("the premise: it went a long way, to $landed", landed > 8)
+        compose.onNodeWithTag("frame_$landed").assertIsDisplayed()
+        compose.onNodeWithTag("frame_1").assertDoesNotExist()
+
+        // The list goes along by itself with the first frame in view, so for this to mean anything the frame cannot be that one.
+        scrollStrip(stepPx * 1.2f)
+        compose.onNodeWithTag("frame_${landed - 1}").assertIsDisplayed()
+        compose.onNodeWithTag("frame_$landed").assertIsDisplayed()
+
+        session.undo()
+        settle()
+        assertEquals(current, frames[1].id)
+        compose.onNodeWithTag("frame_1").assertIsDisplayed().assertIsSelected()
+    }
+
+    @Test
+    fun `dragging another frame across the current one leaves the strip where it landed`() {
+        showTwentyFramesOn(1)
+        val dragged = frames[0].id
+        val current = frames[1].id
+        dragFarAlong("frame_0")
+        val landed = frames.indexOfFirst { it.id == dragged }
+        assertTrue("the premise: it went a long way, to $landed", landed > 8)
+        assertEquals("the premise: the current frame moved along", current, frames[0].id)
+        compose.onNodeWithTag("frame_$landed").assertIsDisplayed()
+        compose.onNodeWithTag("frame_0").assertDoesNotExist()
+    }
+
+    @Test
+    fun `dragging the current frame leaves it in view too`() {
+        showTwentyFramesOn(0)
+        val current = frames[0].id
+        dragFarAlong("frame_0")
+        val landed = frames.indexOfFirst { it.id == current }
+        assertTrue("the premise: it went a long way, to $landed", landed > 8)
+        compose.onNodeWithTag("frame_$landed").assertIsDisplayed().assertIsSelected()
+    }
+
+    @Test
+    fun `after such a drag, the strip still goes back to the current frame when that moves again`() {
+        showTwentyFramesOn(1)
+        val current = frames[1].id
+        dragFarAlong("frame_0")
+        compose.onNodeWithTag("frame_0").assertDoesNotExist()
+
+        session.moveFrame(0, 1)
+        settle()
+        assertEquals(current, frames[1].id)
+        compose.onNodeWithTag("frame_1").assertIsDisplayed().assertIsSelected()
+    }
+
+    @Test
+    fun `dragging a frame that does not cross the current one does not stop the strip following it later`() {
+        showTwentyFramesOn(0)
+        val current = frames[0].id
+        dragFarAlong("frame_1")
+        compose.onNodeWithTag("frame_0").assertDoesNotExist()
+
+        session.moveFrame(0, 1)
+        settle()
+        assertEquals(current, frames[1].id)
+        compose.onNodeWithTag("frame_1").assertIsDisplayed().assertIsSelected()
+    }
+
+    /** The highest cell that is all on screen, going from the start of the strip. */
+    private fun lastWholeCell(): Int {
+        val strip = compose.onNodeWithTag("frame_strip").fetchSemanticsNode().boundsInRoot
+        return frames.indices
+            .takeWhile { index ->
+                val cell = compose
+                    .onAllNodes(hasTestTag("frame_$index"))
+                    .fetchSemanticsNodes()
+                    .firstOrNull()
+                    ?.boundsInRoot
+                cell != null && cell.right <= strip.right
+            }.last()
+    }
+
+    /**
+     * TalkBack stays on a frame only for as long as the list keeps it, which shows here as its semantics id, and it has to stay there
+     * for each move in turn.
+     */
+    private fun assertTalkBackCanKeepMovingLater(start: Int, moves: Int) {
+        var at = start
+        val id = compose.onNodeWithTag("frame_$at").fetchSemanticsNode().id
+        repeat(moves) {
+            compose.onNodeWithTag("frame_$at").performSemanticsActionNamed("Move later")
+            settle()
+            at++
+            val node = compose.onNodeWithTag("frame_$at")
+            node.assertIsDisplayed()
+            assertEquals("still the same one, at $at", id, node.fetchSemanticsNode().id)
+        }
+    }
+
+    @Test
+    fun `the current frame moved past the end of the strip by TalkBack stays in view, and TalkBack can go on moving it`() {
+        showTwentyFramesOn(0)
+        val edge = lastWholeCell()
+        session.selectFrame(frames[edge].id)
+        settle()
+        val current = frames[edge].id
+        assertTalkBackCanKeepMovingLater(edge, 6)
+        assertEquals(current, frames[edge + 6].id)
+        compose.onNodeWithTag("frame_${edge + 6}").assertIsSelected()
+    }
+
+    @Test
+    fun `a move starting from a frame only just in view at the end of the strip works the same`() {
+        showTwentyFramesOn(4)
+        val current = frames[4].id
+        // Back towards the start, until the frame is cut off by the end of the strip.
+        val strip = compose.onNodeWithTag("frame_strip").fetchSemanticsNode().boundsInRoot
+        val from = compose.onNodeWithTag("frame_4").fetchSemanticsNode().boundsInRoot
+        scrollStrip(strip.right - from.left - from.width / 2f)
+        val cut = compose.onNodeWithTag("frame_4").fetchSemanticsNode().boundsInRoot
+        assertTrue("the premise: only part of it shows, $cut of $from, in $strip", cut.width in 1f..<from.width && cut.right == strip.right)
+
+        assertTalkBackCanKeepMovingLater(4, 3)
+        assertEquals(current, frames[7].id)
+    }
+
+    @Test
+    fun `so does a frame that is not the current one`() {
+        showTwentyFramesOn(0)
+        val edge = lastWholeCell()
+        val moved = frames[edge].id
+        assertTalkBackCanKeepMovingLater(edge, 6)
+        assertEquals(moved, frames[edge + 6].id)
+    }
+
+    @Test
+    fun `moving the first frame in view to the place before it stays in view too`() {
+        showTwentyFramesOn(3)
+        val current = frames[3].id
+        val id = compose.onNodeWithTag("frame_3").fetchSemanticsNode().id
+        compose.onNodeWithTag("frame_3").performSemanticsActionNamed("Move earlier")
+        settle()
+        assertEquals(current, frames[2].id)
+        val node = compose.onNodeWithTag("frame_2")
+        node.assertIsDisplayed().assertIsSelected()
+        assertEquals(id, node.fetchSemanticsNode().id)
     }
 
     // ----- The tool bar -----

@@ -331,6 +331,76 @@ class FloodFillTest {
         assertEquals(black, pixels[0])
     }
 
+    // ----- What counts as paint -----
+
+    private fun translucent(alpha: Int) = (alpha shl 24) or 0x0000FF
+
+    private fun isPaint(pixels: IntArray, width: Int, x: Int, y: Int) = FloodFill.seedIsPaint(pixels, width, pixels.size / width, x, y)
+
+    @Test
+    fun `empty space is not paint`() {
+        assertFalse(isPaint(blank(5, 5), 5, 2, 2))
+    }
+
+    @Test
+    fun `anything fairly solid is paint, whatever is around it`() {
+        val pixels = blank(5, 5)
+        pixels[12] = black
+        assertTrue(isPaint(pixels, 5, 2, 2))
+        pixels[12] = translucent(64)
+        assertTrue(isPaint(pixels, 5, 2, 2))
+    }
+
+    @Test
+    fun `a translucent fill is paint, as low as the slider goes`() {
+        for (alpha in listOf(3, 13, 51, 63)) {
+            assertTrue("alpha $alpha", isPaint(IntArray(25) { translucent(alpha) }, 5, 2, 2))
+        }
+    }
+
+    @Test
+    fun `so is the very edge and corner of one`() {
+        val fill = translucent(51)
+        // Filled from the top left, up to and including (2, 2).
+        val pixels = IntArray(25) { i -> if (i % 5 <= 2 && i / 5 <= 2) fill else empty }
+        assertTrue("on an edge", isPaint(pixels, 5, 2, 1))
+        assertTrue("at a corner", isPaint(pixels, 5, 2, 2))
+        assertTrue("at the corner of the image", isPaint(pixels, 5, 0, 0))
+    }
+
+    @Test
+    fun `the faint row along a straight line is not paint`() {
+        val fringe = translucent(51)
+        val pixels = IntArray(25) { i ->
+            if (i / 5 == 2) {
+                fringe
+            } else if (i / 5 > 2) {
+                black
+            } else {
+                empty
+            }
+        }
+        assertFalse(isPaint(pixels, 5, 2, 2))
+    }
+
+    @Test
+    fun `the faint edge of a slanted line is not paint`() {
+        val pixels = IntArray(25) { i -> translucent(10 + (i % 5 + i / 5) * 4) }
+        assertFalse(isPaint(pixels, 5, 2, 2))
+    }
+
+    @Test
+    fun `the far edge of a soft brush is not paint, however flat`() {
+        assertFalse(isPaint(IntArray(25) { translucent(2) }, 5, 2, 2))
+    }
+
+    @Test
+    fun `a fill on a canvas only a pixel wide is paint too`() {
+        assertTrue(isPaint(IntArray(5) { translucent(51) }, 1, 0, 2))
+        assertTrue(isPaint(IntArray(5) { translucent(51) }, 5, 2, 0))
+        assertTrue(isPaint(intArrayOf(translucent(51)), 1, 0, 0))
+    }
+
     @Test
     fun `filling behind keeps opaque line art on top`() {
         val pixels = intArrayOf(empty, black)

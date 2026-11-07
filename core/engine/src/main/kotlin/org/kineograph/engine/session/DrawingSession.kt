@@ -352,7 +352,7 @@ public class DrawingSession(
             val pixels = IntArray(width * height)
             target.getPixels(pixels, 0, width, overscan, overscan, width, height)
             val sample = if (sampleAllLayers) readFlattenedLayers(width, height) else pixels
-            val seedIsPaint = (sample[y * width + x] ushr 24) >= PAINT_SEED_ALPHA
+            val seedIsPaint = FloodFill.seedIsPaint(sample, width, height, x, y)
             val mask =
                 FloodFill.computeMask(
                     sample,
@@ -1809,13 +1809,6 @@ public class DrawingSession(
         const val EVENT_BUFFER = 16
         const val MIN_LASSO_COORDINATES = 6
         const val MAX_CACHED_GHOSTS = 16
-
-        /**
-         * A tap on anything this solid is a tap on paint, which the fill goes over. Fainter than this it is empty space or the soft
-         * edge of a line, which the fill goes behind. A translucent fill or marker stroke has to count as paint, or filling it again
-         * would put the new colour underneath the old one.
-         */
-        const val PAINT_SEED_ALPHA = 64
         const val FILL_EXPAND_PX = 2
         const val GHOST_TINT_PREVIOUS = 0xD0E53935.toInt()
         const val GHOST_TINT_NEXT = 0xD02E9E4F.toInt()

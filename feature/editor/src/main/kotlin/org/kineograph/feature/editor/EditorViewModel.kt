@@ -2,6 +2,7 @@ package org.kineograph.feature.editor
 
 import android.content.ContentResolver
 import android.net.Uri
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
@@ -105,6 +106,8 @@ public class EditorViewModel(
     private val projectId: String,
     /** The project was just created without the picture the user chose. It is said here, because this is where they end up. */
     private val backgroundFailed: Boolean = false,
+    /** What outlives this object when the system kills the app and later brings this screen back, which it does with the same arguments. */
+    private val savedState: SavedStateHandle = SavedStateHandle(),
 ) : ViewModel() {
     private val _load = MutableStateFlow<EditorLoadState>(EditorLoadState.Loading)
     internal val load: StateFlow<EditorLoadState> get() = _load
@@ -164,7 +167,11 @@ public class EditorViewModel(
         }
         if (opened.loaded.recoveredFromBackup) _messages.trySend(EditorMessage.RECOVERED_FROM_BACKUP)
         if (opened.loaded.missingCels > 0) _messages.trySend(EditorMessage.MISSING_DRAWINGS)
-        if (backgroundFailed) _messages.trySend(EditorMessage.BACKGROUND_NOT_USED)
+        // Only once. When the system brings this screen back, the project may have long since been given another picture.
+        if (backgroundFailed && savedState.get<Boolean>(SAID_BACKGROUND_NOT_USED) != true) {
+            savedState[SAID_BACKGROUND_NOT_USED] = true
+            _messages.trySend(EditorMessage.BACKGROUND_NOT_USED)
+        }
 
         val settings =
             try {
@@ -506,5 +513,6 @@ public class EditorViewModel(
         const val MESSAGE_BUFFER = 16
         const val STOP_SAVE_WAIT_MS = 2000L
         const val OPAQUE = 0xFF000000.toInt()
+        const val SAID_BACKGROUND_NOT_USED = "saidBackgroundNotUsed"
     }
 }

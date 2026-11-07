@@ -128,6 +128,30 @@ public object FloodFill {
     }
 
     /**
+     * Whether a tap at ([x], [y]) landed on paint, which a fill goes over, rather than on empty space or the soft edge of a line, which
+     * it goes behind. Anything fairly solid is paint. Something fainter is paint if it is one flat colour, which a translucent fill or
+     * marker stroke is, however faint, so that filling it again does not put the new colour underneath the old one. The edge of a line is
+     * never that: its colour changes from one pixel to the next, or at most runs along a single row.
+     */
+    public fun seedIsPaint(pixels: IntArray, width: Int, height: Int, x: Int, y: Int): Boolean {
+        val seed = pixels[y * width + x]
+        val alpha = seed ushr 24
+        if (alpha >= SOLID_SEED_ALPHA) return true
+        if (alpha < FAINTEST_FILL_ALPHA) return false
+        var neighbours = 0
+        var same = 0
+        for (ny in maxOf(0, y - 1)..minOf(height - 1, y + 1)) {
+            for (nx in maxOf(0, x - 1)..minOf(width - 1, x + 1)) {
+                if (nx == x && ny == y) continue
+                neighbours++
+                if (pixels[ny * width + nx] == seed) same++
+            }
+        }
+        // A canvas a pixel or two wide has few neighbours to go by, and its fills are no less flat.
+        return same >= minOf(FLAT_NEIGHBOURS, neighbours)
+    }
+
+    /**
      * Paints [mask] onto [target]. With [behind], the fill goes under whatever is already there, so line
      * art keeps its soft edges. Without it, the fill goes over it: an opaque colour replaces what is there, and a translucent one
      * tints it, where replacing would make a see-through hole in the paint.
@@ -576,6 +600,18 @@ public object FloodFill {
     }
 
     private const val MAX_GAP = 100
+
+    /** A tap on anything this solid is a tap on paint, whatever is around it. */
+    private const val SOLID_SEED_ALPHA = 64
+
+    /**
+     * 1%, as low as the opacity slider goes. Below this, a flat colour is more likely the far edge of a soft brush, which fades out in
+     * bands several pixels wide, and which the user cannot see and so cannot have meant to tap.
+     */
+    private const val FAINTEST_FILL_ALPHA = 3
+
+    /** Of the 8 around a pixel. The corner of a filled area has this many, and a row along the edge of a straight line has 2. */
+    private const val FLAT_NEIGHBOURS = 3
 
     /** The largest corner pocket is this many times the gap radius squared. A 25 degree tip fits, and so does anything wider. */
     private const val POCKET_AREA_PER_RADIUS_SQUARED = 8

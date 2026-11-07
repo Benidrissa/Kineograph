@@ -1,6 +1,9 @@
 package org.kineograph.app
 
+import android.app.Activity
 import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -29,6 +32,8 @@ import org.kineograph.data.manifest.ManifestCodec
 import org.kineograph.media.export.ExportWorker
 import org.kineograph.model.Background
 import org.kineograph.model.Project
+import org.robolectric.Robolectric
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
@@ -147,6 +152,7 @@ class MainActivityTest {
     }
 
     @Test
+    @Config(qualifiers = "+night")
     fun `the light theme on a dark system gets dark icons on the status bar`() {
         runBlocking { app.settings.setTheme(ThemeMode.LIGHT) }
         launch(Intent(app, MainActivity::class.java))
@@ -183,6 +189,52 @@ class MainActivityTest {
         compose.onNodeWithTag("create_project").performScrollTo().performClick()
         compose.waitUntil(WAIT_MS) { compose.onAllNodesWithTag("canvas_host").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("could not be used", substring = true).assertDoesNotExist()
+    }
+
+    /** Gets a new project to the editor without the picture chosen for it, which is not one. */
+    private fun createProjectWithUnusablePicture(activity: MainActivity) {
+        compose.waitUntil(WAIT_MS) { compose.onAllNodesWithTag("new_project_button").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("new_project_button").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Image").performScrollTo().performClick()
+        compose.waitForIdle()
+        val picker = checkNotNull(shadowOf(activity).nextStartedActivityForResult) { "the photo picker should have been asked for" }
+        activity.activityResultRegistry.dispatchResult(
+            picker.requestCode,
+            Activity.RESULT_OK,
+            Intent().setData(Uri.fromFile(File(app.cacheDir, "not-there.png"))),
+        )
+        compose.waitForIdle()
+        compose.onNodeWithTag("create_project").performScrollTo().performClick()
+        compose.waitUntil(WAIT_MS) { compose.onAllNodesWithTag("canvas_host").fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test
+    fun `a project without its picture says so once, and not again when the system brings the app back after killing it`() {
+        val before = Robolectric.buildActivity(MainActivity::class.java, Intent(app, MainActivity::class.java)).setup()
+        createProjectWithUnusablePicture(before.get())
+        compose.waitUntil(WAIT_MS) { compose.onAllNodesWithText(NOT_USED, substring = true).fetchSemanticsNodes().isNotEmpty() }
+
+        // Everything goes but the saved state, as it does when the process dies. The editor is put back with the same arguments.
+        val saved = Bundle()
+        before
+            .pause()
+            .stop()
+            .saveInstanceState(saved)
+            .destroy()
+        val after = Robolectric.buildActivity(MainActivity::class.java, Intent(app, MainActivity::class.java)).setup(saved)
+        try {
+            compose.waitUntil(WAIT_MS) { compose.onAllNodesWithTag("canvas_host").fetchSemanticsNodes().isNotEmpty() }
+            compose.mainClock.autoAdvance = false
+            repeat(SNACKBAR_FRAMES) {
+                compose.mainClock.advanceTimeByFrame()
+                compose.onNodeWithText(NOT_USED, substring = true).assertDoesNotExist()
+            }
+            compose.mainClock.autoAdvance = true
+            compose.waitForIdle()
+        } finally {
+            after.pause().stop().destroy()
+        }
     }
 
     @Test
@@ -277,5 +329,9 @@ class MainActivityTest {
     private companion object {
         const val WAIT_MS = 20_000L
         const val UNSAVED_TITLE = "Your latest changes aren't saved"
+        const val NOT_USED = "could not be used"
+
+        /** Long enough for a message that was going to come up to have done so. */
+        const val SNACKBAR_FRAMES = 30
     }
 }

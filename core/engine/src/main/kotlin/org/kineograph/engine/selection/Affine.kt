@@ -31,10 +31,13 @@ public data class Affine(val a: Float, val b: Float, val c: Float, val d: Float,
             f = b * inner.e + d * inner.f + f,
         )
 
-    /** The reverse transform, or null if this one has collapsed everything onto a line or a point. */
+    /**
+     * The reverse transform, or null if this one has collapsed everything onto a line or a point. Being small says nothing about
+     * that: a canvas of 100 million pixels fits on a phone at a zoom whose determinant is about 1e-10, and undoes perfectly well.
+     */
     public fun inverse(): Affine? {
         val determinant = a * d - b * c
-        if (abs(determinant) < 1e-9f) return null
+        if (abs(determinant) < COLLAPSED_DETERMINANT) return null
         val invDet = 1f / determinant
         return Affine(
             a = d * invDet,
@@ -60,6 +63,9 @@ public data class Affine(val a: Float, val b: Float, val c: Float, val d: Float,
     }
 
     public companion object {
+        /** Far below any real view of any real canvas, and still far enough from zero that the inverse does not overflow. */
+        private const val COLLAPSED_DETERMINANT = 1e-30f
+
         public val IDENTITY: Affine = Affine(1f, 0f, 0f, 1f, 0f, 0f)
 
         public fun translation(x: Float, y: Float): Affine = Affine(1f, 0f, 0f, 1f, x, y)

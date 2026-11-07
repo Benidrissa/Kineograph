@@ -157,7 +157,8 @@ internal class PlaybackController(
         running = true
         clockRunning = false
 
-        val scale = displayScale.coerceIn(MIN_SCALE, 1f)
+        // Never above what the canvas really has, and as small as it is shown, however long the canvas: more would be memory for nothing.
+        val scale = displayScale.coerceAtMost(1f)
         val width = max(1, (target.width * scale).toInt())
         val height = max(1, (target.height * scale).toInt())
         val frameBytes = width.toLong() * height * BYTES_PER_PIXEL
@@ -328,7 +329,6 @@ internal class PlaybackController(
     private companion object {
         const val NANOS_PER_SECOND = 1_000_000_000L
         const val BYTES_PER_PIXEL = 4L
-        const val MIN_SCALE = 0.05f
         const val MIN_CACHED_FRAMES = 4
         const val MAX_CACHED_FRAMES = 2000
         const val PREROLL_FRAMES = 12

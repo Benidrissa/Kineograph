@@ -213,6 +213,7 @@ private fun editorFactory(app: KineographApp, entry: NavBackStackEntry): ViewMod
             ),
             id,
             backgroundFailed = entry.arguments?.getBoolean(ARGUMENT_BACKGROUND_FAILED) == true,
+            savedState = entry.savedStateHandle,
         )
     }
 }
