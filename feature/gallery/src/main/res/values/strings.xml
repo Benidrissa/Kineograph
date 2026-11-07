@@ -45,7 +45,7 @@
         <item quantity="one">You need %1$d drawing for 1 second of animation</item>
         <item quantity="other">You need %1$d drawings for 1 second of animation</item>
     </plurals>
-    <string name="fps_preview_description">A ball bouncing at %1$d frames per second</string>
+    <string name="fps_preview_description">A ball bouncing at %1$d frames per second, on a %2$d by %3$d canvas</string>
     <string name="paper_white">White</string>
     <string name="paper_off_white">Off-white</string>
     <string name="paper_grid">Grid</string>
@@ -69,4 +69,27 @@
     <string name="size_height">Height</string>
     <string name="size_invalid">Enter a width and height from 1 to %1$d.</string>
     <string name="size_large_warning">A canvas this large needs a lot of memory and may run slowly on this device.</string>
+    <string name="paper_hint_white">Clean white paper</string>
+    <string name="paper_hint_off_white">Warm, like a sketchbook</string>
+    <string name="paper_hint_grid">Light lines to help with proportions</string>
+    <string name="paper_hint_dots">Light dots to help with spacing</string>
+    <string name="paper_hint_dark">Dark paper for bright drawings</string>
+    <string name="background_hint_solid">Any color you pick</string>
+    <string name="background_hint_image">A picture from your gallery</string>
+    <string name="background_hint_camera">Take a photo now</string>
+    <string name="background_hint_transparent">Nothing behind your drawing</string>
+    <string name="canvas_group_video">Video</string>
+    <string name="canvas_group_social">Social</string>
+    <string name="canvas_group_pixel">Pixel art</string>
+    <string name="canvas_group_other">Other</string>
+    <string name="preset_hint_hd">A good start, light on memory</string>
+    <string name="preset_hint_full_hd">Sharper, uses more memory</string>
+    <string name="preset_hint_4k">Very sharp, for powerful phones</string>
+    <string name="preset_hint_four_three">The classic TV shape</string>
+    <string name="preset_hint_vertical">TikTok, Reels, Shorts, WhatsApp Status</string>
+    <string name="preset_hint_square">Posts in a social feed</string>
+    <string name="preset_hint_pixel_64">Tiny and blocky</string>
+    <string name="preset_hint_pixel_128">Small, with room for detail</string>
+    <string name="preset_hint_pixel_256">Detailed pixel art</string>
+    <string name="preset_hint_custom">Choose your own width and height</string>
 </resources>

@@ -20,6 +20,9 @@ android {
     buildFeatures {
         compose = true
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 kotlin {
@@ -33,4 +36,6 @@ dependencies {
     api(libs.compose.foundation)
     api(libs.compose.material3)
     implementation(libs.androidx.core.ktx)
+
+    testImplementation(libs.junit)
 }

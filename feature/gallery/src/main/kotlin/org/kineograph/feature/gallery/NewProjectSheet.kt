@@ -4,27 +4,20 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -41,8 +34,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
@@ -51,24 +43,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.launch
-import org.kineograph.engine.compositor.BackgroundPainter
 import org.kineograph.model.Background
 import org.kineograph.model.CanvasPreset
 import org.kineograph.model.DEFAULT_FPS
 import org.kineograph.model.PaperKind
 import org.kineograph.ui.ColorPicker
 import org.kineograph.ui.DefaultSwatches
+import org.kineograph.ui.KgIcons
 import java.io.File
-
-private sealed interface BackgroundChoice {
-    data class PaperChoice(val kind: PaperKind) : BackgroundChoice
-
-    data class SolidChoice(val argb: Int) : BackgroundChoice
-
-    data class ImageChoice(val uri: Uri) : BackgroundChoice
-
-    data object TransparentChoice : BackgroundChoice
-}
 
 /** The form for starting a new project. Every choice here can be changed later in the project's settings. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -95,7 +77,10 @@ public fun NewProjectSheet(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * Two drop-downs, each showing a picture of every option, and a live preview that shows the result of all the choices
+ * together. With the options folded away, the whole form fits on a phone without scrolling.
+ */
 @Composable
 internal fun NewProjectForm(defaultNumber: Int, canEncode: (Int, Int) -> Boolean, onCreate: (NewProjectRequest) -> Unit) {
     val defaultName = stringResource(R.string.default_project_name, defaultNumber)
@@ -127,6 +112,7 @@ internal fun NewProjectForm(defaultNumber: Int, canEncode: (Int, Int) -> Boolean
             val uri = cameraUri
             if (saved && uri != null) background = BackgroundChoice.ImageChoice(uri)
         }
+    val picture by rememberPictureThumbnail((background as? BackgroundChoice.ImageChoice)?.uri, context.contentResolver)
 
     Column(
         Modifier
@@ -134,7 +120,7 @@ internal fun NewProjectForm(defaultNumber: Int, canEncode: (Int, Int) -> Boolean
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
             .navigationBarsPadding(),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Text(stringResource(R.string.new_project_title), style = MaterialTheme.typography.headlineSmall)
         OutlinedTextField(
@@ -145,95 +131,69 @@ internal fun NewProjectForm(defaultNumber: Int, canEncode: (Int, Int) -> Boolean
             modifier = Modifier.fillMaxWidth().testTag("new_project_name"),
         )
 
-        Section(stringResource(R.string.new_project_background)) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                PaperKind.entries.forEach { kind ->
-                    BackgroundChip(
-                        label = paperName(kind),
-                        selected = background == BackgroundChoice.PaperChoice(kind),
-                        swatch = Color(BackgroundPainter.paperColor(kind)),
-                        onClick = { background = BackgroundChoice.PaperChoice(kind) },
-                    )
-                }
-                BackgroundChip(
-                    label = stringResource(R.string.background_solid),
-                    selected = background is BackgroundChoice.SolidChoice,
-                    swatch = (background as? BackgroundChoice.SolidChoice)?.let { Color(it.argb) },
-                    onClick = { pickingColor = true },
-                )
-                BackgroundChip(
-                    label = stringResource(R.string.background_image),
-                    selected =
-                        (background as? BackgroundChoice.ImageChoice)?.uri != null &&
-                            (background as? BackgroundChoice.ImageChoice)?.uri != cameraUri,
-                    swatch = null,
-                    onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                )
-                BackgroundChip(
-                    label = stringResource(R.string.background_camera),
-                    selected = cameraUri != null && (background as? BackgroundChoice.ImageChoice)?.uri == cameraUri,
-                    swatch = null,
-                    onClick = {
-                        val directory = File(context.cacheDir, "camera").apply { mkdirs() }
-                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", File(directory, "background.jpg"))
-                        cameraUri = uri
-                        camera.launch(uri)
-                    },
-                )
-                BackgroundChip(
-                    label = stringResource(R.string.background_transparent),
-                    selected = background == BackgroundChoice.TransparentChoice,
-                    swatch = null,
-                    onClick = { background = BackgroundChoice.TransparentChoice },
-                )
+        BackgroundDropdown(
+            selected = background,
+            picture = picture,
+            cameraSelected = cameraUri != null && (background as? BackgroundChoice.ImageChoice)?.uri == cameraUri,
+            onSelect = { background = it },
+            onPickColor = { pickingColor = true },
+            onPickImage = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+            onTakePhoto = {
+                val directory = File(context.cacheDir, "camera").apply { mkdirs() }
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", File(directory, "background.jpg"))
+                cameraUri = uri
+                camera.launch(uri)
+            },
+        )
+
+        CanvasSizeDropdown(
+            presets = offeredPresets,
+            selectedId = presetId,
+            width = widthValue,
+            height = heightValue,
+            onSelect = { presetId = it },
+        )
+        if (isCustom) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                SizeField(stringResource(R.string.size_width), customWidth, Modifier.weight(1f)) { customWidth = it }
+                SizeField(stringResource(R.string.size_height), customHeight, Modifier.weight(1f)) { customHeight = it }
             }
         }
-
-        Section(stringResource(R.string.new_project_size)) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                offeredPresets.forEach { option ->
-                    FilterChip(
-                        selected = presetId == option.id,
-                        onClick = { presetId = option.id },
-                        label = { Text(presetName(option)) },
-                    )
-                }
-                FilterChip(
-                    selected = isCustom,
-                    onClick = { presetId = CUSTOM_PRESET },
-                    label = { Text(stringResource(R.string.preset_custom)) },
-                )
-            }
-            if (isCustom) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 8.dp)) {
-                    SizeField(stringResource(R.string.size_width), customWidth, Modifier.weight(1f)) { customWidth = it }
-                    SizeField(stringResource(R.string.size_height), customHeight, Modifier.weight(1f)) { customHeight = it }
-                }
-            }
-            if (!sizeIsValid) {
-                Text(
-                    stringResource(R.string.size_invalid, CanvasPreset.MAX_CUSTOM_EDGE),
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            } else if (widthValue.toLong() * heightValue > LARGE_CANVAS_PIXELS) {
-                Text(
-                    stringResource(R.string.size_large_warning),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.tertiary,
-                )
-            }
+        if (!sizeIsValid) {
+            Text(
+                stringResource(R.string.size_invalid, CanvasPreset.MAX_CUSTOM_EDGE),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        } else if (widthValue.toLong() * heightValue > LARGE_CANVAS_PIXELS) {
+            Text(
+                stringResource(R.string.size_large_warning),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.tertiary,
+            )
         }
 
-        Section(stringResource(R.string.new_project_fps)) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                stringResource(R.string.new_project_fps),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 FpsWheel(fps, onFpsChange = { fps = it })
-                BouncePreview(fps, Modifier.weight(1f).height(120.dp))
+                ProjectPreview(
+                    fps = fps,
+                    canvasWidth = if (sizeIsValid) widthValue else CanvasPreset.DEFAULT.width,
+                    canvasHeight = if (sizeIsValid) heightValue else CanvasPreset.DEFAULT.height,
+                    background = background,
+                    image = picture,
+                    modifier = Modifier.weight(1f).height(120.dp),
+                )
             }
             Text(
                 pluralStringResource(R.plurals.fps_helper, fps, fps),
                 style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 8.dp).testTag("fps_helper"),
+                modifier = Modifier.testTag("fps_helper"),
             )
         }
 
@@ -262,7 +222,7 @@ internal fun NewProjectForm(defaultNumber: Int, canEncode: (Int, Int) -> Boolean
         ) {
             Text(stringResource(R.string.new_project_create))
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
     }
 
     if (pickingColor) {
@@ -286,35 +246,141 @@ internal fun NewProjectForm(defaultNumber: Int, canEncode: (Int, Int) -> Boolean
 }
 
 @Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-        content()
+private fun BackgroundDropdown(
+    selected: BackgroundChoice,
+    picture: ImageBitmap?,
+    cameraSelected: Boolean,
+    onSelect: (BackgroundChoice) -> Unit,
+    onPickColor: () -> Unit,
+    onPickImage: () -> Unit,
+    onTakePhoto: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val pickAndClose: (() -> Unit) -> Unit = { action ->
+        expanded = false
+        action()
+    }
+    VisualDropdown(
+        label = stringResource(R.string.new_project_background),
+        valueText = backgroundName(selected, cameraSelected),
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        tag = "background_dropdown",
+        leading = { BackgroundSwatch(selected, picture) },
+    ) {
+        PaperKind.entries.forEach { kind ->
+            val choice = BackgroundChoice.PaperChoice(kind)
+            VisualOption(
+                title = paperName(kind),
+                hint = paperHint(kind),
+                selected = selected == choice,
+                tag = "background_paper_${kind.name.lowercase()}",
+                preview = { BackgroundSwatch(choice) },
+                onClick = { pickAndClose { onSelect(choice) } },
+            )
+        }
+        VisualOption(
+            title = stringResource(R.string.background_solid),
+            hint = stringResource(R.string.background_hint_solid),
+            selected = selected is BackgroundChoice.SolidChoice,
+            tag = "background_color",
+            preview = {
+                if (selected is BackgroundChoice.SolidChoice) BackgroundSwatch(selected) else BackgroundSwatch(null, icon = KgIcons.Palette)
+            },
+            onClick = { pickAndClose(onPickColor) },
+        )
+        VisualOption(
+            title = stringResource(R.string.background_image),
+            hint = stringResource(R.string.background_hint_image),
+            selected = selected is BackgroundChoice.ImageChoice && !cameraSelected,
+            tag = "background_image",
+            preview = {
+                if (selected is BackgroundChoice.ImageChoice && !cameraSelected && picture != null) {
+                    BackgroundSwatch(selected, picture)
+                } else {
+                    BackgroundSwatch(null, icon = KgIcons.Image)
+                }
+            },
+            onClick = { pickAndClose(onPickImage) },
+        )
+        VisualOption(
+            title = stringResource(R.string.background_camera),
+            hint = stringResource(R.string.background_hint_camera),
+            selected = cameraSelected,
+            tag = "background_camera",
+            preview = {
+                if (selected is BackgroundChoice.ImageChoice && cameraSelected && picture != null) {
+                    BackgroundSwatch(selected, picture)
+                } else {
+                    BackgroundSwatch(null, icon = KgIcons.Camera)
+                }
+            },
+            onClick = { pickAndClose(onTakePhoto) },
+        )
+        VisualOption(
+            title = stringResource(R.string.background_transparent),
+            hint = stringResource(R.string.background_hint_transparent),
+            selected = selected == BackgroundChoice.TransparentChoice,
+            tag = "background_transparent",
+            preview = { BackgroundSwatch(BackgroundChoice.TransparentChoice) },
+            onClick = { pickAndClose { onSelect(BackgroundChoice.TransparentChoice) } },
+        )
     }
 }
 
 @Composable
-private fun BackgroundChip(label: String, selected: Boolean, swatch: Color?, onClick: () -> Unit) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = { Text(label) },
-        leadingIcon =
-            swatch?.let { color ->
-                {
-                    Box(
-                        Modifier
-                            .size(18.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(MaterialTheme.colorScheme.outline)
-                            .padding(1.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(color),
-                    )
-                }
-            },
-    )
+private fun CanvasSizeDropdown(presets: List<CanvasPreset>, selectedId: String, width: Int?, height: Int?, onSelect: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val selected = presets.firstOrNull { it.id == selectedId }
+    val choose: (String) -> Unit = {
+        expanded = false
+        onSelect(it)
+    }
+    VisualDropdown(
+        label = stringResource(R.string.new_project_size),
+        valueText = if (selected != null) presetName(selected) else stringResource(R.string.preset_custom),
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        tag = "canvas_size_dropdown",
+        leading = { CanvasShapeGlyph(width ?: 1, height ?: 1, showPixels = selected?.isPixelArt() == true) },
+    ) {
+        fun group(heading: Int, members: List<CanvasPreset>): Pair<Int, List<CanvasPreset>> = heading to members.filter { it in presets }
+        val groups =
+            listOf(
+                group(
+                    R.string.canvas_group_video,
+                    listOf(CanvasPreset.HD, CanvasPreset.FULL_HD, CanvasPreset.UHD_4K, CanvasPreset.FOUR_THREE),
+                ),
+                group(R.string.canvas_group_social, listOf(CanvasPreset.VERTICAL, CanvasPreset.SQUARE)),
+                group(R.string.canvas_group_pixel, listOf(CanvasPreset.PIXEL_64, CanvasPreset.PIXEL_128, CanvasPreset.PIXEL_256)),
+            )
+        groups.forEach { (heading, members) ->
+            OptionGroupHeading(stringResource(heading))
+            members.forEach { option ->
+                VisualOption(
+                    title = presetName(option),
+                    hint = presetHint(option),
+                    selected = selectedId == option.id,
+                    tag = "preset_${option.id}",
+                    preview = { CanvasShapeGlyph(option.width, option.height, showPixels = option.isPixelArt()) },
+                    onClick = { choose(option.id) },
+                )
+            }
+        }
+        OptionGroupHeading(stringResource(R.string.canvas_group_other))
+        VisualOption(
+            title = stringResource(R.string.preset_custom),
+            hint = stringResource(R.string.preset_hint_custom),
+            selected = selectedId == CUSTOM_PRESET,
+            tag = "preset_custom",
+            preview = { CanvasShapeGlyph(CUSTOM_GLYPH_WIDTH, CUSTOM_GLYPH_HEIGHT) },
+            onClick = { choose(CUSTOM_PRESET) },
+        )
+    }
 }
+
+private fun CanvasPreset.isPixelArt(): Boolean =
+    this == CanvasPreset.PIXEL_64 || this == CanvasPreset.PIXEL_128 || this == CanvasPreset.PIXEL_256
 
 @Composable
 private fun SizeField(label: String, value: String, modifier: Modifier, onChange: (String) -> Unit) {
@@ -329,6 +395,15 @@ private fun SizeField(label: String, value: String, modifier: Modifier, onChange
 }
 
 @Composable
+private fun backgroundName(choice: BackgroundChoice, fromCamera: Boolean): String =
+    when (choice) {
+        is BackgroundChoice.PaperChoice -> paperName(choice.kind)
+        is BackgroundChoice.SolidChoice -> stringResource(R.string.background_solid)
+        is BackgroundChoice.ImageChoice -> stringResource(if (fromCamera) R.string.background_camera else R.string.background_image)
+        BackgroundChoice.TransparentChoice -> stringResource(R.string.background_transparent)
+    }
+
+@Composable
 private fun paperName(kind: PaperKind): String =
     stringResource(
         when (kind) {
@@ -337,6 +412,18 @@ private fun paperName(kind: PaperKind): String =
             PaperKind.GRID -> R.string.paper_grid
             PaperKind.DOTS -> R.string.paper_dots
             PaperKind.DARK -> R.string.paper_dark
+        },
+    )
+
+@Composable
+private fun paperHint(kind: PaperKind): String =
+    stringResource(
+        when (kind) {
+            PaperKind.WHITE -> R.string.paper_hint_white
+            PaperKind.OFF_WHITE -> R.string.paper_hint_off_white
+            PaperKind.GRID -> R.string.paper_hint_grid
+            PaperKind.DOTS -> R.string.paper_hint_dots
+            PaperKind.DARK -> R.string.paper_hint_dark
         },
     )
 
@@ -356,7 +443,25 @@ private fun presetName(preset: CanvasPreset): String =
         },
     )
 
+@Composable
+private fun presetHint(preset: CanvasPreset): String =
+    stringResource(
+        when (preset) {
+            CanvasPreset.HD -> R.string.preset_hint_hd
+            CanvasPreset.FULL_HD -> R.string.preset_hint_full_hd
+            CanvasPreset.VERTICAL -> R.string.preset_hint_vertical
+            CanvasPreset.SQUARE -> R.string.preset_hint_square
+            CanvasPreset.FOUR_THREE -> R.string.preset_hint_four_three
+            CanvasPreset.UHD_4K -> R.string.preset_hint_4k
+            CanvasPreset.PIXEL_64 -> R.string.preset_hint_pixel_64
+            CanvasPreset.PIXEL_128 -> R.string.preset_hint_pixel_128
+            CanvasPreset.PIXEL_256 -> R.string.preset_hint_pixel_256
+        },
+    )
+
 private const val CUSTOM_PRESET = "custom"
 private const val MAX_NAME_LENGTH = 80
 private const val LARGE_CANVAS_PIXELS = 3840L * 2160L
 private const val OPAQUE = 0xFF000000.toInt()
+private const val CUSTOM_GLYPH_WIDTH = 5
+private const val CUSTOM_GLYPH_HEIGHT = 4

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
@@ -276,6 +277,48 @@ class FrameStripUiTest {
         compose.onNodeWithTag("play_button").assertIsDisplayed()
         compose.onNodeWithTag("export_button").assertIsDisplayed()
         compose.onRoot().saveScreenshot("editor_phone")
+    }
+
+    /** The defect this guards: text and icons in the editor were black on a dark background. */
+    @Test
+    fun `everything in the editor takes its colour from the theme`() {
+        var content = Color.Unspecified
+        var expected = Color.Unspecified
+        compose.setContent {
+            KineographTheme(darkTheme = true) {
+                EditorRootSurface {
+                    content = LocalContentColor.current
+                    expected = MaterialTheme.colorScheme.onSurface
+                }
+            }
+        }
+        compose.waitForIdle()
+        assertEquals(expected, content)
+    }
+
+    /** The real root, in the dark theme, to check by eye. */
+    @Test
+    fun `the editor chrome in the dark theme`() {
+        val thumbnails = ThumbnailLoader(store, 4 * 1024 * 1024)
+        repeat(5) { session.addFrame() }
+        settle()
+        compose.setContent {
+            val state by session.state.collectAsState()
+            KineographTheme(darkTheme = true) {
+                EditorRootSurface {
+                    Column(Modifier.fillMaxSize()) {
+                        EditorTopBar(state, {}, {}, {}, {}, {}, {})
+                        Box(Modifier.weight(1f).fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHighest)) {
+                            EditorToolBar(ToolState(), ToolbarSide.LEFT, {}, {}, {})
+                            QuickSliders(ToolState().copy(tool = CanvasTool.BRUSH), ToolbarSide.LEFT, {}, {})
+                        }
+                        EditorBottomBar(state, session, thumbnails, false, {}, {})
+                    }
+                }
+            }
+        }
+        settle()
+        compose.onRoot().saveScreenshot("editor_phone_dark")
     }
 
     /** Touch targets must be at least 48 dp. */

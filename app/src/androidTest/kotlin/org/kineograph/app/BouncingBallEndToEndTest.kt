@@ -355,6 +355,7 @@ class BouncingBallEndToEndTest {
         const val CORNER_FRACTION = 8
         const val CORNER_STEP = 4
         const val SAMPLE_STEP = 4
+
         // Video stores brightness from 16 (black) to 235 (white), so white decodes to about 235, not 255.
         const val WHITE_THRESHOLD = 225
         const val INK_THRESHOLD = 80

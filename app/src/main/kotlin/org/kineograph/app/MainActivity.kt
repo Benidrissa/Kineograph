@@ -1,7 +1,9 @@
 package org.kineograph.app
 
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -50,6 +52,12 @@ class MainActivity : ComponentActivity() {
                     ThemeMode.LIGHT -> false
                     ThemeMode.DARK -> true
                 }
+            // Status bar icons must contrast with the app's theme, which the user can set apart from the system's.
+            DisposableEffect(dark) {
+                val barStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { dark }
+                enableEdgeToEdge(statusBarStyle = barStyle, navigationBarStyle = barStyle)
+                onDispose { }
+            }
             val windowSize = calculateWindowSizeClass(this)
             KineographTheme(darkTheme = dark, dynamicColor = settings.dynamicColor) {
                 KineographNavHost(app, settings, wideLayout = windowSize.widthSizeClass != WindowWidthSizeClass.Compact)

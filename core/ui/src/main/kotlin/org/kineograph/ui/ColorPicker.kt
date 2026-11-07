@@ -113,6 +113,7 @@ public fun ColorPicker(
                 Slider(
                     value = alpha / 255f,
                     onValueChange = { publish((it * 255f + 0.5f).toInt()) },
+                    colors = kgSliderColors(),
                     modifier = Modifier.semantics { contentDescription = opacityLabel },
                 )
             }

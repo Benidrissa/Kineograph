@@ -1,7 +1,6 @@
 package org.kineograph.feature.editor
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +15,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,8 +44,10 @@ public fun EditorRoute(viewModel: EditorViewModel, wideLayout: Boolean, onBack: 
     val load by viewModel.load.collectAsStateWithLifecycle()
     when (val state = load) {
         EditorLoadState.Loading -> {
-            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+            EditorRootSurface {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
             }
         }
 
@@ -65,14 +67,25 @@ public fun EditorRoute(viewModel: EditorViewModel, wideLayout: Boolean, onBack: 
 
 @Composable
 private fun OpenProblem(message: String, onBack: () -> Unit) {
-    Column(
-        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(32.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(message, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge)
-        Button(onClick = onBack) { Text(stringResource(R.string.action_back)) }
+    EditorRootSurface {
+        Column(
+            Modifier.fillMaxSize().padding(32.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(message, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge)
+            Button(onClick = onBack) { Text(stringResource(R.string.action_back)) }
+        }
     }
+}
+
+/**
+ * The editor's backdrop. A Surface is what tells the text and icons inside which colour to be. With only a coloured
+ * background they fall back to black, which cannot be seen in the dark theme.
+ */
+@Composable
+internal fun EditorRootSurface(content: @Composable () -> Unit) {
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface, content = content)
 }
 
 /** Which sheet is showing. Only ever one at a time. */
@@ -108,94 +121,91 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
         if (view != null && renderer != null) viewModel.startPlayback(renderer, view.fitScale())
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
-            .windowInsetsPadding(WindowInsets.safeDrawing),
-    ) {
-        if (!playback.isPlaying) {
-            EditorTopBar(
-                state = sessionState,
-                onBack = onBack,
-                onToggleOnion = {
-                    session.updateSettings { it.copy(onionSkin = it.onionSkin.copy(enabled = !it.onionSkin.enabled)) }
-                },
-                onOnionSettings = { sheet = EditorSheet.ONION_SKIN },
-                onToggleGrid = { session.updateSettings { it.copy(grid = it.grid.copy(enabled = !it.grid.enabled)) } },
-                onProjectSettings = { sheet = EditorSheet.PROJECT_SETTINGS },
-                onExport = { sheet = EditorSheet.EXPORT },
-            )
-        }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            AndroidView(
-                factory = { viewContext ->
-                    KineographCanvasView(
-                        viewContext,
-                        session,
-                        ready.lowLatency,
-                        workspaceColor,
-                        toolConfig = { viewModel.tools.value.toCanvasConfig() },
-                        listener =
-                            object : CanvasListener {
-                                override fun onLayerNotDrawable() = viewModel.notify(EditorMessage.LAYER_LOCKED)
-
-                                override fun onPlaybackTapped() = viewModel.stopPlayback()
-                            },
-                    ).also { canvasView = it }
-                },
-                modifier = Modifier.fillMaxSize().testTag("canvas_host"),
-            )
+    EditorRootSurface {
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             if (!playback.isPlaying) {
-                EditorToolBar(
-                    tools = tools,
-                    side = settings.toolbarSide,
-                    onSideChange = viewModel::setToolbarSide,
-                    onSelect = { tool ->
-                        if (tools.tool == tool && tool.hasOptions()) {
-                            sheet = EditorSheet.TOOL_OPTIONS
-                        } else {
-                            viewModel.updateTools { it.copy(tool = tool) }
-                        }
+                EditorTopBar(
+                    state = sessionState,
+                    onBack = onBack,
+                    onToggleOnion = {
+                        session.updateSettings { it.copy(onionSkin = it.onionSkin.copy(enabled = !it.onionSkin.enabled)) }
                     },
-                    onOpenColor = { sheet = EditorSheet.COLOR },
+                    onOnionSettings = { sheet = EditorSheet.ONION_SKIN },
+                    onToggleGrid = { session.updateSettings { it.copy(grid = it.grid.copy(enabled = !it.grid.enabled)) } },
+                    onProjectSettings = { sheet = EditorSheet.PROJECT_SETTINGS },
+                    onExport = { sheet = EditorSheet.EXPORT },
                 )
-                QuickSliders(
-                    tools = tools,
-                    side = settings.toolbarSide,
-                    onSize = { size -> viewModel.updateTools { it.withActiveSize(size) } },
-                    onOpacity = { opacity -> viewModel.updateTools { it.withActiveOpacity(opacity) } },
+            }
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                AndroidView(
+                    factory = { viewContext ->
+                        KineographCanvasView(
+                            viewContext,
+                            session,
+                            ready.lowLatency,
+                            workspaceColor,
+                            toolConfig = { viewModel.tools.value.toCanvasConfig() },
+                            listener =
+                                object : CanvasListener {
+                                    override fun onLayerNotDrawable() = viewModel.notify(EditorMessage.LAYER_LOCKED)
+
+                                    override fun onPlaybackTapped() = viewModel.stopPlayback()
+                                },
+                        ).also { canvasView = it }
+                    },
+                    modifier = Modifier.fillMaxSize().testTag("canvas_host"),
                 )
-                if (sessionState.selection != null) {
-                    SelectionBar(
-                        onDone = session::commitSelection,
-                        onCancel = session::cancelSelection,
-                        onDelete = session::deleteSelection,
-                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp),
+                if (!playback.isPlaying) {
+                    EditorToolBar(
+                        tools = tools,
+                        side = settings.toolbarSide,
+                        onSideChange = viewModel::setToolbarSide,
+                        onSelect = { tool ->
+                            if (tools.tool == tool && tool.hasOptions()) {
+                                sheet = EditorSheet.TOOL_OPTIONS
+                            } else {
+                                viewModel.updateTools { it.copy(tool = tool) }
+                            }
+                        },
+                        onOpenColor = { sheet = EditorSheet.COLOR },
                     )
+                    QuickSliders(
+                        tools = tools,
+                        side = settings.toolbarSide,
+                        onSize = { size -> viewModel.updateTools { it.withActiveSize(size) } },
+                        onOpacity = { opacity -> viewModel.updateTools { it.withActiveOpacity(opacity) } },
+                    )
+                    if (sessionState.selection != null) {
+                        SelectionBar(
+                            onDone = session::commitSelection,
+                            onCancel = session::cancelSelection,
+                            onDelete = session::deleteSelection,
+                            modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp),
+                        )
+                    }
                 }
+                if (sessionState.busy || playback.isPreparing) {
+                    CircularProgressIndicator(Modifier.align(Alignment.Center))
+                }
+                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
             }
-            if (sessionState.busy || playback.isPreparing) {
-                CircularProgressIndicator(Modifier.align(Alignment.Center))
+            if (playback.isPlaying) {
+                PlaybackBar(
+                    project = sessionState.project,
+                    onStop = viewModel::stopPlayback,
+                    onMode = viewModel::setPlaybackMode,
+                    onFps = viewModel::setFps,
+                )
+            } else if (thumbnails != null) {
+                EditorBottomBar(
+                    state = sessionState,
+                    session = session,
+                    thumbnails = thumbnails,
+                    wideLayout = wideLayout,
+                    onOpenLayers = { sheet = EditorSheet.LAYERS },
+                    onPlay = startPlayback,
+                )
             }
-            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
-        }
-        if (playback.isPlaying) {
-            PlaybackBar(
-                project = sessionState.project,
-                onStop = viewModel::stopPlayback,
-                onMode = viewModel::setPlaybackMode,
-                onFps = viewModel::setFps,
-            )
-        } else if (thumbnails != null) {
-            EditorBottomBar(
-                state = sessionState,
-                session = session,
-                thumbnails = thumbnails,
-                wideLayout = wideLayout,
-                onOpenLayers = { sheet = EditorSheet.LAYERS },
-                onPlay = startPlayback,
-            )
         }
     }
 

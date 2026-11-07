@@ -85,6 +85,7 @@ import org.kineograph.ui.ColorPicker
 import org.kineograph.ui.DefaultSwatches
 import org.kineograph.ui.KgIconButton
 import org.kineograph.ui.KgIcons
+import org.kineograph.ui.kgSliderColors
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -125,6 +126,7 @@ internal fun LabelledSlider(
             valueRange = range,
             steps = steps,
             onValueChangeFinished = onValueChangeFinished,
+            colors = kgSliderColors(),
             modifier = Modifier.semantics { contentDescription = label },
         )
     }

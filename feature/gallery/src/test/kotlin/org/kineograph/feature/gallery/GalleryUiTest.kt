@@ -1,10 +1,15 @@
 package org.kineograph.feature.gallery
 
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.isPopup
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -181,7 +186,8 @@ class GalleryUiTest {
     fun `presets set the canvas size`() {
         var created: NewProjectRequest? = null
         showForm(onCreate = { created = it })
-        compose.onNodeWithText("Vertical 1080×1920").performScrollTo().performClick()
+        compose.onNodeWithTag("canvas_size_dropdown").performClick()
+        compose.onNodeWithTag("preset_vertical").performClick()
         compose.onNodeWithTag("create_project").performScrollTo().performClick()
         assertEquals(1080, created?.width)
         assertEquals(1920, created?.height)
@@ -190,20 +196,24 @@ class GalleryUiTest {
     @Test
     fun `4K is only offered if the encoder supports it`() {
         showForm(canEncode = { w, _ -> w < 3000 })
-        compose.onNodeWithText("4K 3840×2160").assertDoesNotExist()
+        compose.onNodeWithTag("canvas_size_dropdown").performClick()
+        compose.onNodeWithTag("preset_hd").assertIsDisplayed()
+        compose.onNodeWithTag("preset_uhd_4k").assertDoesNotExist()
     }
 
     @Test
     fun `4K appears when the encoder supports it`() {
         showForm(canEncode = { _, _ -> true })
-        compose.onNodeWithText("4K 3840×2160").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("canvas_size_dropdown").performClick()
+        compose.onNodeWithTag("preset_uhd_4k").assertExists()
     }
 
     @Test
     fun `a custom size is used and a bad one blocks creation with an explanation`() {
         var created: NewProjectRequest? = null
         showForm(onCreate = { created = it })
-        compose.onNodeWithText("Custom").performScrollTo().performClick()
+        compose.onNodeWithTag("canvas_size_dropdown").performClick()
+        compose.onNodeWithTag("preset_custom").performScrollTo().performClick()
         compose.onNodeWithText("Width").performScrollTo().performTextClearance()
         compose.onNodeWithText("Width").performTextInput("640")
         compose.onNodeWithText("Height").performTextClearance()
@@ -235,7 +245,8 @@ class GalleryUiTest {
     fun `the background choice carries through`() {
         var created: NewProjectRequest? = null
         showForm(onCreate = { created = it })
-        compose.onNodeWithText("Transparent").performScrollTo().performClick()
+        compose.onNodeWithTag("background_dropdown").performClick()
+        compose.onNodeWithTag("background_transparent").performScrollTo().performClick()
         compose.onNodeWithTag("create_project").performScrollTo().performClick()
         assertEquals(Background.Transparent, created?.background)
     }
@@ -244,8 +255,69 @@ class GalleryUiTest {
     fun `papers can be chosen`() {
         var created: NewProjectRequest? = null
         showForm(onCreate = { created = it })
-        compose.onNodeWithText("Dots").performScrollTo().performClick()
+        compose.onNodeWithTag("background_dropdown").performClick()
+        compose.onNodeWithTag("background_paper_dots").performClick()
         compose.onNodeWithTag("create_project").performScrollTo().performClick()
         assertTrue(created?.background == Background.Paper(PaperKind.DOTS))
+    }
+
+    @Test
+    fun `choosing from a drop-down closes it and shows the choice`() {
+        showForm()
+        compose.onNodeWithTag("background_dropdown").assertTextContains("White")
+        compose.onNodeWithTag("background_dropdown").performClick()
+        compose.onNodeWithText("Dark paper for bright drawings").assertIsDisplayed()
+        compose.onNodeWithTag("background_paper_dark").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Dark paper for bright drawings").assertDoesNotExist()
+        compose.onNodeWithTag("background_dropdown").assertTextContains("Dark")
+    }
+
+    @Test
+    fun `canvas options are grouped and explain themselves`() {
+        showForm()
+        compose.onNodeWithTag("canvas_size_dropdown").assertTextContains("HD 1280×720")
+        compose.onNodeWithTag("canvas_size_dropdown").performClick()
+        compose.onNodeWithText("Social").assertExists()
+        compose.onNodeWithText("TikTok, Reels, Shorts, WhatsApp Status").assertExists()
+        compose.onNodeWithTag("preset_square").performScrollTo().performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("canvas_size_dropdown").assertTextContains("Square 1080×1080")
+    }
+
+    @Test
+    fun `the whole form fits on a phone without scrolling`() {
+        showForm()
+        compose.onNodeWithTag("create_project").assertIsDisplayed()
+        compose.onNodeWithTag("project_preview").assertIsDisplayed()
+    }
+
+    /** Lays the sheet out in both themes, with its menus open, to check by eye. */
+    @Test
+    fun `the form in both themes with its menus open`() {
+        var dark by mutableStateOf(false)
+        compose.setContent {
+            KineographTheme(darkTheme = dark) {
+                Surface {
+                    NewProjectForm(defaultNumber = 3, canEncode = { _, _ -> true }, onCreate = {})
+                }
+            }
+        }
+        for (isDark in listOf(false, true)) {
+            dark = isDark
+            compose.waitForIdle()
+            val theme = if (isDark) "dark" else "light"
+            compose.onRoot().saveScreenshot("new_project_$theme")
+            compose.onNodeWithTag("background_dropdown").performClick()
+            compose.waitForIdle()
+            compose.onNode(isPopup()).saveScreenshot("new_project_background_menu_$theme")
+            compose.onNodeWithTag("background_paper_white").performClick()
+            compose.waitForIdle()
+            compose.onNodeWithTag("canvas_size_dropdown").performClick()
+            compose.waitForIdle()
+            compose.onNode(isPopup()).saveScreenshot("new_project_canvas_menu_$theme")
+            compose.onNodeWithTag("preset_hd").performClick()
+            compose.waitForIdle()
+        }
     }
 }

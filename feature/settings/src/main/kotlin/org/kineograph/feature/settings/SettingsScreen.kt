@@ -44,6 +44,7 @@ import org.kineograph.data.ThemeMode
 import org.kineograph.data.ToolbarSide
 import org.kineograph.ui.KgIconButton
 import org.kineograph.ui.KgIcons
+import org.kineograph.ui.kgSliderColors
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -169,6 +170,7 @@ private fun SmoothingRow(value: Int, onChange: (Int) -> Unit) {
             onValueChange = { shown = it },
             onValueChangeFinished = { onChange(shown.roundToInt()) },
             valueRange = 0f..100f,
+            colors = kgSliderColors(),
             modifier = Modifier.semantics { contentDescription = label },
         )
     }
