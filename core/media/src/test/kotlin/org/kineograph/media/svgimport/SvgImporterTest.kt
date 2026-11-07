@@ -361,7 +361,8 @@ class SvgImporterTest {
         animate(target, document, seconds = 2.0)
         val project = target.settle()
         val layer = project.newLayerId()
-        assertEquals(listOf(5, 0), project.frames.map { project.cel(layer, it.id)?.bounds?.left })
+        // It ends with the moment it ends on, and the file puts the rectangle back there.
+        assertEquals(listOf(5, 0, 5), project.frames.map { project.cel(layer, it.id)?.bounds?.left })
     }
 
     @Test
@@ -628,7 +629,6 @@ class SvgImporterTest {
         assertTrue(cancelled)
         assertEquals(before, target.settle())
         assertEquals(canUndoBefore, target.state.value.canUndo)
-        assertTrue(store.discarded.isEmpty())
     }
 
     @Test
@@ -695,5 +695,323 @@ class SvgImporterTest {
         val project = target.settle()
         assertEquals(before.cel(layer, frame), project.cel(layer, frame))
         assertEquals(before.layers, project.layers)
+    }
+
+    // ----- Which moments are taken -----
+
+    private fun oneRun(attributes: String): SvgDocument =
+        SvgParser.parse(
+            """<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10">$attributes</rect></svg>""",
+        )
+
+    @Test
+    fun `an animation that plays once reaches the moment it ends on`() {
+        val document = oneRun("""<animate attributeName="opacity" from="0" to="1" dur="0.5s" fill="freeze"/>""")
+        val target = open(width = 10, height = 10)
+        assertEquals(SvgImportOutcome.DONE, animate(target, document))
+        val project = target.settle()
+        assertEquals(7, project.frames.size)
+        val layer = project.newLayerId()
+        val last = project.cel(layer, project.frames.last().id) ?: error("no last frame")
+        assertEquals(255, Color.alpha(store.images[last.file]?.getPixel(5, 5) ?: 0))
+    }
+
+    @Test
+    fun `something that only happens at the end is still in the import`() {
+        val hidden =
+            SvgParser.parse(
+                """<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" visibility="hidden">
+                  <set attributeName="visibility" to="visible" begin="2s"/></rect></svg>""",
+            )
+        assertEquals(2.0, hidden.animation.durationSeconds, 1e-9)
+        val target = open(width = 10, height = 10)
+        assertEquals(SvgImportOutcome.DONE, animate(target, hidden))
+        val project = target.settle()
+        assertEquals(25, project.frames.size)
+        assertNotNull(project.cel(project.newLayerId(), project.frames.last().id))
+        assertNull(project.cel(project.newLayerId(), project.frames[23].id))
+    }
+
+    private fun looping(seconds: String): SvgDocument =
+        oneRun("""<animate attributeName="x" from="0" to="10" dur="$seconds" repeatCount="indefinite"/>""")
+
+    @Test
+    fun `a loop's ticks divide it evenly, however it falls`() {
+        val loop = looping("1.05s").animation
+        val sampling = SvgSampling.of(loop, loop.durationSeconds, 12)
+        assertEquals(13, sampling.tickCount)
+        val step = sampling.secondsAt(1) - sampling.secondsAt(0)
+        // The way back to the start takes the same time as every other step.
+        assertEquals(1.05, sampling.secondsAt(12) + step, 1e-9)
+        assertEquals(step, sampling.secondsAt(12) - sampling.secondsAt(11), 1e-9)
+    }
+
+    @Test
+    fun `a loop too quick for the frame rate still shows that it moves`() {
+        val loop = looping("0.04s").animation
+        val sampling = SvgSampling.of(loop, loop.durationSeconds, 12)
+        assertEquals(2, sampling.tickCount)
+        assertEquals(0.02, sampling.secondsAt(1), 1e-9)
+    }
+
+    @Test
+    fun `something that ends samples at the project's rate, up to the end`() {
+        val once = oneRun("""<animate attributeName="x" from="0" to="10" dur="1.02s" fill="freeze"/>""").animation
+        val sampling = SvgSampling.of(once, once.durationSeconds, 12)
+        assertEquals(14, sampling.tickCount)
+        assertEquals(1.0 / 12.0, sampling.secondsAt(1), 1e-9)
+        assertEquals(1.02, sampling.secondsAt(13), 1e-9)
+    }
+
+    private val introThenLoop =
+        """<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10">
+           <style>.a { animation: draw 1s linear forwards } .b { animation: blink 1s steps(1) infinite }
+           @keyframes draw { from { width: 0 } to { width: 10px } } @keyframes blink { 50% { opacity: 0 } }</style>
+           <rect class="a" width="0" height="5"/><rect class="b" x="10" width="10" height="10"/></svg>"""
+
+    @Test
+    fun `an intro is kept in unless it is asked to be left out`() {
+        val document = SvgParser.parse(introThenLoop)
+        assertTrue(document.animation.hasIntro)
+        assertEquals(2.0, document.animation.suggestedSeconds(withIntro = true), 1e-9)
+        assertEquals(1.0, document.animation.suggestedSeconds(withIntro = false), 1e-9)
+
+        val kept = SvgSampling.of(document.animation, 2.0, 4, withIntro = true)
+        assertEquals(8, kept.tickCount)
+        assertEquals(0.0, kept.secondsAt(0), 1e-9)
+        assertEquals(1.75, kept.secondsAt(7), 1e-9)
+
+        val without = SvgSampling.of(document.animation, 1.0, 4, withIntro = false)
+        assertEquals(4, without.tickCount)
+        assertEquals(1.0, without.secondsAt(0), 1e-9)
+        assertEquals(1.75, without.secondsAt(3), 1e-9)
+    }
+
+    @Test
+    fun `an import with its intro starts on what the intro starts on`() {
+        val document = SvgParser.parse(introThenLoop)
+        val target = open(width = 20, height = 10, fps = 4)
+        val outcome =
+            runBlocking { importer(target).import(document, SvgImportRequest.Animation(2.0, SvgFit.FIT_INSIDE, "Logo", withIntro = true)) }
+        assertEquals(SvgImportOutcome.DONE, outcome)
+        val project = target.settle()
+        val first = project.cel(project.newLayerId(), project.frames[0].id) ?: error("no first frame")
+        // The intro's bar has no width yet, and only the blinking part shows.
+        assertEquals(IntRect(10, 0, 20, 10), first.bounds)
+    }
+
+    @Test
+    fun `without its intro, the first frame is after it`() {
+        val document = SvgParser.parse(introThenLoop)
+        val target = open(width = 20, height = 10, fps = 4)
+        val outcome =
+            runBlocking { importer(target).import(document, SvgImportRequest.Animation(1.0, SvgFit.FIT_INSIDE, "Logo", withIntro = false)) }
+        assertEquals(SvgImportOutcome.DONE, outcome)
+        val project = target.settle()
+        assertEquals(4, project.frames.size)
+        val first = project.cel(project.newLayerId(), project.frames[0].id) ?: error("no first frame")
+        assertEquals(IntRect(0, 0, 20, 10), first.bounds)
+    }
+
+    // ----- Limits that are the device's own -----
+
+    @Test
+    fun `more frames than the device can hold is refused before anything is drawn`() {
+        val target = open()
+        val before = target.settle()
+        val tooLong = (maxImportFrames() + 1.0) / 12.0
+        assertEquals(SvgImportOutcome.TOO_MANY_FRAMES, animate(target, fixture("import-hops.svg"), seconds = tooLong))
+        assertEquals(before, target.settle())
+        assertEquals(0, store.writes.get())
+        // A number past what any array could hold comes to the same thing, and quickly.
+        assertEquals(SvgImportOutcome.TOO_MANY_FRAMES, animate(target, fixture("import-hops.svg"), seconds = 1e12))
+    }
+
+    @Test
+    fun `what counts as too many comes from the heap`() {
+        assertEquals(16 * 1024, maxImportFrames(64L * 1024 * 1024))
+        assertEquals(64 * 1024, maxImportFrames(256L * 1024 * 1024))
+    }
+
+    // ----- Cancelling, however late -----
+
+    /** Reading a cel happens during the very last step, so a cancel from there is as late as any can be. */
+    private class CancelOnRead(
+        private val store: CelStore,
+        private val wanted: () -> String?,
+        private val cancel: () -> Unit,
+    ) : CelStore by store {
+        override fun read(file: String, sampleSize: Int): Bitmap? {
+            if (file == wanted()) cancel()
+            return store.read(file, sampleSize)
+        }
+    }
+
+    @Test
+    fun `a cancel during the last step leaves it done, and says so`() {
+        var importing: Job? = null
+        var wanted: String? = null
+        val late = CancelOnRead(store, { wanted }, { importing?.cancel() })
+        val target = open(celStore = late)
+        paintActiveLayer(target)
+        val before = target.settle()
+        val layer = target.state.value.layerId
+        val frame = target.state.value.frameId
+        // The new cel is the next file written, and the surface reads it during the last step.
+        wanted = "cels/${store.writes.get() + 1}.png"
+        var outcome: SvgImportOutcome? = null
+        runBlocking {
+            importing =
+                CoroutineScope(Dispatchers.Default).launch(start = CoroutineStart.LAZY) {
+                    outcome =
+                        importer(target, late).import(
+                            square(),
+                            SvgImportRequest.SingleImage(0.0, SvgImportPlace.CURRENT_LAYER, SvgFit.ORIGINAL_SIZE, "Picture"),
+                        )
+                }
+            importing.start()
+            importing.join()
+        }
+        assertEquals(SvgImportOutcome.DONE, outcome)
+        val project = target.settle()
+        assertNotEquals(before.cel(layer, frame), project.cel(layer, frame))
+        assertTrue(target.state.value.canUndo)
+        assertTrue(store.discarded.isEmpty())
+    }
+
+    @Test
+    fun `cancelling gives back what was written`() {
+        val target = open()
+        val document = fixture("import-hops.svg")
+        runBlocking {
+            var running: Job? = null
+            running =
+                CoroutineScope(Dispatchers.Default).launch(start = CoroutineStart.LAZY) {
+                    importer(target).import(document, SvgImportRequest.Animation(10.0, SvgFit.FIT_INSIDE, "Hops")) { done, _ ->
+                        if (done == 8) running?.cancel()
+                    }
+                }
+            running.start()
+            running.join()
+        }
+        assertTrue(store.writes.get() > 0)
+        assertEquals(store.writes.get(), store.discarded.size)
+    }
+
+    @Test
+    fun `lifted pixels stay lifted through anything short of the project changing`() {
+        val target = open()
+        paintActiveLayer(target)
+        target.settle()
+        target.liftSelection(floatArrayOf(10f, 10f, 40f, 10f, 40f, 40f, 10f, 40f))
+        target.settle()
+        val before = target.state.value
+        val lifted = checkNotNull(before.selection)
+        val document = fixture("import-hops.svg")
+        runBlocking {
+            var running: Job? = null
+            running =
+                CoroutineScope(Dispatchers.Default).launch(start = CoroutineStart.LAZY) {
+                    importer(target).import(document, SvgImportRequest.Animation(10.0, SvgFit.FIT_INSIDE, "Hops")) { done, _ ->
+                        if (done == 3) running?.cancel()
+                    }
+                }
+            running.start()
+            running.join()
+        }
+        runBlocking { target.awaitIdle() }
+        assertEquals(lifted, target.state.value.selection)
+        assertNotNull(target.scene?.floating)
+        assertEquals(before.project, target.state.value.project)
+        assertEquals(before.canRedo, target.state.value.canRedo)
+        // And it can still be moved, and put down.
+        target.commitSelection()
+        runBlocking { target.awaitIdle() }
+        assertNull(target.state.value.selection)
+    }
+
+    @Test
+    fun `lifted pixels go down with an import on a new layer, and the screen hears of it`() {
+        val target = open()
+        paintActiveLayer(target)
+        target.settle()
+        target.liftSelection(floatArrayOf(10f, 10f, 40f, 10f, 40f, 40f, 10f, 40f))
+        target.settle()
+        assertEquals(SvgImportOutcome.DONE, still(target, square()))
+        runBlocking { target.awaitIdle() }
+        assertNull(target.state.value.selection)
+        assertNull(target.scene?.floating)
+    }
+
+    // ----- Failing late -----
+
+    @Test
+    fun `memory running out in the last step leaves undo and redo as they were`() {
+        val target = open()
+        paintActiveLayer(target)
+        target.addLayer("Mine")
+        target.settle()
+        target.undo()
+        val before = target.settle()
+        assertTrue(target.state.value.canRedo)
+        val layer = target.state.value.layerId
+        // Whatever the import writes next is what the surface fails to read.
+        store.failReadsOf = "cels/${store.writes.get() + 1}.png"
+        assertEquals(SvgImportOutcome.OUT_OF_MEMORY, still(target, square(), SvgImportPlace.CURRENT_LAYER, SvgFit.ORIGINAL_SIZE))
+        assertEquals(before, target.settle())
+        // What could be redone is what the user did, and not the import they were told had failed.
+        target.redo()
+        val redone = target.settle()
+        assertEquals(listOf("Layer 1", "Mine"), redone.layers.map { it.name })
+        assertEquals(layer, before.layers.first().id)
+    }
+
+    @Test
+    fun `what a late failure wrote is given back`() {
+        val target = open()
+        paintActiveLayer(target)
+        target.settle()
+        store.failReadsOf = "cels/${store.writes.get() + 1}.png"
+        assertEquals(SvgImportOutcome.OUT_OF_MEMORY, still(target, square(), SvgImportPlace.CURRENT_LAYER, SvgFit.ORIGINAL_SIZE))
+        assertEquals(1, store.discarded.size)
+    }
+
+    @Test
+    fun `a surface that cannot read its new cel still has what it had`() {
+        val target = open()
+        paintActiveLayer(target)
+        target.settle()
+        store.failReadsOf = "cels/${store.writes.get() + 1}.png"
+        still(target, square(), SvgImportPlace.CURRENT_LAYER, SvgFit.ORIGINAL_SIZE)
+        target.settle()
+        val active = target.scene?.active ?: error("nothing on the surface")
+        assertEquals(Color.BLUE, active.bitmap.getPixel(50 - active.left, 50 - active.top))
+    }
+
+    // ----- A background is one step like the rest -----
+
+    @Test
+    fun `undo brings the old background back, and redo the new one`() {
+        val target = open()
+        target.addFrame()
+        val before = target.settle().background
+        assertEquals(SvgImportOutcome.DONE, still(target, square(), SvgImportPlace.BACKGROUND, SvgFit.ORIGINAL_SIZE))
+        val replaced = target.settle().background
+        assertTrue(replaced is Background.Image)
+        target.undo()
+        assertEquals(before, target.settle().background)
+        assertEquals(2, target.settle().frames.size)
+        target.redo()
+        assertEquals(replaced, target.settle().background)
+    }
+
+    @Test
+    fun `an undone background is not taken for garbage`() {
+        val target = open()
+        still(target, square(), SvgImportPlace.BACKGROUND, SvgFit.ORIGINAL_SIZE)
+        val replaced = target.settle().background as Background.Image
+        target.undo()
+        target.settle()
+        assertTrue(replaced.file in runBlocking { target.referencedFiles() })
     }
 }

@@ -147,8 +147,12 @@ file content were replaced by hand-written readers, which take linear time. Test
 ## A loop's suggested length
 
 A looping SVG suggests the least common multiple of its cycles, up to `SvgLimits.maxSeamlessLoopSeconds` (60 s), and after that its longest
-cycle, which will not quite be seamless. Cycles count as equal within 2 ms, so that `.333s` lines up with `1s`. A delay or an intro means
-the picture only starts repeating later, and `SvgAnimationInfo.loopStartSeconds` says when: a seamless loop samples from there.
+cycle, which will not be seamless. `SvgAnimationInfo.repeatsExactly` says so, and the sheet tells the user. Cycles count as equal within 2 ms,
+or a hundredth of a cycle if that is more, up to a sixtieth of a second, so that `.333s` lines up with `1s` and `1.33s` with `4s`. A delay or an intro means the picture only
+starts repeating later, and `SvgAnimationInfo.loopStartSeconds` says when: a seamless loop samples from there.
+
+An animation that nobody can see does not count, as browsers do not run one on an element with `display: none`, or in `defs` that nothing uses. It still makes the file
+count as animated, and a file with nothing else then imports as a still picture.
 
 ## When the specification and browsers disagree about SVG
 
@@ -171,11 +175,40 @@ Other differences are choices, or not done yet. Each one has a fixture listed wi
 `core/media/src/test/resources/svg/reference/known-differences.txt`. A font the phone does not have becomes sans-serif, where a browser picks
 serif: it is likelier to be what the author saw.
 
+## What SVG filters come to
+
+Blurs and shadows are not drawn, but two things can be told from a filter's primitives alone, and both change a picture far more than a blur does.
+
+- **A filter that never reads the element draws nothing.** That is how a shadow gets written: a copy of the shape in black, with a filter that only uses its outline. Drawing that
+  copy without the filter would paint a black shape over the shape the shadow was meant to fall on. So the copy goes, along with the shadow, with a warning.
+- **Only `feColorMatrix` is done exactly as a colour filter on a layer.** Cairo writes every mask with one, and Illustrator its inverted masks. The specification works these out on linear light by
+  default, and Android's colour filters work on colours as they are stored. So where the two could differ, in the mid tones, it is close and still comes with a warning. A matrix that sets
+  a colour outright and leaves opacity alone is exact, which is the Cairo case.
+
+## Where the outermost `svg` is different
+
+Only it can have a `background`, which CSS hands over to the canvas behind the whole document. So that fills all of what the picture was given and not only its viewBox, and its opacity and
+its transform have no say in it. Its `display` is ignored, because a sprite file sets it to none
+to stay out of a web page, while the same file opened by itself draws, and an import is the same as that. `@supports` is answered as a current browser would, because that is what
+decided which half of the rule the author saw. Anything a file asks about exists there, unless it has a vendor prefix that browsers have dropped.
+
+## A stroke that keeps its width
+
+`vector-effect: non-scaling-stroke` counts its width in the picture's own pixels, not in the canvas's. A browser enlarged through CSS would keep it at the same number of screen pixels, and the
+specification allows either, but then a chart's lines would turn into hairlines as the canvas gets bigger, and the imported picture would depend on the size of the project.
+
 ## SVG import
 
-- **A loop with an intro is sampled from where it starts to repeat.** The moment of tick `i` is `i / fps` for nearly every file. A loop with a delay or an
-  intro gets `loopStartSeconds + i / fps`, because importing its first seconds instead would give a loop that jumps every time it comes round, and being seamless is
-  the point of the suggested duration. The intro itself is not imported. A single image can still pick any moment from zero.
+- **What an animation ends on is part of it.** Something that plays once and stops gets a tick more than its duration has room for, on its very last moment, because that is the frame that
+  stays on screen: a fade has to finish, and a `set` at the end has to happen. A loop leaves that moment out, as it is the same as its first.
+- **A loop's ticks divide it evenly.** A 1.05 s loop at 12 fps gets 13 ticks of 0.081 s, not a jump at the join where the last step is shorter than the others. The picture only plays a little
+  off its own speed, and no one can see that, where they can see a stumble once per loop. A loop always gets at least two ticks, or a very quick one would show no motion at all.
+- **An intro is kept unless it is left out.** A file that plays something once and then loops is usually a logo that draws itself and then blinks, and the drawing is what the person wanted. So
+  an import starts from zero, and the sheet offers to start from the loop instead, which is seamless but loses the intro. A loop that only waits to start has nothing to lose, and always
+  starts where it starts to repeat. A single image can still pick any moment from zero.
+- **The most frames a device can import comes from its heap.** Each one costs a little for as long as the project is open, and is written out again in every autosave, which a typo in the duration
+  could otherwise turn into running out of memory somewhere nobody is looking. `maxImportFrames` allows half of the heap for that, at about two kilobytes per frame, which is over an hour at
+  12 fps on a normal phone. Past it, the sheet says so and Import holds off.
 - **A held slot shows one moment.** An import adds slots and never changes one, so it cannot split a held slot into shorter ones. Showing the moment
   that slot starts at keeps the animation in time, at the cost of the moments in between. On a timeline with no holds, nothing is lost.
 - **Comparing with the previous frame only.** Identical consecutive frames share a file, which covers a picture sitting still. Finding repeats further
@@ -186,7 +219,9 @@ serif: it is likelier to be what the author saw.
   strange result to get from Import, so the sheet says so and the project stays as it is.
 - **Background images are lossless.** The picture chosen as a background through project settings is a photo, for which lossy compression is right. A picture drawn from SVG is
   usually flat colour and sharp edges, where it would show.
-- **A background from an import is not an undo step,** like every other change of background, because undo restores the layers and timeline and leaves project
-  settings as they are.
+- **A background from an import is an undo step,** unlike one chosen in project settings. Choosing one there is a setting, while importing is one more thing done to the drawing, and pressing Undo
+  after it must not take away the last thing before it instead. A photo it replaced stays on disk for that, and `ProjectRepository.sweepBackgrounds` takes it once nothing refers to it any more.
+- **Cancelling gives back what was written.** Waiting for the writes under way takes a moment. Leaving them to the next sweep would not do on a nearly full disk, where the app's own orphans
+  can be what fills it. If a save does fail on a full disk, a sweep comes first and the save goes again, because otherwise no save would ever succeed and nothing would ever sweep.
 - **The file picker asks for SVG first and then anything,** because some apps label these files differently, and a file hidden from the picker cannot be
   picked at all. A wrong file gets a friendly message on reading it.

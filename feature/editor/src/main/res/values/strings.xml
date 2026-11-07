@@ -144,10 +144,19 @@
     <string name="svg_import_running">Importing…</string>
     <string name="svg_import_progress">Frame %1$d of %2$d</string>
     <string name="svg_import_preview">Preview of the picture on your canvas</string>
+    <string name="svg_import_preview_loading">Getting the preview ready</string>
+    <string name="svg_import_preview_unavailable">Preview unavailable</string>
     <string name="svg_import_size">%1$d × %2$d · %3$s</string>
     <string name="svg_import_static">Still picture</string>
-    <string name="svg_import_animated_loops">Animated, %1$s s, loops</string>
-    <string name="svg_import_animated_once">Animated, %1$s s, plays once</string>
+    <string name="svg_import_animated_loops">Animated, %1$s\u00A0s, loops</string>
+    <string name="svg_import_animated_once">Animated, %1$s\u00A0s, plays once</string>
+    <string name="svg_import_animated_intro">Animated, %1$s\u00A0s intro, then a %2$s\u00A0s loop</string>
+    <string name="svg_import_animated_uneven">Animated, %1$s\u00A0s, loops, but its parts are out of step at the end of it</string>
+    <string name="svg_import_start_from">Start from</string>
+    <string name="svg_import_start_beginning">The very beginning</string>
+    <string name="svg_import_start_beginning_hint">Includes the intro, so the last frame won\'t run smoothly into the first</string>
+    <string name="svg_import_start_loop">Where the loop starts</string>
+    <string name="svg_import_start_loop_hint">Repeats smoothly, and leaves out the intro</string>
     <string name="svg_import_as">Import as</string>
     <string name="svg_import_as_animation">Animation</string>
     <string name="svg_import_as_animation_hint">A new drawing on every frame</string>
@@ -155,23 +164,24 @@
     <string name="svg_import_as_image_hint">One moment of the animation</string>
     <string name="svg_import_duration">Duration</string>
     <string name="svg_import_seconds_unit">s</string>
-    <string name="svg_import_duration_reset">Use %1$s s</string>
+    <string name="svg_import_seconds_spoken">seconds</string>
+    <string name="svg_import_duration_reset">Use %1$s\u00A0s</string>
     <string name="svg_import_duration_invalid">Enter a duration in seconds, more than 0.</string>
     <plurals name="svg_import_frames">
-        <item quantity="one">%1$s s at %2$d fps = %3$d frame</item>
-        <item quantity="other">%1$s s at %2$d fps = %3$d frames</item>
+        <item quantity="one">%1$s\u00A0s at %2$d fps = %3$d frame</item>
+        <item quantity="other">%1$s\u00A0s at %2$d fps = %3$d frames</item>
     </plurals>
     <string name="svg_import_large_warning">This is a big import. It may take a while and use about %1$s of storage. You can cancel at any time.</string>
     <string name="svg_import_animation_where">New layer, starting at frame %1$d</string>
     <string name="svg_import_moment">Moment</string>
-    <string name="svg_import_moment_value">%1$s s</string>
+    <string name="svg_import_moment_value">%1$s\u00A0s</string>
     <string name="svg_import_where">Where</string>
     <string name="svg_import_where_new_layer">New layer</string>
     <string name="svg_import_where_new_layer_hint">Stays separate from your drawing</string>
     <string name="svg_import_where_current_layer">Current layer</string>
     <string name="svg_import_where_current_layer_hint">Goes on top of what this frame shows</string>
     <string name="svg_import_where_background">Background</string>
-    <string name="svg_import_where_background_hint">Behind every layer, on every frame</string>
+    <string name="svg_import_where_background_hint">Behind every layer, on every frame. Replaces the background you have now.</string>
     <string name="svg_import_fit">Fit</string>
     <string name="svg_import_fit_inside">Fit inside the canvas</string>
     <string name="svg_import_fit_inside_hint">All of it shows, centered</string>
@@ -181,6 +191,7 @@
     <string name="svg_import_fit_original_hint">Not scaled, and centered</string>
     <string name="svg_import_start">Import</string>
     <string name="svg_import_nothing">There is nothing to see in this picture at this moment, so nothing was imported.</string>
+    <string name="svg_import_too_many_frames">That\'s more frames than this device can keep track of. Try a shorter duration.</string>
     <string name="svg_import_out_of_memory">There isn\'t enough memory for this import, so nothing changed. Try a shorter duration or a smaller canvas.</string>
     <string name="svg_import_out_of_storage">There isn\'t enough storage for this import, so nothing changed. Free up some space and try again.</string>
     <string name="svg_import_failed">Something went wrong, so nothing changed. Please try again.</string>

@@ -7,9 +7,11 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.os.Build
+import java.text.Bidi
 import java.util.Locale
 import kotlin.math.atan2
 import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.round
 
 private val TEXT_CHILD_TAGS = setOf("tspan", "textPath", "a", "altGlyph")
@@ -38,8 +40,18 @@ internal class PlacedRun(
     val decorations: List<ActiveDecoration>,
     /** Where this run follows a path, [x] says how far along it. [y] says how far away from it, as with any baseline. */
     val onPath: TextOnPath?,
+    /** How wide `lengthAdjust="spacingAndGlyphs"` makes each letter, with one being as it comes. */
+    val stretch: Double = 1.0,
+    /** In text that runs downwards, [x] is how far down, and [y] where across its middle goes. See [TextLayouter]. */
+    val vertical: VerticalPlacement = VerticalPlacement.NONE,
 ) {
     var path: Path? = null
+
+    /** Where the first letter's starting point goes, whichever way the text runs. */
+    var originX: Double = 0.0
+    var originY: Double = 0.0
+
+    val isSideways: Boolean get() = vertical == VerticalPlacement.SIDEWAYS
 
     /**
      * Android splits letter spacing into half before each letter and half after it, where SVG puts it all after. Glyphs are
@@ -51,9 +63,18 @@ internal class PlacedRun(
     val cell: Box
         get() {
             val scale = style.fontSize / TextSupport.NOMINAL_SIZE
-            return Box(x, y - glyphs.ascent * scale, glyphs.advance * scale, (glyphs.ascent + glyphs.descent) * scale)
+            val width = glyphs.advance * scale * stretch
+            val height = (glyphs.ascent + glyphs.descent) * scale
+            return when (vertical) {
+                VerticalPlacement.NONE -> Box(x, y - glyphs.ascent * scale, width, height)
+                VerticalPlacement.SIDEWAYS -> Box(y - height / 2.0, x, height, width)
+                VerticalPlacement.UPRIGHT -> Box(y - width / 2.0, x, width, height)
+            }
         }
 }
+
+/** How letters stand in text that runs downwards: lying on their side, as Latin letters do by default, or upright, one below the other. */
+internal enum class VerticalPlacement { NONE, SIDEWAYS, UPRIGHT }
 
 /** The path a `textPath` follows, placed in the coordinates of the text. */
 internal class TextOnPath(val measure: MotionMeasure, val matrix: Mat2D) {
@@ -247,6 +268,9 @@ internal class GlyphCache(private val maxBytes: Long) {
 /**
  * Lays out the simple SVG text model: runs of text in a line, with x, y, dx and dy from `text` and `tspan`, where every absolute
  * position begins a new anchored chunk.
+ *
+ * In text that runs downwards, everything here works the same with the two directions swapped: the pen's x says how far along the line it has got,
+ * and its y where the line is across the picture, so `y` from the file goes to the pen's x and `x` to its y. Only the very last step knows that.
  */
 internal class TextLayouter(
     private val cache: GlyphCache,
@@ -289,15 +313,74 @@ internal class TextLayouter(
     private var owedWordSpacing = 0.0
     private val placedDecorations = ArrayList<PlacedDecoration>()
 
+    /** Taken from the `text` element, the one place it means anything. */
+    private var vertical = false
+
+    private var lettersPlaced = 0
+    private var chunkCount = 0
+    private var lastAdvance = 0.0
+
+    /** Added between letters on a second pass, for `textLength`. */
+    private var extraSpacing = 0.0
+    private var stretch = 1.0
+
+    /** How long the line has to come out on a second pass. Its last letter gets no spacing after it, so this cannot be left to the letters. */
+    private var forcedAdvance: Double? = null
+
     fun layout(el: SvgElement, view: PropView, style: Style): TextLayout {
         // Nothing is in use between layouts, so this is the moment for it.
         cache.trim()
         frame.beginText()
+        vertical = style.verticalText
+        layOutOnce(el, view, style)
+        adjustToTextLength(el, view, style)
+        val box = finishRuns()
+        return TextLayout(runs, placedDecorations, box)
+    }
+
+    private fun layOutOnce(el: SvgElement, view: PropView, style: Style) {
         visit(el, view, style)
         flush(trimEnd = true)
         finishChunk()
-        val box = finishRuns()
-        return TextLayout(runs, placedDecorations, box)
+    }
+
+    /**
+     * What the author measured a text to be, so that it fits wherever it was put, whatever font this phone gives it. That takes knowing how long it
+     * comes out without, so it is laid out again from the beginning. A text broken up by positions of its own has no one length to give it.
+     */
+    private fun adjustToTextLength(el: SvgElement, view: PropView, style: Style) {
+        val wanted = view.length("textLength")?.resolve(if (vertical) vp.h else vp.w, style.fontSize) ?: return
+        if (wanted <= 0.0 || chunkCount != 1 || lettersPlaced == 0 || runs.any { it.onPath != null } || lastAdvance <= 0.0) return
+        val letters = lettersPlaced
+        val natural = lastAdvance
+        startAgain()
+        if (view.keyword("lengthAdjust") == "spacingAndGlyphs") {
+            stretch = wanted / natural
+        } else {
+            // A single letter has no gaps to spread anything over, and stays where it is.
+            if (letters > 1) extraSpacing = (wanted - natural) / (letters - 1)
+        }
+        forcedAdvance = wanted
+        layOutOnce(el, view, style)
+    }
+
+    private fun startAgain() {
+        runs.clear()
+        levels.clear()
+        pending.setLength(0)
+        pendingStyle = null
+        pendingDecorations = emptyList()
+        pendingShift = 0.0
+        insideWord = false
+        penX = 0.0
+        penY = 0.0
+        chunkStart = 0
+        chunkOriginX = 0.0
+        lastWasSpace = true
+        owedWordSpacing = 0.0
+        placedDecorations.clear()
+        lettersPlaced = 0
+        chunkCount = 0
     }
 
     private fun visit(el: SvgElement, view: PropView, style: Style) {
@@ -359,11 +442,15 @@ internal class TextLayouter(
                     ).size + view.lengths("y").size + view.lengths("dx").size + view.lengths("dy").size + decorations.size
             ).toLong(),
         )
+        val xs = view.lengths("x").map { it.resolve(vp.w, style.fontSize) }
+        val ys = view.lengths("y").map { it.resolve(vp.h, style.fontSize) }
+        val dxs = view.lengths("dx").map { it.resolve(vp.w, style.fontSize) }
+        val dys = view.lengths("dy").map { it.resolve(vp.h, style.fontSize) }
         return Level(
-            view.lengths("x").map { it.resolve(vp.w, style.fontSize) },
-            view.lengths("y").map { it.resolve(vp.h, style.fontSize) },
-            view.lengths("dx").map { it.resolve(vp.w, style.fontSize) },
-            view.lengths("dy").map { it.resolve(vp.h, style.fontSize) },
+            if (vertical) ys else xs,
+            if (vertical) xs else ys,
+            if (vertical) dys else dxs,
+            if (vertical) dxs else dys,
             decorations,
             (levels.lastOrNull()?.shift ?: 0.0) + ownShift(el, view, style),
         )
@@ -471,6 +558,7 @@ internal class TextLayouter(
             if (dy == null) dy = level.dys.getOrNull(level.index)
         }
         for (level in levels) level.index++
+        lettersPlaced++
         // On a path, places come from the path. Only the nudges mean anything there.
         if (onPath != null) {
             x = null
@@ -518,7 +606,15 @@ internal class TextLayouter(
             if (fitting == 0) return
             text = text.substring(0, fitting)
         }
-        val spacing = style.letterSpacing.resolve(vp.diagonal, style.fontSize)
+        when {
+            vertical && onPath == null -> placeDownwards(text, style)
+            style.rightToLeft && onPath == null -> for (part in visualOrder(text)) placeRun(part, style)
+            else -> placeRun(text, style)
+        }
+    }
+
+    private fun placeRun(text: String, style: Style, placement: VerticalPlacement = VerticalPlacement.NONE) {
+        val spacing = style.letterSpacing.resolve(vp.diagonal, style.fontSize) + extraSpacing
         val spacingEm = (spacing / style.fontSize).toFloat()
         val glyphs = cache.get(style, spacingEm, text, frame) ?: return
         // The copy, which every run needs, whether its outline was already known or not.
@@ -527,10 +623,71 @@ internal class TextLayouter(
             return
         }
         val scale = style.fontSize / TextSupport.NOMINAL_SIZE
-        val y = penY + pendingShift + baselineOffset(style.baseline, glyphs, scale)
-        runs += PlacedRun(style, text, penX, y, glyphs, spacingEm, pendingDecorations, onPath)
-        penX += glyphs.advance * scale
+        val y = if (vertical && onPath == null) penY + pendingShift else penY + pendingShift + baselineOffset(style.baseline, glyphs, scale)
+        runs += PlacedRun(style, text, penX, y, glyphs, spacingEm, pendingDecorations, onPath, stretch, placement)
+        penX +=
+            if (placement == VerticalPlacement.UPRIGHT) {
+                // Fonts without measurements for this have letters take up their full height, one below the other.
+                round(glyphs.ascent * scale) + round(glyphs.descent * scale)
+            } else {
+                glyphs.advance * scale * stretch
+            }
     }
+
+    /** Latin letters lie on their side, and the writing systems made for going downwards stand upright, unless the file says all of it should. */
+    private fun placeDownwards(text: String, style: Style) {
+        var start = 0
+        var i = 0
+        while (i < text.length) {
+            val codePoint = text.codePointAt(i)
+            val next = i + Character.charCount(codePoint)
+            if (style.uprightText || standsUpright(codePoint)) {
+                if (i > start) placeRun(text.substring(start, i), style, VerticalPlacement.SIDEWAYS)
+                placeRun(text.substring(i, next), style, VerticalPlacement.UPRIGHT)
+                start = next
+            }
+            i = next
+        }
+        if (text.length > start) placeRun(text.substring(start), style, VerticalPlacement.SIDEWAYS)
+    }
+
+    private fun standsUpright(codePoint: Int): Boolean =
+        when (Character.UnicodeScript.of(codePoint)) {
+            Character.UnicodeScript.HAN, Character.UnicodeScript.HIRAGANA, Character.UnicodeScript.KATAKANA, Character.UnicodeScript.HANGUL,
+            Character.UnicodeScript.BOPOMOFO, Character.UnicodeScript.YI,
+            -> true
+
+            else -> false
+        }
+
+    /**
+     * Text going right to left is shown from its other end, with whatever runs left to right inside it kept in the order it reads in. The font
+     * machinery looks after a run that has right-to-left letters in it, but not punctuation by itself, which takes its direction from what is around it.
+     */
+    private fun visualOrder(text: String): List<String> {
+        frame.spend(text.length.toLong())
+        val bidi = Bidi(text, Bidi.DIRECTION_RIGHT_TO_LEFT)
+        val count = bidi.runCount
+        val levels = ByteArray(count) { bidi.getRunLevel(it).toByte() }
+        val order = Array<Any>(count) { it }
+        Bidi.reorderVisually(levels, 0, order, 0, count)
+        return order.map { index ->
+            val run = index as Int
+            val part = text.substring(bidi.getRunStart(run), bidi.getRunLimit(run))
+            val isBackwards = bidi.getRunLevel(run) % 2 != 0
+            if (isBackwards && part.none(::isStronglyRightToLeft)) mirrored(part) else part
+        }
+    }
+
+    private fun isStronglyRightToLeft(c: Char): Boolean {
+        val direction = Character.getDirectionality(c)
+        return direction == Character.DIRECTIONALITY_RIGHT_TO_LEFT || direction == Character.DIRECTIONALITY_RIGHT_TO_LEFT_ARABIC
+    }
+
+    private fun mirrored(part: String): String =
+        buildString(part.length) {
+            for (c in part.reversed()) append(MIRRORED_PAIRS[c] ?: c)
+        }
 
     /** Browsers work with these metrics rounded to whole pixels, so an edge they measure from lands there too. */
     private fun baselineOffset(baseline: String, glyphs: GlyphRun, scale: Double): Double {
@@ -549,12 +706,17 @@ internal class TextLayouter(
 
     private fun finishChunk() {
         if (chunkStart >= runs.size) return
-        val advance = penX - chunkOriginX
+        chunkCount++
+        lastAdvance = penX - chunkOriginX
+        val advance = forcedAdvance ?: lastAdvance
+        val first = runs[chunkStart].style
+        // "Start" and "end" are where the text starts and ends as it reads, which for right to left is the other way round.
+        val forwards = !first.rightToLeft || vertical
         val shift =
-            when (runs[chunkStart].style.textAnchor) {
+            when (first.textAnchor) {
                 Style.ANCHOR_MIDDLE -> advance / 2.0
-                Style.ANCHOR_END -> advance
-                else -> 0.0
+                Style.ANCHOR_END -> if (forwards) advance else 0.0
+                else -> if (forwards) 0.0 else advance
             }
         if (shift != 0.0) {
             for (i in chunkStart until runs.size) runs[i].x -= shift
@@ -581,15 +743,19 @@ internal class TextLayouter(
                 }
                 continue
             }
+            placeOrigin(run, scale)
             if (glyphs.hasOutline) {
                 val placed = Path()
-                matrix.setScale(scale.toFloat(), scale.toFloat())
-                matrix.postTranslate((run.x + run.glyphShift).toFloat(), run.y.toFloat())
+                matrix.setScale((scale * run.stretch).toFloat(), scale.toFloat())
+                if (run.isSideways) matrix.postRotate(SIDEWAYS_DEGREES)
+                matrix.postTranslate(run.originX.toFloat(), run.originY.toFloat())
                 glyphs.path.transform(matrix, placed)
                 run.path = placed
             }
             val cell = run.cell
             box = box?.union(cell) ?: cell
+            // A line along text that runs downwards would need its own way of being placed, and such text hardly ever has one.
+            if (run.vertical != VerticalPlacement.NONE) continue
             for (decoration in run.decorations) {
                 // Many short runs and many lines over them multiply, and each one is a path of its own.
                 if (!frame.spend(WorkCost.PLACED_RUN) || !frame.reserveText(DECORATION_BYTES)) {
@@ -600,6 +766,31 @@ internal class TextLayouter(
             }
         }
         return box
+    }
+
+    /** Lying on its side, a letter's middle goes on the line, which is where the browsers put it. Standing up, it is centred across the line. */
+    private fun placeOrigin(run: PlacedRun, scale: Double) {
+        val ascent = round(run.glyphs.ascent * scale)
+        val descent = round(run.glyphs.descent * scale)
+        when (run.vertical) {
+            VerticalPlacement.NONE -> {
+                run.originX = run.x + run.glyphShift
+                run.originY = run.y
+            }
+
+            VerticalPlacement.SIDEWAYS -> {
+                // Browsers split a line's whole-pixel height in two, and give any odd pixel to the side above the middle.
+                val height = ascent + descent
+                val aboveMiddle = height - floor(height / 2.0)
+                run.originX = run.y - (ascent - aboveMiddle)
+                run.originY = run.x + run.glyphShift
+            }
+
+            VerticalPlacement.UPRIGHT -> {
+                run.originX = run.y - run.glyphs.advance * scale / 2.0
+                run.originY = run.x + ascent
+            }
+        }
     }
 
     /** Each letter stands at the middle of its own width on the path, turned to the path's direction there. What falls off the ends goes. */
@@ -641,6 +832,19 @@ internal class TextLayouter(
     private companion object {
         /** A path of its own and the objects around it, on and off the heap. */
         const val DECORATION_BYTES = 512L
+        const val SIDEWAYS_DEGREES = 90f
+        val MIRRORED_PAIRS = mapOf(
+            '(' to ')',
+            ')' to '(',
+            '[' to ']',
+            ']' to '[',
+            '{' to '}',
+            '}' to '{',
+            '<' to '>',
+            '>' to '<',
+            '«' to '»',
+            '»' to '«',
+        )
     }
 
     /** Sizes and places a line the way browsers do: its thickness is a tenth of the font size, set off from the baseline by half that. */
@@ -658,11 +862,11 @@ internal class TextLayouter(
         path.addRect(
             run.x.toFloat(),
             top.toFloat(),
-            (run.x + run.glyphs.advance * scale).toFloat(),
+            (run.x + run.glyphs.advance * scale * run.stretch).toFloat(),
             (top + thickness).toFloat(),
             Path.Direction.CW,
         )
-        val line = Box(run.x, top, run.glyphs.advance * scale, thickness)
+        val line = Box(run.x, top, run.glyphs.advance * scale * run.stretch, thickness)
         return PlacedDecoration(path, decoration.style, decoration.kind == ActiveDecoration.LINE_THROUGH, line)
     }
 }

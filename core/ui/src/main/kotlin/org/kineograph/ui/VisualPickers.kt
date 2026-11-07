@@ -17,6 +17,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 
 /**
@@ -34,12 +40,15 @@ public fun VisualDropdown(
     leading: @Composable () -> Unit,
     menu: @Composable ColumnScope.() -> Unit,
 ) {
+    val state = stringResource(if (expanded) R.string.dropdown_expanded else R.string.dropdown_collapsed)
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = onExpandedChange) {
         OutlinedTextField(
             value = valueText,
             onValueChange = {},
             readOnly = true,
-            singleLine = true,
+            // On one line it would scroll sideways instead of ending neatly, and large text would cut the value off in the middle of a letter.
+            singleLine = false,
+            maxLines = MAX_VALUE_LINES,
             label = { Text(label) },
             leadingIcon = { Box(Modifier.padding(start = 12.dp, end = 4.dp)) { leading() } },
             trailingIcon = {
@@ -49,6 +58,7 @@ public fun VisualDropdown(
                 Modifier
                     .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                     .fillMaxWidth()
+                    .semantics { stateDescription = state }
                     .testTag(tag),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }, content = menu)
@@ -75,7 +85,13 @@ public fun VisualOption(
         leadingIcon = { preview() },
         trailingIcon = { if (selected) Icon(KgIcons.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
         onClick = onClick,
-        modifier = Modifier.testTag(tag),
+        // The check mark only speaks to the eye. TalkBack has to be told which of the options it is.
+        modifier =
+            Modifier
+                .semantics {
+                    this.selected = selected
+                    role = Role.RadioButton
+                }.testTag(tag),
     )
 }
 
@@ -91,3 +107,4 @@ public fun OptionGroupHeading(text: String) {
 }
 
 private const val CHEVRON_OPEN_DEGREES = 180f
+private const val MAX_VALUE_LINES = 3

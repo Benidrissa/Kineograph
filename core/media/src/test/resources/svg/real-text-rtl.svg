@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200" font-family="sans-serif" font-size="16">
+  <text x="190" y="30" direction="rtl">rtl start</text>
+  <text x="40" y="60" style="direction:rtl" text-anchor="end">rtl end</text>
+  <text x="100" y="90" direction="rtl" text-anchor="middle">rtl mid</text>
+  <text x="190" y="120" direction="rtl" xml:lang="he">a, b (c)</text>
+  <text x="10" y="150">ltr start</text>
+  <text x="190" y="180" text-anchor="end">ltr end</text>
+</svg>

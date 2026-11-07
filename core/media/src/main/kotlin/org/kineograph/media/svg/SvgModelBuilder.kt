@@ -19,7 +19,7 @@ internal class SvgModelBuilder(
 ) {
     private val byId = HashMap<String, SvgElement>()
     private val sheet = Stylesheet()
-    private val cssTimings = ArrayList<CssTiming>()
+    private val cssTimings = ArrayList<Pair<SvgElement, CssTiming>>()
     private val embeddedAnimations = ArrayList<SvgAnimationInfo>()
     private var foundCssAnimation = false
 
@@ -37,17 +37,79 @@ internal class SvgModelBuilder(
         cascade(root, CustomProperties(emptyMap()), rules)
         val smil = SmilBuilder(root, byId, warnings, rootFontSize, work)
         smil.build()
+        // What nobody can see does not count towards how long the picture plays. Browsers do not even run such an animation.
+        val seen = findDrawnElements()
         val summary =
-            AnimationSummary.of(smil.foundAnimation || foundCssAnimation, smil.timings, cssTimings, embeddedAnimations, limits)
+            AnimationSummary.of(
+                smil.foundAnimation || foundCssAnimation,
+                smil.timings.filter { timing -> seen == null || smil.targetOf(timing).let { it == null || it in seen } },
+                cssTimings.filter { (element, _) -> seen == null || element in seen }.map { it.second },
+                embeddedAnimations,
+                limits,
+            )
         val (width, height) = intrinsicSize()
         checkUseExpansion()
         freeAttributes(root)
         return BuiltModel(SvgModel(root, byId, width, height, limits, work.resources), summary)
     }
 
+    /**
+     * Whatever can reach the screen, by following the picture down and every reference out of it. This goes by what the cascade said, so `display:
+     * none` counts unless something animates `display`. Null if the file used up its allowance, and then everything counts, as it did before this looked.
+     */
+    private fun findDrawnElements(): Set<SvgElement>? {
+        val seen = HashSet<SvgElement>()
+        // A list rather than recursion, because a chain of references can go far deeper than the file does.
+        val waiting = ArrayList<SvgElement>()
+        waiting += root
+        while (waiting.isNotEmpty()) {
+            val element = waiting.removeAt(waiting.lastIndex)
+            if (element in seen || (element !== root && isSwitchedOff(element))) continue
+            seen += element
+            if (!work.spend(WorkCost.BOX_MEASURED)) return null
+            for (child in element.children) if (child.tag !in ONLY_THROUGH_REFERENCES) waiting += child
+            for ((name, value) in element.props) referenceIn(name, value)?.let { id -> byId[id]?.let { waiting += it } }
+        }
+        return seen
+    }
+
+    private fun isSwitchedOff(element: SvgElement): Boolean =
+        (element.props["display"] as? KeywordValue)?.text == "none" && "display" !in element.tracks
+
+    private fun referenceIn(name: String, value: SvgValue): String? =
+        when {
+            value is PaintValue.Ref -> {
+                value.id
+            }
+
+            value !is KeywordValue -> {
+                null
+            }
+
+            name == "href" -> {
+                value.text
+                    .trim()
+                    .takeIf { it.startsWith("#") }
+                    ?.substring(1)
+            }
+
+            name in REFERENCE_PROPERTIES -> {
+                urlReference(value.text)
+            }
+
+            else -> {
+                null
+            }
+        }
+
     private fun index(element: SvgElement) {
         element.id?.let { byId.putIfAbsent(it, element) }
         element.conditionsPass = evaluateConditions(element)
+        if (element.tag == "filter" &&
+            work.spend(element.children.size * WorkCost.SELECTOR_STEP)
+        ) {
+            element.filterPlan = readFilterPlan(element)
+        }
         for (child in element.children) index(child)
     }
 
@@ -119,7 +181,7 @@ internal class SvgModelBuilder(
             for (name in element.classes) test(byClass[name])
             if (out.size <= 1) return out
             work.spend(out.size * WorkCost.SELECTOR_STEP)
-            return out.sortedWith(compareBy({ it.selector.specificity }, { it.order }))
+            return out.sortedWith(compareBy({ it.layer }, { it.selector.specificity }, { it.order }))
         }
     }
 
@@ -142,7 +204,15 @@ internal class SvgModelBuilder(
             for (declaration in rule.declarations) if (!declaration.important) ordered += declaration
         }
         for (declaration in inline) if (!declaration.important) ordered += declaration
-        for (i in 0 until affordable) for (declaration in matched[i].declarations) if (declaration.important) ordered += declaration
+        // For what is important, layers count the other way round: the earliest wins, and all of them beat what is in no layer.
+        for (rule in importantOrder(matched.subList(0, affordable))) {
+            for (declaration in rule.declarations) {
+                if (declaration.important) {
+                    ordered +=
+                        declaration
+                }
+            }
+        }
         for (declaration in inline) if (declaration.important) ordered += declaration
 
         var custom = inheritedCustom
@@ -169,6 +239,13 @@ internal class SvgModelBuilder(
         buildCssAnimations(element, state)
         for (child in element.children) cascade(child, custom, rules)
     }
+
+    private fun importantOrder(rules: List<StyleRule>): List<StyleRule> =
+        if (rules.all { it.layer == UNLAYERED }) {
+            rules
+        } else {
+            rules.sortedWith(compareBy({ -it.layer.toLong() }, { it.selector.specificity }, { it.order }))
+        }
 
     private fun readInlineStyle(element: SvgElement): List<Declaration> {
         val text = element.attrs["style"] ?: return emptyList()
@@ -215,9 +292,18 @@ internal class SvgModelBuilder(
 
         fun applyAttribute(name: String, value: String) {
             when (name) {
-                // Text keeps its words but loses these effects, which cannot be noticed from the file alone, so it gets a warning.
-                "rotate", "textLength", "lengthAdjust" -> {
+                // Text keeps its words but loses this effect, which cannot be noticed from the file alone, so it gets a warning.
+                "rotate" -> {
                     if (element.tag == "text" || element.tag == "tspan") warnings += SvgWarning.UNSUPPORTED_FEATURE_IGNORED
+                }
+
+                // Only a whole text gets stretched. A part of one keeps its own width, and says so.
+                "textLength", "lengthAdjust" -> {
+                    if (element.tag == "text") {
+                        store(name, value, fromCss = false, isImportant = false)
+                    } else if (element.tag == "tspan" || element.tag == "textPath") {
+                        warnings += SvgWarning.UNSUPPORTED_FEATURE_IGNORED
+                    }
                 }
 
                 "font" -> {
@@ -259,8 +345,14 @@ internal class SvgModelBuilder(
                     store("marker-end", value, true, declaration.important)
                 }
 
-                name == "offset-path" -> {
+                // Rays and shapes are not read, which is not the same as the file being wrong.
+                name == "offset-path" && parseProperty(name, value, css = true) == null -> {
                     warnings += SvgWarning.UNSUPPORTED_FEATURE_IGNORED
+                }
+
+                // All that shorthand can mean on a picture is its colour, and only the outermost element has a box for it to fill.
+                name == "background" -> {
+                    if (element === root) store("background-color", backgroundColorIn(value), true, declaration.important)
                 }
 
                 else -> {
@@ -314,7 +406,13 @@ internal class SvgModelBuilder(
     private fun noteUnsupported(element: SvgElement, name: String, value: SvgValue) {
         when (name) {
             "filter" -> {
-                if ((value as? KeywordValue)?.text?.lowercase() != "none") warnings += SvgWarning.FILTER_IGNORED
+                val text = (value as? KeywordValue)?.text.orEmpty()
+                val plan = urlReference(text)?.let { byId[it] }?.filterPlan
+                if (!text.equals("none", ignoreCase = true) &&
+                    (plan as? FilterPlan.Recolour)?.isExact != true
+                ) {
+                    warnings += SvgWarning.FILTER_IGNORED
+                }
             }
 
             "mix-blend-mode" -> {
@@ -491,7 +589,7 @@ internal class SvgModelBuilder(
                 if (iterationText == "infinite") {
                     Double.POSITIVE_INFINITY
                 } else {
-                    parseNumberOrNull(iterationText)?.coerceAtLeast(0.0) ?: 1.0
+                    parseCssNumber(iterationText)?.coerceAtLeast(0.0) ?: 1.0
                 }
             val timing =
                 CssTiming(
@@ -503,7 +601,7 @@ internal class SvgModelBuilder(
                     longhand("animation-play-state", index, "running").lowercase() == "paused",
                 )
             val defaultEasing = parseEasing(longhand("animation-timing-function", index, "ease")) ?: Easing.EASE
-            cssTimings += timing
+            cssTimings += element to timing
             buildCssTracks(element, frames, timing, defaultEasing, state)
         }
     }
@@ -670,7 +768,7 @@ internal fun expandAnimationShorthand(value: String): Map<String, String> {
 
                 easing == null && parseEasing(lower) != null -> easing = token
 
-                iteration == null && (lower == "infinite" || parseNumberOrNull(token) != null) -> iteration = token
+                iteration == null && (lower == "infinite" || parseCssNumber(token) != null) -> iteration = token
 
                 direction == null && lower in setOf("normal", "reverse", "alternate", "alternate-reverse") -> direction = lower
 
@@ -700,6 +798,18 @@ internal fun expandAnimationShorthand(value: String): Map<String, String> {
         "animation-timing-function" to easings.joinToString(","),
         "animation-play-state" to playStates.joinToString(","),
     )
+}
+
+/** Elements that draw nothing where they are written, and only come in when something refers to them. */
+private val ONLY_THROUGH_REFERENCES =
+    setOf("defs", "symbol", "clipPath", "mask", "pattern", "marker", "linearGradient", "radialGradient", "filter", "style", "metadata")
+
+private val REFERENCE_PROPERTIES = setOf("clip-path", "mask", "filter", "marker-start", "marker-mid", "marker-end")
+
+/** The colour in a `background`, among whatever else it says. With several layers, the colour goes in the last one. */
+internal fun backgroundColorIn(value: String): String {
+    val lastLayer = splitTopLevel(value, ',').last()
+    return splitList(lastLayer).firstOrNull { parseColor(it) != null || it.equals("currentcolor", ignoreCase = true) } ?: "transparent"
 }
 
 /** Splits the `font` shorthand. Returns null when it holds no size, which is what makes the shorthand valid. */

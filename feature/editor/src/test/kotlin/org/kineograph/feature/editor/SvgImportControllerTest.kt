@@ -191,6 +191,20 @@ class SvgImportControllerTest {
     }
 
     @Test
+    fun `a Cancel too late to stop anything does not say it did, so Import cannot be pressed twice`() {
+        read(STATIC)
+        // This is as late as it can be: the project has changed, and the surface is reading the result.
+        store.onRead = { controller.cancel() }
+        controller.start()
+        waitFor { it == SvgImportState.Idle }
+        store.onRead = null
+        val project = runBlocking { session.snapshot() }
+        assertEquals(listOf("Layer 1", "ball"), project.layers.map { it.name })
+        assertTrue(session.state.value.canUndo)
+        waitForReleases(1)
+    }
+
+    @Test
     fun `a locked current layer is refused with the sheet still open`() {
         val ready = read(STATIC)
         session.setLayerLocked(session.state.value.layerId, true)

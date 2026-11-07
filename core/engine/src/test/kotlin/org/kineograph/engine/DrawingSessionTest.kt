@@ -30,7 +30,11 @@ import org.kineograph.engine.session.DrawingSession
 import org.kineograph.engine.session.MemoryBudget
 import org.kineograph.engine.session.SessionState
 import org.kineograph.model.Background
+import org.kineograph.model.Cel
+import org.kineograph.model.CelKey
+import org.kineograph.model.IntRect
 import org.kineograph.model.Project
+import org.kineograph.model.ProjectEdits
 import org.kineograph.model.newProject
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -840,4 +844,82 @@ class DrawingSessionTest {
         session.cancelStroke()
         await()
     }
+
+    @Test
+    fun `a snapshot that puts lifted pixels down tells the screen`() {
+        stroke()
+        await()
+        session.liftSelection(floatArrayOf(10f, 30f, 60f, 30f, 60f, 70f, 10f, 70f))
+        await()
+        assertNotNull(state.selection)
+        assertNotNull(session.scene?.floating)
+        val project = runBlocking { session.snapshot(commitSelection = true) }
+        assertNull(state.selection)
+        assertNull(session.scene?.floating)
+        assertEquals(project, state.project)
+    }
+
+    @Test
+    fun `an edit that runs out of memory takes nothing with it`() {
+        stroke()
+        session.addLayer("Two")
+        await()
+        session.undo()
+        await()
+        val before = state.project
+        val layer = state.layerId
+        assertTrue(state.canRedo)
+        val outcome =
+            runCatching {
+                runBlocking {
+                    session.applyEdit {
+                        // The new cel is what the surface reads while the edit is shown.
+                        store.failNextReadWithOutOfMemory = true
+                        ProjectEdits.withCel(
+                            it,
+                            CelKey(layer, state.frameId),
+                            Cel(layer, state.frameId, store.write(smallImage()), IntRect(0, 0, 4, 4)),
+                        )
+                    }
+                }
+            }.exceptionOrNull()
+        assertTrue("got $outcome", outcome is OutOfMemoryError)
+        await()
+        assertEquals(before.layers, state.project.layers)
+        assertEquals(before.cels, state.project.cels)
+        assertTrue(state.canRedo)
+        session.redo()
+        await()
+        assertEquals(2, state.project.layers.size)
+    }
+
+    @Test
+    fun `a surface that cannot read what comes next loses nothing of what it had`() {
+        val first = state.frameId
+        session.addFrame()
+        await()
+        val second = state.project.frames
+            .last()
+            .id
+        session.selectFrame(second)
+        stroke(y = 20f)
+        await()
+        val layer = state.layerId
+        store.failNextReadWithOutOfMemory = true
+        // Going back to a frame with a drawing, so that there is something to read. It fails, and the screen stays where it was.
+        session.selectFrame(first)
+        await()
+        val readableFirst = runCatching { store.read("nothing") }
+        assertTrue(readableFirst.isSuccess || readableFirst.isFailure)
+        stroke(y = 70f)
+        await()
+        val project = runBlocking { session.snapshot() }
+        val cel = project.cel(layer, second) ?: error("the drawing has gone")
+        val image = store.images[cel.file] ?: error("no image")
+        val bounds = cel.bounds ?: error("no bounds")
+        // Erasing first would have saved the new stroke alone over the drawing.
+        assertEquals(black, image.getPixel(50 - bounds.left, 20 - bounds.top))
+    }
+
+    private fun smallImage(): Bitmap = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
 }

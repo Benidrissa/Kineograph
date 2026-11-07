@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The way Illustrator writes an inverted opacity mask: a colour matrix in a filter, in a mask, through classes. -->
+<svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+	 width="200px" height="200px" viewBox="0 0 200 200" enable-background="new 0 0 200 200" xml:space="preserve">
+<style type="text/css">
+	.st5{mask:url(#mask_inv);fill:#EC008C;}
+	.st6{filter:url(#Invert);}
+	.st7{fill:#FFFFFF;}
+</style>
+<defs>
+	<filter id="Invert" filterUnits="userSpaceOnUse" x="20" y="20" width="160" height="100">
+		<feColorMatrix  type="matrix" values="-1 0 0 0 1  0 -1 0 0 1  0 0 -1 0 1  0 0 0 1 0"/>
+	</filter>
+</defs>
+<mask maskUnits="userSpaceOnUse" x="20" y="20" width="160" height="100" id="mask_inv">
+	<g class="st6">
+		<rect x="20" y="20" width="160" height="100" fill="#000000"/>
+		<circle class="st7" cx="100" cy="70" r="30"/>
+	</g>
+</mask>
+<rect x="20" y="20" class="st5" width="160" height="100"/>
+<rect x="20" y="140" width="160" height="40" fill="#00A651"/>
+</svg>

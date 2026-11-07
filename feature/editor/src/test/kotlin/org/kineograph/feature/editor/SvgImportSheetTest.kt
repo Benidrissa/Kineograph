@@ -3,15 +3,27 @@ package org.kineograph.feature.editor
 import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -31,12 +43,19 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -44,22 +63,28 @@ import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.kineograph.engine.session.DrawingSession
 import org.kineograph.engine.session.MemoryBudget
+import org.kineograph.media.svg.SvgAnimationInfo
 import org.kineograph.media.svg.SvgLimits
 import org.kineograph.media.svg.SvgParser
 import org.kineograph.media.svg.SvgWarning
 import org.kineograph.media.svgimport.SvgFit
 import org.kineograph.media.svgimport.SvgImportOutcome
 import org.kineograph.media.svgimport.SvgImportPlace
+import org.kineograph.media.svgimport.SvgImportRequest
 import org.kineograph.media.svgimport.SvgImporter
+import org.kineograph.media.svgimport.SvgSampling
 import org.kineograph.model.Background
+import org.kineograph.model.FrameSlot
 import org.kineograph.model.PaperKind
 import org.kineograph.model.Project
 import org.kineograph.model.newProject
 import org.kineograph.ui.KineographTheme
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 
 private const val ANIMATED =
     """<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 100 100">
@@ -73,6 +98,19 @@ private const val ONCE =
 
 private const val STATIC =
     """<svg xmlns="http://www.w3.org/2000/svg" width="300" height="150"><circle cx="150" cy="75" r="60" fill="#b23a1e"/></svg>"""
+
+private const val INTRO =
+    """<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+      <style>.a { animation: k 3s linear forwards } .b { animation: k .5s steps(1) infinite } @keyframes k { to { opacity: 0 } }</style>
+      <rect class="a" width="50" height="50"/><rect class="b" y="50" width="50" height="50"/>
+    </svg>"""
+
+private const val UNEVEN =
+    """<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="50" height="50">
+      <animate attributeName="x" to="10" dur="7s" repeatCount="indefinite"/>
+      <animate attributeName="y" to="10" dur="11s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" to="0" dur="13s" repeatCount="indefinite"/>
+    </rect></svg>"""
 
 private const val WITH_WARNINGS =
     """<svg xmlns="http://www.w3.org/2000/svg" width="300" height="150">
@@ -112,6 +150,7 @@ class SvgImportSheetTest {
     private var imported = 0
     private var dismissed = 0
     private var currentChoices: SvgImportChoices? = null
+    private var colors: ColorScheme? = null
 
     private fun show(
         file: SvgFile,
@@ -121,17 +160,19 @@ class SvgImportSheetTest {
         start: SvgImportChoices = SvgImportChoices.startingFor(file),
         reduceMotion: Boolean = true,
         targetProject: Project = project,
+        frame: Int = 3,
     ) {
         var choices by mutableStateOf(start)
         currentChoices = start
         compose.setContent {
             KineographTheme(darkTheme = dark) {
+                colors = MaterialTheme.colorScheme
                 Surface(Modifier.fillMaxSize()) {
                     Box {
                         SvgImportForm(
                             file = file,
                             project = targetProject,
-                            frameNumber = 3,
+                            frameNumber = frame,
                             canDrawOnActiveLayer = canDraw,
                             choices = choices,
                             problem = problem,
@@ -164,14 +205,14 @@ class SvgImportSheetTest {
     fun `an animated file says so, for how long, and that it loops`() {
         show(file(ANIMATED))
         compose.onNodeWithText("bouncing ball.svg").assertIsDisplayed()
-        compose.onNodeWithTag("svg_import_motion").assertTextContains("Animated, 2.0 s, loops")
+        compose.onNodeWithTag("svg_import_motion").assertTextContains("Animated, 2.0\u00A0s, loops")
         compose.onNodeWithText("512 × 512 · 14 kB", substring = true, ignoreCase = true).assertIsDisplayed()
     }
 
     @Test
     fun `a file that plays once says that instead`() {
         show(file(ONCE))
-        compose.onNodeWithTag("svg_import_motion").assertTextContains("Animated, 1.5 s, plays once")
+        compose.onNodeWithTag("svg_import_motion").assertTextContains("Animated, 1.5\u00A0s, plays once")
     }
 
     @Test
@@ -187,19 +228,13 @@ class SvgImportSheetTest {
     @Test
     fun `an animation shows its length in frames at the project's rate`() {
         show(file(ANIMATED))
-        compose.onNodeWithTag("svg_import_frames").assertTextContains("2.0 s at 12 fps = 24 frames")
+        compose.onNodeWithTag("svg_import_frames").assertTextContains("2.0\u00A0s at 12 fps = 24 frames")
     }
 
     @Test
     fun `a project with another rate gets another count`() {
         show(file(ANIMATED), targetProject = project.copy(fps = 24))
-        compose.onNodeWithTag("svg_import_frames").assertTextContains("2.0 s at 24 fps = 48 frames")
-    }
-
-    @Test
-    fun `one frame is singular`() {
-        show(file(ANIMATED), start = SvgImportChoices(asAnimation = true, durationText = "0.08"))
-        compose.onNodeWithTag("svg_import_frames").assertTextContains("0.08 s at 12 fps = 1 frame")
+        compose.onNodeWithTag("svg_import_frames").assertTextContains("2.0\u00A0s at 24 fps = 48 frames")
     }
 
     @Test
@@ -208,7 +243,7 @@ class SvgImportSheetTest {
         compose.onNodeWithTag("svg_import_duration").performTextClearance()
         compose.onNodeWithTag("svg_import_duration").performTextInput("3,5")
         compose.waitForIdle()
-        compose.onNodeWithTag("svg_import_frames").assertTextContains("3.5 s at 12 fps = 42 frames")
+        compose.onNodeWithTag("svg_import_frames").assertTextContains("3.5\u00A0s at 12 fps = 42 frames")
         assertEquals("3,5", currentChoices?.durationText)
     }
 
@@ -222,7 +257,7 @@ class SvgImportSheetTest {
         compose.onNodeWithTag("svg_import_duration_reset").performClick()
         compose.waitForIdle()
         assertEquals(null, currentChoices?.durationText)
-        compose.onNodeWithTag("svg_import_frames").assertTextContains("2.0 s at 12 fps = 24 frames")
+        compose.onNodeWithTag("svg_import_frames").assertTextContains("2.0\u00A0s at 12 fps = 24 frames")
     }
 
     @Test
@@ -301,7 +336,7 @@ class SvgImportSheetTest {
         compose.onNode(hasContentDescription("Moment")).performSemanticsAction(SemanticsActions.SetProgress) { it(1.5f) }
         compose.waitForIdle()
         assertEquals(1.5, currentChoices?.momentSeconds ?: 0.0, 1e-3)
-        compose.onNodeWithText("1.5 s").assertIsDisplayed()
+        compose.onNodeWithText("1.5\u00A0s").assertIsDisplayed()
         compose.onNode(hasContentDescription("Moment")).performSemanticsAction(SemanticsActions.SetProgress) { it(100f) }
         compose.waitForIdle()
         assertEquals(2.0, currentChoices?.momentSeconds ?: 0.0, 1e-3)
@@ -355,7 +390,11 @@ class SvgImportSheetTest {
     fun `a locked current layer gets the usual message as soon as it is chosen`() {
         val file = file(STATIC)
         show(file, canDraw = false, start = SvgImportChoices.startingFor(file).copy(place = SvgImportPlace.CURRENT_LAYER))
-        compose.onNodeWithTag("svg_import_problem").performScrollTo().assertTextContains("This layer is hidden or locked", substring = true)
+        compose
+            .onNodeWithTag(
+                "svg_import_problem",
+            ).assertIsDisplayed()
+            .assertTextContains("This layer is hidden or locked", substring = true)
     }
 
     @Test
@@ -367,13 +406,13 @@ class SvgImportSheetTest {
     @Test
     fun `running out of memory or storage is explained where the choices can be changed`() {
         show(file(STATIC), problem = SvgImportOutcome.OUT_OF_MEMORY)
-        compose.onNodeWithTag("svg_import_problem").performScrollTo().assertTextContains("enough memory", substring = true)
+        compose.onNodeWithTag("svg_import_problem").assertIsDisplayed().assertTextContains("enough memory", substring = true)
     }
 
     @Test
     fun `running out of storage says what to do`() {
         show(file(STATIC), problem = SvgImportOutcome.OUT_OF_STORAGE)
-        compose.onNodeWithTag("svg_import_problem").performScrollTo().assertTextContains("Free up some space", substring = true)
+        compose.onNodeWithTag("svg_import_problem").assertIsDisplayed().assertTextContains("Free up some space", substring = true)
     }
 
     // ----- Layout and accessibility -----
@@ -466,7 +505,8 @@ class SvgImportSheetTest {
 
     @Test
     fun `a preview plays the moments that would be imported, then starts again`() {
-        val motion = PreviewMotion.Playing(startSeconds = 1.0, tickCount = 4, fps = 2)
+        val loop = SvgAnimationInfo(isAnimated = true, durationSeconds = 2.0, loopsForever = true, loopStartSeconds = 1.0)
+        val motion = PreviewMotion.Playing(SvgSampling.of(loop, 2.0, 2), null, 2)
         assertEquals(0, motion.tickAt(0))
         assertEquals(1, motion.tickAt(500_000_000L))
         assertEquals(3, motion.tickAt(1_999_000_000L))
@@ -481,12 +521,20 @@ class SvgImportSheetTest {
     fun `what the preview does follows the choices`() {
         val animated = file(ANIMATED)
         val choices = SvgImportChoices.startingFor(animated)
-        assertEquals(PreviewMotion.Playing(0.0, 24, 12), previewMotion(animated, choices, 12, reduceMotion = false))
-        assertEquals(PreviewMotion.Still(1.0), previewMotion(animated, choices, 12, reduceMotion = true))
-        assertEquals(PreviewMotion.Still(0.5), previewMotion(animated, choices.copy(asAnimation = false, momentSeconds = 0.5), 12, false))
+        val frame = project.frames[0].id
+        val playing = previewMotion(animated, choices, project, frame, reduceMotion = false) as PreviewMotion.Playing
+        assertEquals(24, playing.tickCount)
+        assertEquals(1.0, playing.secondsAt(12), 1e-9)
+        assertEquals(PreviewMotion.Still(1.0), previewMotion(animated, choices, project, frame, reduceMotion = true))
+        assertEquals(
+            PreviewMotion.Still(0.5),
+            previewMotion(animated, choices.copy(asAnimation = false, momentSeconds = 0.5), project, frame, false),
+        )
         // While what was typed is not yet a length of time, the preview carries on with the suggestion.
-        assertEquals(PreviewMotion.Playing(0.0, 24, 12), previewMotion(animated, choices.copy(durationText = ""), 12, reduceMotion = false))
-        assertEquals(PreviewMotion.Still(0.0), previewMotion(file(STATIC), SvgImportChoices.startingFor(file(STATIC)), 12, false))
+        val typing = previewMotion(animated, choices.copy(durationText = ""), project, frame, reduceMotion = false) as PreviewMotion.Playing
+        assertEquals(24, typing.tickCount)
+        val still = file(STATIC)
+        assertEquals(PreviewMotion.Still(0.0), previewMotion(still, SvgImportChoices.startingFor(still), project, frame, false))
     }
 
     // ----- To look at, in both themes -----
@@ -537,11 +585,45 @@ class SvgImportSheetTest {
         compose.onRoot().saveScreenshot("svg_import_moment_dark")
     }
 
-    private fun screenshotMenu(tag: String, dark: Boolean, name: String) {
-        show(file(STATIC), dark = dark)
+    private fun screenshotMenu(tag: String, dark: Boolean, name: String, text: String = STATIC) {
+        show(file(text), dark = dark)
         compose.onNodeWithTag(tag).performScrollTo().performClick()
         compose.waitForIdle()
         compose.onNode(isPopup()).saveScreenshot(name)
+    }
+
+    @Test
+    fun `screenshots of the choice of starting point`() {
+        screenshotMenu("svg_import_start_from", dark = false, name = "svg_import_start_menu_light", text = INTRO)
+    }
+
+    @Test
+    fun `screenshots of the choice of starting point, dark`() {
+        screenshotMenu("svg_import_start_from", dark = true, name = "svg_import_start_menu_dark", text = INTRO)
+    }
+
+    @Test
+    fun `screenshots of a refusal with warnings`() {
+        val file = file(WITH_WARNINGS)
+        show(file, canDraw = false, start = SvgImportChoices.startingFor(file).copy(place = SvgImportPlace.CURRENT_LAYER))
+        awaitPreview()
+        compose.onRoot().saveScreenshot("svg_import_refused_light")
+    }
+
+    @Test
+    fun `screenshots of a refusal with warnings, dark`() {
+        val file = file(WITH_WARNINGS)
+        show(file, dark = true, canDraw = false, start = SvgImportChoices.startingFor(file).copy(place = SvgImportPlace.CURRENT_LAYER))
+        awaitPreview()
+        compose.onRoot().saveScreenshot("svg_import_refused_dark")
+    }
+
+    @Test
+    fun `screenshots of a big import, dark`() {
+        show(file(ANIMATED), dark = true, start = SvgImportChoices(asAnimation = true, durationText = "100"))
+        awaitPreview()
+        compose.onNodeWithTag("svg_import_large").performScrollTo()
+        compose.onRoot().saveScreenshot("svg_import_large_dark")
     }
 
     @Test
@@ -575,6 +657,265 @@ class SvgImportSheetTest {
             compose.onAllNodes(hasTestTag("svg_import_warning_limit_reached")).fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithTag("svg_import_warning_limit_reached").performScrollTo().assertIsDisplayed()
+    }
+
+    // ----- What was found by trying it on real phones and with TalkBack -----
+
+    @Test
+    fun `why an import failed is on screen without scrolling, even with a long list of warnings`() {
+        show(file(WITH_WARNINGS), problem = SvgImportOutcome.OUT_OF_MEMORY)
+        compose.onNodeWithTag("svg_import_problem").assertIsDisplayed().assertTextContains("enough memory", substring = true)
+    }
+
+    @Test
+    fun `a refusal that can be seen coming holds the button back`() {
+        val file = file(STATIC)
+        show(file, canDraw = false, start = SvgImportChoices.startingFor(file).copy(place = SvgImportPlace.CURRENT_LAYER))
+        compose.onNodeWithTag("svg_import_problem").assertIsDisplayed()
+        compose.onNodeWithTag("svg_import_button").assertIsNotEnabled()
+    }
+
+    @Test
+    fun `more frames than the device can hold explains itself, in place of a count`() {
+        show(file(ANIMATED), start = SvgImportChoices(asAnimation = true, durationText = "9999999999"))
+        compose.onNodeWithTag("svg_import_problem").assertIsDisplayed().assertTextContains("more frames than this device", substring = true)
+        compose.onNodeWithTag("svg_import_button").assertIsNotEnabled()
+        compose.onNodeWithTag("svg_import_frames").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the count is of the frames the timeline will really show`() {
+        // Slots held for two ticks each hold one picture for those two ticks.
+        show(file(ANIMATED), targetProject = newProjectWithHolds(slots = 12, hold = 2), frame = 1)
+        compose.onNodeWithTag("svg_import_frames").assertTextContains("2.0\u00A0s at 12 fps = 12 frames")
+    }
+
+    @Test
+    fun `slots that run out before the animation does are followed by new ones`() {
+        // Twelve ticks in three slots of four, and then twelve more of their own.
+        show(file(ANIMATED), targetProject = newProjectWithHolds(slots = 3, hold = 4), frame = 1)
+        compose.onNodeWithTag("svg_import_frames").assertTextContains("2.0\u00A0s at 12 fps = 15 frames")
+    }
+
+    private fun newProjectWithHolds(slots: Int, hold: Int): Project =
+        project.copy(frames = List(slots) { FrameSlot("slot$it", hold) })
+
+    @Test
+    fun `an animation that plays once counts its last moment too`() {
+        show(file(ONCE))
+        compose.onNodeWithTag("svg_import_frames").assertTextContains("1.5 s at 12 fps = 19 frames")
+    }
+
+    @Test
+    fun `a single slot held for long enough is one frame, in the singular`() {
+        show(file(ANIMATED), targetProject = newProjectWithHolds(slots = 1, hold = 24), frame = 1)
+        compose.onNodeWithTag("svg_import_frames").assertTextContains("2.0 s at 12 fps = 1 frame")
+    }
+
+    @Test
+    fun `numbers show as they were typed`() {
+        assertEquals("0.125", formatSeconds(0.125, Locale.ENGLISH))
+        assertEquals("0.001", formatSeconds(0.001, Locale.ENGLISH))
+        assertEquals("0,00012", formatSeconds(0.00012, Locale.FRENCH))
+        assertEquals("1.13", formatSeconds(1.125 + 1.0 / 3e6, Locale.ENGLISH))
+        assertEquals("0.001", formatSeconds(0.0012345678912345, Locale.ENGLISH))
+    }
+
+    @Test
+    fun `an intro gets a choice, kept in unless it is left out`() {
+        val intro = file(INTRO)
+        show(intro)
+        compose.onNodeWithTag("svg_import_motion").assertTextContains("Animated, 3.0 s intro, then a 0.5 s loop")
+        compose.onNodeWithTag("svg_import_frames").assertTextContains("3.5 s at 12 fps = 42 frames")
+        compose.onNodeWithTag("svg_import_start_from").performClick()
+        compose.onNodeWithTag("svg_import_start_loop").assertIsDisplayed().performClick()
+        compose.waitForIdle()
+        assertEquals(false, currentChoices?.withIntro)
+        compose.onNodeWithTag("svg_import_frames").assertTextContains("0.5 s at 12 fps = 6 frames")
+        val request = currentChoices?.toRequest(intro) as SvgImportRequest.Animation
+        assertEquals(0.5, request.durationSeconds, 1e-9)
+        assertFalse(request.withIntro)
+    }
+
+    @Test
+    fun `a file with no intro is not asked about one`() {
+        show(file(ANIMATED))
+        compose.onNodeWithTag("svg_import_start_from").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a loop that would not join up says so`() {
+        show(file(UNEVEN))
+        compose.onNodeWithTag("svg_import_motion").assertTextContains("out of step", substring = true)
+    }
+
+    @Test
+    fun `TalkBack hears which option is chosen in an open drop-down`() {
+        show(file(STATIC))
+        compose.onNodeWithTag("svg_import_fit").performScrollTo().performClick()
+        compose
+            .onNodeWithTag("svg_import_fit_fit_inside")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Selected, true))
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton))
+        compose
+            .onNodeWithTag("svg_import_fit_fill_canvas")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Selected, false))
+    }
+
+    @Test
+    fun `TalkBack hears whether a drop-down is open`() {
+        show(file(STATIC))
+        val closed = compose.onNodeWithTag("svg_import_fit").performScrollTo()
+        closed.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Collapsed"))
+        closed.performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("svg_import_fit").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Expanded"))
+    }
+
+    @Test
+    fun `the moment's value is read out with its unit`() {
+        val animated = file(ANIMATED)
+        show(animated, start = SvgImportChoices.startingFor(animated).copy(asAnimation = false, momentSeconds = 1.5))
+        compose
+            .onNode(hasContentDescription("Moment"))
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "1.5 s"))
+    }
+
+    @Test
+    fun `the slider itself is big enough to touch`() {
+        val animated = file(ANIMATED)
+        show(animated, start = SvgImportChoices.startingFor(animated).copy(asAnimation = false))
+        val minimum = with(compose.density) { 48.dp.roundToPx() }
+        val height = compose
+            .onNode(hasContentDescription("Moment"))
+            .fetchSemanticsNode()
+            .size.height
+        assertTrue("it is $height", height >= minimum)
+    }
+
+    @Test
+    fun `the unit of a duration is read out as a word`() {
+        show(file(ANIMATED))
+        val node = compose.onNodeWithTag("svg_import_duration").fetchSemanticsNode()
+        assertTrue(
+            node.config
+                .getOrNull(SemanticsProperties.ContentDescription)
+                .orEmpty()
+                .contains("seconds"),
+        )
+    }
+
+    @Test
+    fun `a big import is a note and not an error`() {
+        show(file(ANIMATED), start = SvgImportChoices(asAnimation = true, durationText = "100"))
+        val results = ArrayList<TextLayoutResult>()
+        compose
+            .onNodeWithTag(
+                "svg_import_large",
+            ).performScrollTo()
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(results) }
+        assertEquals(
+            colors?.onSurfaceVariant,
+            results
+                .single()
+                .layoutInput.style.color,
+        )
+    }
+
+    @Test
+    fun `a duration typed in moves the way back on to a line of its own`() {
+        show(file(ANIMATED), start = SvgImportChoices(asAnimation = true, durationText = "3"))
+        val field = compose.onNodeWithTag("svg_import_duration").fetchSemanticsNode().boundsInRoot
+        val back = compose
+            .onNodeWithTag("svg_import_duration_reset")
+            .performScrollTo()
+            .fetchSemanticsNode()
+            .boundsInRoot
+        assertTrue(back.top >= field.bottom)
+    }
+
+    @Test
+    fun `until there is a picture the preview says so, and it says so if there will not be one`() {
+        val target = project
+        compose.setContent {
+            KineographTheme {
+                Column {
+                    SvgPreviewBox(target, null, failed = false)
+                    SvgPreviewBox(target, null, failed = true)
+                }
+            }
+        }
+        compose.onNodeWithTag("svg_import_preview_loading").assertExists()
+        compose.onNode(hasContentDescription("Getting the preview ready")).assertExists()
+        compose.onNodeWithTag("svg_import_preview_unavailable").assertTextContains("Preview unavailable")
+    }
+
+    @Test
+    fun `the preview holds still on a slot that is held, as the result will`() {
+        val animated = file(ANIMATED)
+        val held = newProjectWithHolds(slots = 12, hold = 2)
+        val motion = previewMotion(
+            animated,
+            SvgImportChoices.startingFor(animated),
+            held,
+            held.frames[0].id,
+            reduceMotion = false,
+        ) as PreviewMotion.Playing
+        assertEquals(24, motion.tickCount)
+        assertEquals(0, motion.shownTick(0))
+        assertEquals(0, motion.shownTick(1))
+        assertEquals(2, motion.shownTick(2))
+        assertEquals(22, motion.shownTick(23))
+    }
+
+    @Test
+    fun `what is being drawn is never what is on screen, or what just was`() {
+        val buffers = PreviewBuffers(100, 100)
+        val first = buffers.next()
+        // Nothing shown yet, so a draw that was cancelled gives the next one the same buffer.
+        assertSame(first, buffers.next())
+        buffers.nowShowing(first)
+        val second = buffers.next()
+        assertNotSame(first, second)
+        assertSame(second, buffers.next())
+        buffers.nowShowing(second)
+        val third = buffers.next()
+        assertNotSame(first, third)
+        assertNotSame(second, third)
+        // However many are cancelled before they show.
+        repeat(5) { assertSame(third, buffers.next()) }
+        buffers.nowShowing(third)
+        assertSame(first, buffers.next())
+    }
+
+    @Test
+    fun `the preview stops drawing when the app is not on screen`() {
+        val owner =
+            object : LifecycleOwner {
+                val registry = LifecycleRegistry.createUnsafe(this)
+                override val lifecycle: Lifecycle get() = registry
+            }
+        owner.registry.currentState = Lifecycle.State.RESUMED
+        val animated = file(ANIMATED)
+        val motion = previewMotion(animated, SvgImportChoices.startingFor(animated), project, project.frames[0].id, reduceMotion = false)
+        val draws = AtomicInteger()
+        compose.setContent {
+            CompositionLocalProvider(LocalLifecycleOwner provides owner) {
+                KineographTheme {
+                    SvgPreview(animated.document, project, null, SvgImportChoices.startingFor(animated), motion) { draws.incrementAndGet() }
+                }
+            }
+        }
+        compose.waitUntil(WAIT_MILLIS) { draws.get() >= 2 }
+        compose.runOnUiThread { owner.registry.currentState = Lifecycle.State.CREATED }
+        compose.waitForIdle()
+        // Anything already under way gets to finish.
+        Thread.sleep(300)
+        val whenStopped = draws.get()
+        Thread.sleep(400)
+        assertEquals(whenStopped, draws.get())
+        compose.runOnUiThread { owner.registry.currentState = Lifecycle.State.RESUMED }
+        compose.waitUntil(WAIT_MILLIS) { draws.get() > whenStopped }
     }
 
     private companion object {
@@ -627,7 +968,7 @@ class SvgImportProgressTest {
         compose.waitForIdle()
         compose.onNode(isDialog()).assertExists()
         compose.onNodeWithTag("svg_import_progress").assertIsDisplayed()
-        compose.onNodeWithText("Frame 6 of 24").assertIsDisplayed()
+        compose.onNodeWithTag("svg_import_progress_text").assertIsDisplayed().assert(hasContentDescription("Frame 6 of 24"))
         compose.onNodeWithTag("svg_import_cancel_running").assertIsDisplayed()
         val minimum = with(compose.density) { 48.dp.roundToPx() }
         assertTrue(
@@ -636,6 +977,90 @@ class SvgImportProgressTest {
                 .fetchSemanticsNode()
                 .size.height >= minimum,
         )
+        target.close()
+    }
+
+    @Test
+    fun `one picture has no count, and no bar that says it is done`() {
+        val target = session()
+        val file = SvgFile(SvgParser.parse(ANIMATED), "ball.svg", 1)
+        compose.setContent {
+            KineographTheme(darkTheme = false) {
+                SvgImportHost(
+                    controller(target),
+                    SvgImportState.Running(file, SvgImportChoices.startingFor(file), 1, 1),
+                    project,
+                    project.frames[0].id,
+                    true,
+                    null,
+                )
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Frame 1 of 1").assertDoesNotExist()
+        val range = compose.onNodeWithTag("svg_import_progress").fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo]
+        assertEquals(ProgressBarRangeInfo.Indeterminate, range)
+        target.close()
+    }
+
+    @Test
+    fun `TalkBack knows what the bar is, and hears of progress every so often`() {
+        var progress by mutableStateOf(6)
+        compose.setContent {
+            KineographTheme(darkTheme = false) {
+                SvgBusyDialog("Importing…", "Frame $progress of 100", progress / 100f) {}
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("svg_import_progress").assert(hasContentDescription("Importing…"))
+        val text = compose.onNodeWithTag("svg_import_progress_text")
+        text.assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
+        text.assert(hasContentDescription("Frame 6 of 100"))
+        progress = 7
+        compose.waitForIdle()
+        compose.onNodeWithTag("svg_import_progress_text").assert(hasContentDescription("Frame 6 of 100"))
+        progress = 10
+        compose.waitForIdle()
+        compose.onNodeWithTag("svg_import_progress_text").assert(hasContentDescription("Frame 10 of 100"))
+    }
+
+    @Test
+    fun `Cancel takes the real sheet away the way a swipe does`() {
+        val target = session()
+        val controller = controller(target)
+        controller.read({ "ball.svg" }, { ByteArrayInputStream(ANIMATED.toByteArray()) })
+        compose.waitUntil(WAIT_MILLIS) { controller.state.value is SvgImportState.Ready }
+        compose.setContent {
+            KineographTheme(darkTheme = false) {
+                val state by controller.state.collectAsState()
+                SvgImportHost(controller, state, project, project.frames[0].id, true, null)
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("svg_import_dismiss").performClick()
+        compose.waitUntil(WAIT_MILLIS) { controller.state.value == SvgImportState.Idle }
+        target.close()
+    }
+
+    @Test
+    fun `why an import failed is in view on a small phone, in the real sheet`() {
+        val target = session()
+        val file = SvgFile(SvgParser.parse(WITH_WARNINGS), "ball.svg", 1)
+        compose.setContent {
+            KineographTheme(darkTheme = false) {
+                SvgImportHost(
+                    controller(target),
+                    SvgImportState.Ready(file, SvgImportChoices.startingFor(file), SvgImportOutcome.OUT_OF_MEMORY),
+                    project,
+                    project.frames[0].id,
+                    true,
+                    null,
+                )
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("svg_import_problem").assertIsDisplayed()
+        compose.onNodeWithTag("svg_import_button").assertIsDisplayed()
         target.close()
     }
 
@@ -696,11 +1121,87 @@ class SvgImportSheetFrenchTest {
         }
         compose.waitForIdle()
         compose.onNodeWithText("Importer un SVG").assertIsDisplayed()
-        compose.onNodeWithTag("svg_import_motion").assertTextContains("Animé, 2,0 s, en boucle")
-        compose.onNodeWithTag("svg_import_frames").assertTextContains("2,0 s à 12 i/s = 24 images")
+        compose.onNodeWithTag("svg_import_motion").assertTextContains("Animation de 2,0\u00A0s, en boucle")
+        compose.onNodeWithTag("svg_import_frames").assertTextContains("2,0\u00A0s à 12 i/s = 24 images")
         compose.onNodeWithTag("svg_import_button").assertIsDisplayed()
         compose.onNodeWithText("Importer").assertIsDisplayed()
-        compose.awaitPreview("Aperçu de l’image sur votre canevas")
+        compose.awaitPreview("Aperçu du dessin sur votre canevas")
         compose.onRoot().saveScreenshot("svg_import_french")
+    }
+}
+
+/** The longest words the sheet has, at the largest text size the system offers, on a narrow phone. */
+@RunWith(AndroidJUnit4::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34], qualifiers = "fr-w360dp-h740dp-xhdpi", fontScale = 2f)
+class SvgImportSheetLargeTextTest {
+    @get:Rule
+    val compose = createComposeRule()
+
+    private val project = newProject("Mine", 1280, 720, 12, Background.Paper(PaperKind.WHITE), "Calque 1", now = 0)
+
+    private fun show(choices: SvgImportChoices, file: SvgFile) {
+        compose.setContent {
+            KineographTheme(darkTheme = false) {
+                Surface(Modifier.fillMaxSize()) {
+                    SvgImportForm(
+                        file = file,
+                        project = project,
+                        frameNumber = 1,
+                        canDrawOnActiveLayer = true,
+                        choices = choices,
+                        problem = null,
+                        backgroundImage = null,
+                        onChange = {},
+                        onImport = {},
+                        onDismiss = {},
+                        reduceMotion = true,
+                    )
+                }
+            }
+        }
+        compose.waitForIdle()
+    }
+
+    @Test
+    fun `a drop-down's value wraps instead of being cut off in the middle of a letter`() {
+        val file = SvgFile(SvgParser.parse(STATIC), "dessin.svg", 1)
+        show(SvgImportChoices.startingFor(file), file)
+        val results = ArrayList<TextLayoutResult>()
+        compose
+            .onNodeWithTag(
+                "svg_import_fit",
+            ).performScrollTo()
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(results) }
+        val layout = results.single()
+        assertTrue("it has ${layout.lineCount} line", layout.lineCount >= 2)
+        assertFalse(layout.didOverflowWidth)
+    }
+
+    @Test
+    fun `the buttons can grow with their words`() {
+        val file = SvgFile(SvgParser.parse(STATIC), "dessin.svg", 1)
+        show(SvgImportChoices.startingFor(file), file)
+        val results = ArrayList<TextLayoutResult>()
+        val minimum = with(compose.density) { 48.dp.roundToPx() }
+        for (tag in listOf("svg_import_button", "svg_import_dismiss")) {
+            val node = compose.onNodeWithTag(tag)
+            assertTrue(node.fetchSemanticsNode().size.height >= minimum)
+            results.clear()
+            node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(results) }
+            assertFalse("the words of $tag do not fit", results.single().didOverflowHeight)
+        }
+    }
+
+    @Test
+    fun `the way back to the suggestion leaves the field its width`() {
+        val file = SvgFile(SvgParser.parse(ANIMATED), "balle.svg", 1)
+        show(SvgImportChoices(asAnimation = true, durationText = "3600,25"), file)
+        val width = compose
+            .onNodeWithTag("svg_import_duration")
+            .performScrollTo()
+            .fetchSemanticsNode()
+            .size.width
+        assertTrue(width >= with(compose.density) { 280.dp.roundToPx() })
     }
 }

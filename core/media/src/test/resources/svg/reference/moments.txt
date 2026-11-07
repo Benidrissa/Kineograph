@@ -226,3 +226,20 @@ viewbox-root-meet.svg 0
 viewbox-root-none.svg 0
 viewbox-root-nosize.svg 0
 viewbox-root-slice.svg 0
+real-cairo-alpha-mask.svg 0
+real-illustrator-inverted-mask.svg 0
+real-sketch-shadows.svg 0
+real-loader-dark-background.svg 0 0.25 0.5
+real-background-letterbox.svg 0
+real-background-diagram.svg 0
+real-css-wipe-reveal.svg 0 0.5 0.99 1 1.5 2
+real-css-calc.svg 0 0.5 1 1.5
+real-css-3d-flip.svg 0 0.25 0.5 1.25
+real-css-motion-path.svg 0 0.5 1 1.5
+real-text-rtl.svg 0 letters
+real-text-vertical.svg 0 letters
+real-text-length-badge.svg 0 letters
+real-selectors-modern.svg 0
+real-root-hidden.svg 0
+known-animate-color.svg 1
+known-image-rendering.svg 0

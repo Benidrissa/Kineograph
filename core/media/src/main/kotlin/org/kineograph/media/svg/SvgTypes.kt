@@ -14,7 +14,10 @@ public enum class SvgWarning {
     /** A `foreignObject` holds HTML, which this renderer does not draw. */
     FOREIGN_OBJECT_IGNORED,
 
-    /** A filter effect was skipped, so that element draws without it. */
+    /**
+     * A filter effect was skipped, so that element draws without it, or not at all if all the filter made was a shadow of it. A colour matrix is
+     * applied and says so too if its mid tones could come out slightly different.
+     */
     FILTER_IGNORED,
 
     /** An animation waits for a click or another event. Nobody can click during an import, so it never starts. */
@@ -45,12 +48,18 @@ public enum class SvgWarning {
  * @property loopsForever true if something in the file repeats without end.
  * @property loopStartSeconds when the repeating part begins. Animations with a delay or an intro only start to repeat after it,
  *   so a seamless loop samples from here to here plus [durationSeconds]. Zero for most files.
+ * @property hasIntro true if something plays once and ends before the picture settles into its loop, as a logo does that draws itself and
+ *   then blinks. Whoever samples only the loop loses that, which may well be the point of the file, so it is worth asking.
+ * @property repeatsExactly false if what [durationSeconds] says is only the longest cycle, because the parts of the picture would take too long
+ *   to come back into step. Sampling that much then leaves a jump where the last frame runs into the first. Always true unless it loops.
  */
 public data class SvgAnimationInfo(
     public val isAnimated: Boolean,
     public val durationSeconds: Double,
     public val loopsForever: Boolean,
     public val loopStartSeconds: Double,
+    public val hasIntro: Boolean = false,
+    public val repeatsExactly: Boolean = true,
 ) {
     public companion object {
         public val STATIC: SvgAnimationInfo = SvgAnimationInfo(false, 0.0, false, 0.0)

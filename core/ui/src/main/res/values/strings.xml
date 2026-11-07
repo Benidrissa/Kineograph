@@ -4,4 +4,6 @@
     <string name="color_recent">Recent colors</string>
     <string name="color_hue_ring">Color: hue ring around a saturation and brightness square</string>
     <string name="color_hex">Hex color</string>
+    <string name="dropdown_expanded">Expanded</string>
+    <string name="dropdown_collapsed">Collapsed</string>
 </resources>

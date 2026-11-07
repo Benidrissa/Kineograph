@@ -157,6 +157,9 @@ internal class SvgRenderer(
 
     /** Tracked here because Canvas.getMatrix is deprecated and unreliable on hardware canvases. Only used to size pattern tiles. */
     private var ctm = Mat2D.IDENTITY
+
+    /** How much bigger this picture is being drawn than its own size. What a non-scaling stroke keeps constant is its look at that size. */
+    private var pictureScale = 1.0
     private var contextFill: PaintValue? = null
     private var contextStroke: PaintValue? = null
     private val shapePaint = Paint()
@@ -189,7 +192,8 @@ internal class SvgRenderer(
         val root = model.root
         val base = BASE_STYLE
         val view = viewFor(root, base)
-        if (view.keyword("display") == "none") return
+        // The outermost element has `display` ignored on purpose. Sprite files set it to none to keep themselves out of a web page, while a file
+        // opened by itself still shows what it draws, and an import is the same thing.
         val style = styleFrom(base, view)
         val viewBox = numbers(view["viewBox"]).takeIf { it.size == 4 && it[2] > 0.0 && it[3] > 0.0 }
         val vbX = viewBox?.get(0) ?: 0.0
@@ -211,6 +215,9 @@ internal class SvgRenderer(
             )
         // Here `overflow` on the outermost element only decides whether a window scrolls, and what is outside its box is never painted.
         canvas.clipRect(dest)
+        paintBackground(view, style, dest)
+        pictureScale =
+            minOf(dest.width() / model.width, dest.height() / model.height).takeIf { it.isFinite() && it > 0.0 } ?: 1.0
         concat(mapping)
         val vp = Viewport(vbW, vbH)
         // The outermost element is the one place whose default origin is its own centre, because it has a CSS box.
@@ -218,6 +225,24 @@ internal class SvgRenderer(
         withMatrix(local) {
             drawWithEffects(root, view, style, vp) { drawContainer(root, style, vp) }
         }
+    }
+
+    /**
+     * Only the outermost element can have a background. CSS hands it over to the canvas behind the whole document, so it fills all of what the picture
+     * was given, which can be more than its viewBox, and neither the element's opacity nor its transform has any say in it.
+     */
+    private fun paintBackground(view: PropView, style: Style, dest: RectF) {
+        val color =
+            when (val value = view["background-color"]) {
+                is PaintValue.Solid -> value.color
+                PaintValue.Current -> style.color
+                else -> return
+            }
+        if (color.a <= 0.0) return
+        frame.spend((canvasPixels / WorkCost.PIXELS_PER_UNIT_PLAIN))
+        val paint = Paint()
+        paint.color = color.toArgb()
+        canvas.drawRect(dest, paint)
     }
 
     private fun numbers(value: SvgValue?): List<Double> =
@@ -408,7 +433,7 @@ internal class SvgRenderer(
     }
 
     private fun hasEffects(view: PropView): Boolean =
-        view["opacity"] != null || view["clip-path"] != null || view["mask"] != null
+        view["opacity"] != null || view["clip-path"] != null || view["mask"] != null || view["filter"] != null
 
     private fun drawBody(el: SvgElement, view: PropView, style: Style, vp: Viewport, alpha: Double) {
         when (el.tag) {
@@ -448,7 +473,9 @@ internal class SvgRenderer(
         val rotate = view.transform("rotate")
         val scale = view.transform("scale")
         val motion = view.transform(MOTION_PROPERTY)
-        val hasOwn = !transform.isNullOrEmpty() || !translate.isNullOrEmpty() || !rotate.isNullOrEmpty() || !scale.isNullOrEmpty()
+        val offset = offsetPosition(view, style)
+        val hasOwn =
+            !transform.isNullOrEmpty() || !translate.isNullOrEmpty() || !rotate.isNullOrEmpty() || !scale.isNullOrEmpty() || offset != null
         // A use element's x and y count as one more transform after its own. So its clip and its mask move along with them.
         val useShift =
             if (el.tag == "use") {
@@ -496,12 +523,63 @@ internal class SvgRenderer(
             if (translate != null) own *= combine(translate, context)
             if (rotate != null) own *= combine(rotate, context)
             if (scale != null) own *= combine(scale, context)
+            // The part of the element its origin marks goes on the path, and turns around that point.
+            if (offset != null) own = own * Mat2D.translate(offset.x - ox, offset.y - oy) * Mat2D.rotate(offset.degrees)
             if (transform != null) own *= combine(transform, context)
             own *= Mat2D.translate(-ox, -oy)
             result *= own
         }
         if (useShift != null) result *= useShift
         return result
+    }
+
+    /** Where `offset-path` puts an element, and which way it faces there. Null if it does not ask for that. */
+    private fun offsetPosition(view: PropView, style: Style): MotionPosition? {
+        val value = view["offset-path"] as? OffsetPathValue ?: return null
+        val data =
+            value.data
+                ?: value.reference?.let { id -> (model.byId[id]?.let(::viewOf)?.get("d") as? PathValue)?.data }
+                ?: return null
+        if (data.isEmpty) return null
+        frame.spend(data.commands.size * WorkCost.OUTLINE_SEGMENT)
+        val measure = model.motionMeasure(data)
+        val along = (view.length("offset-distance") ?: Length.ZERO).resolve(measure.total, style.fontSize)
+        // Round and round on a closed path, while an open one stops at its ends.
+        val distance = if (data.commands.lastOrNull().let { it == 'Z' || it == 'z' } &&
+            measure.total > 0.0
+        ) {
+            along.mod(measure.total)
+        } else {
+            along
+        }
+        val position = measure.at(distance)
+        return MotionPosition(position.x, position.y, offsetAngle(view.keyword("offset-rotate"), position.degrees))
+    }
+
+    /** `auto` faces along the path, which is what it is if nothing is said, and `reverse` the other way. An angle counts on top of those, or alone. */
+    private fun offsetAngle(text: String?, along: Double): Double {
+        if (text == null) return along
+        frame.spend(text.length.toLong())
+        var degrees = 0.0
+        var follows = false
+        for (word in splitList(text)) {
+            when (word) {
+                "auto" -> {
+                    degrees += along
+                    follows = true
+                }
+
+                "reverse" -> {
+                    degrees += along + 180.0
+                    follows = true
+                }
+
+                else -> {
+                    degrees += parseAngle(word) ?: return if (follows) degrees else along
+                }
+            }
+        }
+        return degrees
     }
 
     private fun strokeWidthOf(style: Style, vp: Viewport): Double =
@@ -516,16 +594,25 @@ internal class SvgRenderer(
     private fun drawWithEffects(el: SvgElement, view: PropView, style: Style, vp: Viewport, body: (Double) -> Unit) {
         val opacity = (view.number("opacity") ?: 1.0).coerceIn(0.0, 1.0)
         if (opacity <= 0.0) return
+        val filterPlan =
+            view
+                .keyword("filter")
+                ?.let(::urlReference)
+                ?.let { model.byId[it] }
+                ?.filterPlan
+        if (filterPlan === FilterPlan.DrawsNothing) return
+        val recolour = filterPlan as? FilterPlan.Recolour
         val clipText = view.keyword("clip-path")
         val clipId = clipText?.let(::urlReference)
-        val shape = if (clipText != null && clipId == null) model.basicShape(clipText) else null
+        val shape =
+            (view["clip-path"] as? ClipShapeValue)?.shape ?: if (clipText != null && clipId == null) model.basicShape(clipText) else null
         val maskElement = view
             .keyword("mask")
             ?.let(::urlReference)
             ?.let { model.byId[it] }
             ?.takeIf { it.tag == "mask" && it !in active }
         val clip = clipId?.let { model.byId[it] }?.takeIf { it.tag == "clipPath" }
-        if (clip == null && shape == null && maskElement == null && opacity >= 1.0) {
+        if (clip == null && shape == null && maskElement == null && recolour == null && opacity >= 1.0) {
             body(1.0)
             return
         }
@@ -553,28 +640,65 @@ internal class SvgRenderer(
             }
         }
         // A shape painted only once does not need a layer to composite as one, which saves a full-screen buffer per element.
-        val directAlpha = maskElement == null && opacity < 1.0 && paintsOnce(el, style)
+        val directAlpha = maskElement == null && recolour == null && opacity < 1.0 && paintsOnce(el, style)
         val needsLayer = opacity < 1.0 && !directAlpha
         val maskRegion = if (maskElement != null) maskRegionOf(maskElement, box, vp) else null
         // What a layer can show decides how big it has to be. Files can hold thousands of shapes with opacity, or a mask each.
         val opacityBounds = if (needsLayer) layerBoundsOf(el, view, style, vp) { box } else null
         val opacityBytes = reserveLayers(if (needsLayer) 1 else 0, opacityBounds)
         val maskBytes = if (opacityBytes >= 0L) reserveLayers(if (maskElement != null) 2 else 0, maskRegion) else -1L
-        if (maskBytes < 0L) {
-            if (opacityBytes > 0L) frame.releaseRaster(opacityBytes)
+        val filterRegion = recolour?.let { filterRegionOf(it, box, style, vp) }
+        val filterBytes = if (maskBytes >= 0L) reserveLayers(if (recolour != null) 1 else 0, filterRegion) else -1L
+        if (filterBytes < 0L) {
+            frame.releaseRaster(opacityBytes.coerceAtLeast(0L) + maskBytes.coerceAtLeast(0L))
             canvas.restoreToCount(count)
             return
         }
         if (maskElement != null) frame.spend(WorkCost.MASK + (onScreenArea(maskRegion) * WorkCost.MASK_UNITS_PER_PIXEL).toLong())
+        // A colour filter goes through every pixel it is given, just as a mask does.
+        if (recolour != null) frame.spend(WorkCost.MASK + (onScreenArea(filterRegion) * WorkCost.MASK_UNITS_PER_PIXEL).toLong())
         try {
             if (needsLayer) canvas.saveLayerAlpha(opacityBounds?.toRectF(), alphaByte(opacity))
             if (maskElement != null) canvas.saveLayer(maskRegion?.toRectF(), null)
+            val beforeFilter = canvas.saveCount
+            if (recolour != null) {
+                filterRegion?.let { canvas.clipRect(it.toRectF()) }
+                canvas.saveLayer(
+                    filterRegion?.toRectF(),
+                    Paint().apply { colorFilter = ColorMatrixColorFilter(ColorMatrix(recolour.matrix)) },
+                )
+            }
             body(if (directAlpha) opacity else 1.0)
+            canvas.restoreToCount(beforeFilter)
             if (maskElement != null) applyMask(maskElement, box, maskRegion, vp)
             canvas.restoreToCount(count)
         } finally {
-            frame.releaseRaster(opacityBytes + maskBytes)
+            frame.releaseRaster(opacityBytes + maskBytes + filterBytes)
         }
+    }
+
+    /** In the user space of the element it is on. Null if that takes a box it does not have, and then it is the whole canvas. */
+    private fun filterRegionOf(plan: FilterPlan.Recolour, box: Box?, style: Style, vp: Viewport): Box? {
+        val region = plan.region
+        if (region.inObjectUnits) {
+            val b = box ?: return null
+            return finiteOrNull(
+                Box(
+                    b.x + region.x.fraction() * b.w,
+                    b.y + region.y.fraction() * b.h,
+                    region.width.fraction() * b.w,
+                    region.height.fraction() * b.h,
+                ),
+            )
+        }
+        return finiteOrNull(
+            Box(
+                region.x.resolve(vp.w, style.fontSize),
+                region.y.resolve(vp.h, style.fontSize),
+                region.width.resolve(vp.w, style.fontSize),
+                region.height.resolve(vp.h, style.fontSize),
+            ),
+        )
     }
 
     private fun Box.toRectF(): RectF = RectF(x.toFloat(), y.toFloat(), right.toFloat(), bottom.toFloat())
@@ -1033,15 +1157,17 @@ internal class SvgRenderer(
         if (opacity <= 0.0) return
         val p = preparePaint(paint, opacity, style)
         p.style = Paint.Style.STROKE
-        p.strokeWidth = width.toFloat()
+        val keepsItsWidth = view.keyword("vector-effect") == "non-scaling-stroke"
+        // Those pixels mean the picture's own, or chart lines would turn into hairlines the larger the canvas is, and the picture would change with it.
+        p.strokeWidth = (if (keepsItsWidth) width * pictureScale else width).toFloat()
         p.strokeCap = style.lineCap
         p.strokeJoin = style.lineJoin
         p.strokeMiter = style.miterLimit.coerceAtLeast(1.0).toFloat()
         if (paint.shader != null) frame.spend((onScreenArea(outline.drawnBox) / WorkCost.SHADER_PIXELS_PER_UNIT).toLong())
-        if (view.keyword("vector-effect") == "non-scaling-stroke") {
+        if (keepsItsWidth) {
             strokeOnScreen(outline, p, view, style, vp, paint.shader)
         } else {
-            drawStroke(outline.path, outline, p, view, style, vp, onScreenScale(), width * onScreenScale(), 1.0)
+            drawStroke(outline.path, outline, p, view, style, vp, onScreenScale(), width * onScreenScale(), 1.0, 1.0)
         }
     }
 
@@ -1062,7 +1188,7 @@ internal class SvgRenderer(
             shader.setLocalMatrix(local)
         }
         val scale = onScreenScale()
-        drawStroke(onScreen, outline, paint, view, style, vp, scale, paint.strokeWidth.toDouble(), scale)
+        drawStroke(onScreen, outline, paint, view, style, vp, scale, paint.strokeWidth.toDouble(), scale, pictureScale)
         canvas.restoreToCount(count)
     }
 
@@ -1070,7 +1196,8 @@ internal class SvgRenderer(
      * Skia gives up on dashes past a million for each path, and for that many, each stroked with its caps, it will first take a minute and
      * a gigabyte. Dashes that short are no longer visible as dashes either, so past a far lower number the line is drawn whole.
      *
-     * [lengthScale] takes lengths in user space to the space the stroke is made in, whose dashes are measured there.
+     * [lengthScale] takes lengths in user space to the space the stroke is made in, whose dashes are measured there. [dashScale] is how much
+     * bigger than written the dashes are in that space, which only a stroke keeping its width on screen needs.
      */
     private fun drawStroke(
         path: Path,
@@ -1082,8 +1209,9 @@ internal class SvgRenderer(
         scale: Double,
         widthOnScreen: Double,
         lengthScale: Double,
+        dashScale: Double,
     ) {
-        val dash = dashEffect(path, outline, view, style, vp, lengthScale)
+        val dash = dashEffect(path, outline, view, style, vp, lengthScale, dashScale)
         var dashes = dash?.count ?: 0.0
         var cost = strokeCost(outline, scale, widthOnScreen, dashes)
         if (dash != null && (dashes > MAX_DASHES || !canDrawInOneCall(cost))) {
@@ -1124,7 +1252,15 @@ internal class SvgRenderer(
 
     private class Dashes(val effect: DashPathEffect, val count: Double)
 
-    private fun dashEffect(path: Path, outline: Outline, view: PropView, style: Style, vp: Viewport, lengthScale: Double): Dashes? {
+    private fun dashEffect(
+        path: Path,
+        outline: Outline,
+        view: PropView,
+        style: Style,
+        vp: Viewport,
+        lengthScale: Double,
+        dashScale: Double,
+    ): Dashes? {
         val dashes = style.dashArray
         if (dashes.isEmpty()) return null
         frame.spend(dashes.size.toLong())
@@ -1136,8 +1272,8 @@ internal class SvgRenderer(
         // pathLength says what the author measured the path as, and dashes are written in that measure.
         val declaredLength = view.number("pathLength")
         val scale = if (declaredLength != null && declaredLength > 0.0) measureLength(path) / declaredLength else 1.0
-        val intervals = FloatArray(values.size) { (values[it] * scale).toFloat() }
-        val offset = style.dashOffset.resolve(base, style.fontSize) * scale
+        val intervals = FloatArray(values.size) { (values[it] * scale * dashScale).toFloat() }
+        val offset = style.dashOffset.resolve(base, style.fontSize) * scale * dashScale
         val repeats = outline.travel * lengthScale / intervals.sumOf { it.toDouble() }.coerceAtLeast(MIN_DASH_PATTERN)
         return Dashes(DashPathEffect(intervals, offset.toFloat()), repeats * intervals.size / 2)
     }
@@ -1874,8 +2010,9 @@ internal class SvgRenderer(
         paint.color = run.style.color.toArgb(alpha)
         val scale = run.style.fontSize / TextSupport.NOMINAL_SIZE
         val count = canvas.save()
-        canvas.translate((run.x + run.glyphShift).toFloat(), run.y.toFloat())
-        canvas.scale(scale.toFloat(), scale.toFloat())
+        canvas.translate(run.originX.toFloat(), run.originY.toFloat())
+        if (run.isSideways) canvas.rotate(SIDEWAYS_DEGREES)
+        canvas.scale((scale * run.stretch).toFloat(), scale.toFloat())
         canvas.drawText(run.text, 0f, 0f, paint)
         canvas.restoreToCount(count)
     }
@@ -1901,6 +2038,7 @@ internal class SvgRenderer(
 
     private companion object {
         val BASE_STYLE = Style()
+        const val SIDEWAYS_DEGREES = 90f
         const val MAX_TILE_SIZE = 4096
 
         /** A small canvas still has small details to get right in its tiles. */

@@ -22,7 +22,10 @@ import org.kineograph.media.svgimport.SvgImportOutcome
 import org.kineograph.media.svgimport.SvgImportPlace
 import org.kineograph.media.svgimport.SvgImportRequest
 import org.kineograph.media.svgimport.SvgImporter
+import org.kineograph.media.svgimport.SvgSampling
+import org.kineograph.media.svgimport.maxImportFrames
 import org.kineograph.media.svgimport.sampleStartSeconds
+import org.kineograph.media.svgimport.suggestedSeconds
 import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
@@ -58,19 +61,26 @@ internal data class SvgImportChoices(
     val momentSeconds: Double = 0.0,
     val place: SvgImportPlace = SvgImportPlace.NEW_LAYER,
     val fit: SvgFit = SvgFit.FIT_INSIDE,
+    val withIntro: Boolean = true,
 ) {
     /** How long the animation will be. Null if what was typed is not a length of time. */
-    fun durationSeconds(file: SvgFile): Double? = if (durationText ==
-        null
-    ) {
-        file.document.animation.durationSeconds
-    } else {
-        parseSeconds(durationText)
-    }
+    fun durationSeconds(file: SvgFile): Double? =
+        if (durationText == null) {
+            file.document.animation.suggestedSeconds(withIntro)
+        } else {
+            parseSeconds(durationText)
+        }
+
+    /** The moments the import will sample. Null if what was typed is not a length of time. */
+    fun sampling(file: SvgFile, fps: Int): SvgSampling? =
+        durationSeconds(file)?.let { SvgSampling.of(file.document.animation, it, fps, withIntro) }
+
+    /** Whether this comes to more frames than the device can keep track of, which holds Import back until the duration is shorter. */
+    fun isTooLong(file: SvgFile, fps: Int): Boolean = asAnimation && (sampling(file, fps)?.tickCount ?: 0) > maxImportFrames()
 
     fun toRequest(file: SvgFile): SvgImportRequest? =
         if (asAnimation) {
-            durationSeconds(file)?.let { SvgImportRequest.Animation(it, fit, file.layerName) }
+            durationSeconds(file)?.let { SvgImportRequest.Animation(it, fit, file.layerName, withIntro) }
         } else {
             SvgImportRequest.SingleImage(momentSeconds, place, fit, file.layerName)
         }
@@ -134,8 +144,8 @@ internal class SvgImportController(
                     }
 
                     is ReadResult.Problem -> {
-                        _state.value = SvgImportState.Idle
                         onMessage(result.message)
+                        _state.value = SvgImportState.Idle
                     }
                 }
             }

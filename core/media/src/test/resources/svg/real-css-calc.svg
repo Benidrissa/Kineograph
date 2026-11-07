@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    @keyframes down { from { transform: translateY(0); } to { transform: translateY(40px); } }
+    .a { transform: translateX(calc(var(--i) * 10px)); }
+    .b { transform: rotate(calc(var(--i) * 15deg)); transform-box: fill-box; transform-origin: center; }
+    .c { transform: scale(calc(1 + .5)); transform-box: fill-box; transform-origin: center; }
+    .d { opacity: calc(.2 + .2); }
+    .e { r: calc(4px + 6px); }
+    .f { stroke-width: calc(1px * 4); stroke: #000; }
+    .g { animation: down 2s linear calc(var(--i) * -0.5s) infinite; }
+    .h { animation: down calc(1s * 2) linear infinite; }
+    .i { animation-name: down; animation-duration: 2s; animation-timing-function: linear; animation-iteration-count: infinite; animation-delay: calc(-1 * var(--i) * 250ms); }
+    .j { transform: translate(min(10px, 30px), max(5px, 2px)); }
+    .k { transform: translateX(clamp(0px, 50px, 20px)); }
+    .l { fill-opacity: calc(1 / 4); }
+    .m { transform: rotate(calc(.125turn)); transform-box: fill-box; transform-origin: center; }
+    .n { transform: translateX(calc(10% + 5px)); transform-box: fill-box; }
+    .o { animation: kf 2s linear infinite; --x: 3; }
+    @keyframes kf { to { transform: translateX(calc(var(--x) * 10px)) rotate(calc(var(--x) * 30deg)); } }
+  </style>
+  <rect class="a" style="--i:2" x="5" y="5" width="15" height="15" fill="#f44336"/>
+  <rect class="b" style="--i:3" x="50" y="5" width="15" height="15" fill="#e91e63"/>
+  <rect class="c" x="80" y="5" width="15" height="15" fill="#9c27b0"/>
+  <rect class="d" x="110" y="5" width="15" height="15" fill="#673ab7"/>
+  <circle class="e" cx="145" cy="12" r="2" fill="#3f51b5"/>
+  <rect class="f" x="165" y="5" width="15" height="15" fill="#2196f3"/>
+  <rect class="g" style="--i:0" x="5" y="40" width="15" height="15" fill="#03a9f4"/>
+  <rect class="g" style="--i:1" x="25" y="40" width="15" height="15" fill="#00bcd4"/>
+  <rect class="g" style="--i:2" x="45" y="40" width="15" height="15" fill="#009688"/>
+  <rect class="h" x="65" y="40" width="15" height="15" fill="#4caf50"/>
+  <rect class="i" style="--i:0" x="85" y="40" width="15" height="15" fill="#8bc34a"/>
+  <rect class="i" style="--i:1" x="105" y="40" width="15" height="15" fill="#cddc39"/>
+  <rect class="i" style="--i:2" x="125" y="40" width="15" height="15" fill="#ffeb3b"/>
+  <rect class="j" x="145" y="40" width="15" height="15" fill="#ffc107"/>
+  <rect class="k" x="5" y="120" width="15" height="15" fill="#ff9800"/>
+  <rect class="l" x="50" y="120" width="15" height="15" fill="#ff5722"/>
+  <rect class="m" x="80" y="120" width="15" height="15" fill="#795548"/>
+  <rect class="n" x="110" y="120" width="15" height="15" fill="#607d8b"/>
+  <rect class="o" x="5" y="160" width="15" height="15" fill="#000"/>
+</svg>

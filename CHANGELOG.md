@@ -15,5 +15,6 @@ The bouncing ball works from start to finish.
 - Undo and redo for pixels and structure, with at least 100 steps
 - Crash-safe autosave
 - GIF and MP4 export, with saving to the gallery and sharing
-- SVG import, still or animated: SMIL and CSS animation become frames on a new layer, with a live preview, a choice of fit, and one step of undo
+- SVG import, still or animated: SMIL and CSS animation become frames on a new layer, with a live preview, a choice of fit, and one step of undo. It reads masks, `calc()`, motion paths,
+  right-to-left and vertical text, modern selectors and CSS layers, checked against Chromium
 - English and French

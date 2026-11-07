@@ -17,6 +17,7 @@ internal enum class PropKind {
     NUMBERS,
     ORIGIN,
     FONT_SIZE,
+    OFFSET_PATH,
 
     /** Case does not matter, such as `display: NONE`. */
     KEYWORD,
@@ -47,12 +48,17 @@ internal val PROPERTIES: Map<String, PropDef> =
         add(PropKind.PAINT, true, true, "fill", "stroke")
         add(PropKind.COLOR, true, true, "color")
         add(PropKind.COLOR, false, true, "stop-color")
+        put("background-color", PropDef(PropKind.COLOR).apply { attribute = false })
         add(PropKind.NUMBER, false, true, "opacity", "stop-opacity")
         add(PropKind.NUMBER, true, true, "fill-opacity", "stroke-opacity", "stroke-miterlimit")
         add(PropKind.NUMBER, false, false, "pathLength", "offset")
         add(PropKind.LENGTH, true, true, "stroke-width", "stroke-dashoffset", "letter-spacing", "word-spacing")
         add(PropKind.FONT_SIZE, true, true, "font-size")
         add(PropKind.LENGTH, false, true, "cx", "cy", "r", "rx", "ry", "width", "height")
+        add(PropKind.LENGTH, false, false, "textLength")
+        put("offset-distance", PropDef(PropKind.LENGTH).apply { attribute = false })
+        put("offset-path", PropDef(PropKind.OFFSET_PATH).apply { attribute = false })
+        put("offset-rotate", PropDef(PropKind.KEYWORD).apply { attribute = false })
         add(
             PropKind.LENGTH,
             false,
@@ -103,6 +109,9 @@ internal val PROPERTIES: Map<String, PropDef> =
             "font-variant",
             "font-kerning",
             "color-interpolation",
+            "direction",
+            "writing-mode",
+            "text-orientation",
         )
         add(
             PropKind.KEYWORD,
@@ -137,6 +146,7 @@ internal val PROPERTIES: Map<String, PropDef> =
             "preserveAspectRatio",
             "markerUnits",
             "orient",
+            "lengthAdjust",
         )
     }
 
@@ -207,6 +217,7 @@ private fun parseKind(kind: PropKind, text: String): SvgValue? =
         PropKind.POINTS, PropKind.NUMBERS -> parseNumberList(text)?.let { numbers -> LengthListValue(numbers.map { Length(px = it) }) }
         PropKind.ORIGIN -> parseOrigin(text)
         PropKind.FONT_SIZE -> parseFontSize(text)
+        PropKind.OFFSET_PATH -> parseOffsetPath(text)
         PropKind.KEYWORD -> KeywordValue(text.lowercase())
         PropKind.RAW -> KeywordValue(text)
     }
@@ -290,6 +301,15 @@ private fun parsePathProperty(text: String): PathValue? {
         }
     val parsed = parsePathData(source)
     return PathValue(parsed.data, parsed.hadError)
+}
+
+/** Rays and shapes need a box to be measured against, and no file seen in the wild uses them, so those stay unread. */
+internal fun parseOffsetPath(text: String): OffsetPathValue? {
+    if (text.equals("none", ignoreCase = true)) return OffsetPathValue(null, null)
+    urlReference(text)?.let { return OffsetPathValue(null, it) }
+    if (!text.startsWith("path(", ignoreCase = true) || !text.endsWith(")")) return null
+    val parsed = parsePathData(text.substring(5, text.length - 1).trim().trim('"', '\''))
+    return if (parsed.data.isEmpty) null else OffsetPathValue(parsed.data, null)
 }
 
 private fun parseOrigin(text: String): LengthListValue? {

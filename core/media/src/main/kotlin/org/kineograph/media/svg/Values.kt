@@ -81,6 +81,16 @@ internal data class TransformValue(val ops: List<TransformOp>) : SvgValue
 
 internal class PathValue(val data: PathData, val hadError: Boolean = false) : SvgValue
 
+/** A `clip-path` shape part way through an animation. A shape that is not moving stays as text, like any other value of that property. */
+internal class ClipShapeValue(val shape: BasicShape) : SvgValue
+
+/**
+ * What `offset-path` says to follow: a path of its own, or one elsewhere in the file. With neither, it is `none`.
+ *
+ * @property reference the id of an element to take the path from.
+ */
+internal class OffsetPathValue(val data: PathData?, val reference: String?) : SvgValue
+
 internal data object InheritValue : SvgValue
 
 internal data object InitialValue : SvgValue
@@ -176,13 +186,20 @@ internal fun parseNumberOrNull(raw: String): Double? {
 /** A number or a percentage as a plain fraction, the form opacity and stop offsets both accept. */
 internal fun parseFraction(raw: String): Double? {
     val text = raw.trim()
+    if (isMathFunction(text)) return CssMath(text).number()
     return if (text.endsWith("%")) parseNumberOrNull(text.dropLast(1))?.div(100.0) else parseNumberOrNull(text)
+}
+
+/** A plain number, or one worked out by a math function, as CSS allows wherever it wants a number. */
+internal fun parseCssNumber(raw: String): Double? {
+    val text = raw.trim()
+    return if (isMathFunction(text)) CssMath(text).number()?.takeIf { '%' !in text } else parseNumberOrNull(text)
 }
 
 internal fun parseLengthOrNull(raw: String): Length? {
     val text = raw.trim()
     if (text.isEmpty()) return null
-    if (text.startsWith("calc(", ignoreCase = true)) return CalcParser(text).parse()
+    if (isMathFunction(text)) return CssMath(text).length()
     val scanner = NumberScanner(text)
     val value = scanner.number() ?: return null
     return lengthWithUnit(value, text.substring(scanner.pos))
@@ -288,25 +305,70 @@ internal fun lengthWithUnit(value: Double, unit: String): Length? =
 
 private fun Length.isFinite(): Boolean = px.isFinite() && pct.isFinite() && em.isFinite()
 
-/** Parses `calc()` into the same sum-of-parts form, so that animation does not need to know it was ever an expression. */
-private class CalcParser(private val text: String) {
+/** Whether this text is one of the CSS math functions, which can stand wherever a number, a length, an angle or a time can. */
+internal fun isMathFunction(text: String): Boolean =
+    text.startsWith("calc(", ignoreCase = true) ||
+        text.startsWith("min(", ignoreCase = true) ||
+        text.startsWith("max(", ignoreCase = true) ||
+        text.startsWith("clamp(", ignoreCase = true)
+
+/**
+ * Works out `calc()`, `min()`, `max()` and `clamp()`. By the time this runs, any `var()` has been replaced, which is how a file staggers its parts
+ * with `calc(var(--i) * -0.25s)`. A length comes out in the same sum-of-parts form as any other, so that animation does not need to know it was ever
+ * an expression.
+ *
+ * Only `min()` and friends with one kind of length can be settled here. Comparing `10%` with `30px` has to wait until the percentage means something,
+ * and no value has a way to wait for that, so that one counts as unreadable.
+ */
+internal class CssMath(private val text: String) {
     private var pos = 0
     private var depth = 0
 
-    private class Term(val length: Length, val isScalar: Boolean)
+    private enum class Kind { NUMBER, LENGTH, ANGLE, TIME }
+
+    /** [amount] is the value for all but a length, which needs [length]. An angle is in degrees, and a time in seconds. */
+    private class Term(val kind: Kind, val amount: Double, val length: Length) {
+        val isFinite: Boolean get() = amount.isFinite() && length.px.isFinite() && length.pct.isFinite() && length.em.isFinite()
+
+        fun times(k: Double): Term = Term(kind, amount * k, length * k)
+    }
 
     /** Numbers that are fine by themselves can still multiply past infinity, or make nothing at all out of zero and infinity. */
-    fun parse(): Length? {
+    private fun whole(): Term? {
         val result = factor() ?: return null
         skipSpace()
-        return result.length.takeIf { pos == text.length && it.isFinite() }
+        return result.takeIf { pos == text.length && it.isFinite }
     }
+
+    /** A bare number counts as pixels, because a length in an attribute needs no unit, and a math function is no different there. */
+    fun length(): Length? =
+        whole()?.let {
+            when (it.kind) {
+                Kind.LENGTH -> it.length
+                Kind.NUMBER -> Length(px = it.amount)
+                else -> null
+            }
+        }
+
+    /** A percentage counts as its fraction, because that is what the properties that ask for a number here take it as. */
+    fun number(): Double? =
+        whole()?.let {
+            when {
+                it.kind == Kind.NUMBER -> it.amount
+                it.kind == Kind.LENGTH && it.length.px == 0.0 && it.length.em == 0.0 -> it.length.pct / 100.0
+                else -> null
+            }
+        }
+
+    fun degrees(): Double? = whole()?.takeIf { it.kind == Kind.ANGLE }?.amount
+
+    fun seconds(): Double? = whole()?.takeIf { it.kind == Kind.TIME }?.amount
 
     private fun skipSpace() {
         while (pos < text.length && isSvgSpace(text[pos])) pos++
     }
 
-    private fun expression(): Term? {
+    private fun sum(): Term? {
         var left = product() ?: return null
         while (true) {
             skipSpace()
@@ -314,9 +376,21 @@ private class CalcParser(private val text: String) {
             if (c != '+' && c != '-') return left
             pos++
             val right = product() ?: return null
-            left = Term(if (c == '+') left.length + right.length else left.length - right.length, left.isScalar && right.isScalar)
+            left = (if (c == '+') add(left, right) else add(left, right.times(-1.0))) ?: return null
         }
     }
+
+    private fun add(a: Term, b: Term): Term? =
+        when {
+            a.kind == b.kind -> Term(a.kind, a.amount + b.amount, a.length + b.length)
+
+            // CSS would refuse this. An attribute's bare numbers are pixels, though, and files that mix them do mean that.
+            a.kind == Kind.NUMBER && b.kind == Kind.LENGTH -> Term(Kind.LENGTH, 0.0, Length(px = a.amount) + b.length)
+
+            a.kind == Kind.LENGTH && b.kind == Kind.NUMBER -> Term(Kind.LENGTH, 0.0, a.length + Length(px = b.amount))
+
+            else -> null
+        }
 
     private fun product(): Term? {
         var left = factor() ?: return null
@@ -328,9 +402,9 @@ private class CalcParser(private val text: String) {
             val right = factor() ?: return null
             left =
                 when {
-                    c == '*' && right.isScalar -> Term(left.length * right.length.px, left.isScalar)
-                    c == '*' && left.isScalar -> Term(right.length * left.length.px, false)
-                    c == '/' && right.isScalar && right.length.px != 0.0 -> Term(left.length * (1.0 / right.length.px), left.isScalar)
+                    c == '*' && right.kind == Kind.NUMBER -> left.times(right.amount)
+                    c == '*' && left.kind == Kind.NUMBER -> right.times(left.amount)
+                    c == '/' && right.kind == Kind.NUMBER && right.amount != 0.0 -> left.times(1.0 / right.amount)
                     else -> return null
                 }
         }
@@ -338,12 +412,13 @@ private class CalcParser(private val text: String) {
 
     private fun factor(): Term? {
         skipSpace()
-        if (text.startsWith("calc(", pos, ignoreCase = true)) pos += 4
+        val function = functionAt()
+        if (function != null) pos += function.length
         if (text.getOrNull(pos) == '(') {
             pos++
             // Each level is a few frames of stack. No real expression has this many brackets.
-            if (++depth > MAX_CALC_DEPTH) return null
-            val inner = expression()
+            if (++depth > MAX_DEPTH) return null
+            val inner = if (function == null || function == "calc") sum() else compare(function)
             depth--
             if (inner == null) return null
             skipSpace()
@@ -355,14 +430,83 @@ private class CalcParser(private val text: String) {
         val value = scanner.number() ?: return null
         var end = scanner.pos
         while (end < text.length && (text[end].isLetter() || text[end] == '%')) end++
-        val unit = text.substring(scanner.pos, end)
-        val length = lengthWithUnit(value, unit) ?: return null
+        val term = termFor(value, text.substring(scanner.pos, end)) ?: return null
         pos = end
-        return Term(length, unit.isEmpty())
+        return term
+    }
+
+    private fun functionAt(): String? {
+        for (name in FUNCTIONS) {
+            if (text.startsWith(name, pos, ignoreCase = true) && text.getOrNull(pos + name.length) == '(') return name
+        }
+        return null
+    }
+
+    private fun termFor(value: Double, unit: String): Term? {
+        val lower = unit.lowercase()
+        return when {
+            lower.isEmpty() -> Term(Kind.NUMBER, value, Length.ZERO)
+            lower == "s" -> Term(Kind.TIME, value, Length.ZERO)
+            lower == "ms" -> Term(Kind.TIME, value / 1000.0, Length.ZERO)
+            lower == "deg" -> Term(Kind.ANGLE, value, Length.ZERO)
+            lower == "rad" -> Term(Kind.ANGLE, Math.toDegrees(value), Length.ZERO)
+            lower == "grad" -> Term(Kind.ANGLE, value * 0.9, Length.ZERO)
+            lower == "turn" -> Term(Kind.ANGLE, value * 360.0, Length.ZERO)
+            else -> lengthWithUnit(value, unit)?.let { Term(Kind.LENGTH, 0.0, it) }
+        }
+    }
+
+    private fun compare(function: String): Term? {
+        val terms = ArrayList<Term>(3)
+        while (true) {
+            terms += sum() ?: return null
+            skipSpace()
+            if (text.getOrNull(pos) != ',') break
+            pos++
+        }
+        if (function == "clamp" && terms.size != 3) return null
+        val kind = terms[0].kind
+        if (terms.any { it.kind != kind }) return null
+        val values = DoubleArray(terms.size) { comparable(terms[it], terms[0]) ?: return null }
+
+        fun pick(index: Int): Term = terms[index]
+
+        fun indexOfSmallest(among: IntRange): Int = among.minBy { values[it] }
+
+        fun indexOfLargest(among: IntRange): Int = among.maxBy { values[it] }
+        return when (function) {
+            "min" -> {
+                pick(indexOfSmallest(terms.indices))
+            }
+
+            "max" -> {
+                pick(indexOfLargest(terms.indices))
+            }
+
+            else -> {
+                // A low bound above the high one wins, as CSS says.
+                val capped = if (values[1] <= values[2]) 1 else 2
+                if (values[0] >= values[capped]) pick(0) else pick(capped)
+            }
+        }
+    }
+
+    /** What to compare [term] by, which has to mean the same as for [first]. Null when only the drawing could say which is larger. */
+    private fun comparable(term: Term, first: Term): Double? {
+        if (term.kind != Kind.LENGTH) return term.amount
+        val a = term.length
+        val b = first.length
+        return when {
+            a.pct == 0.0 && a.em == 0.0 && b.pct == 0.0 && b.em == 0.0 -> a.px
+            a.px == 0.0 && a.em == 0.0 && b.px == 0.0 && b.em == 0.0 -> a.pct
+            a.px == 0.0 && a.pct == 0.0 && b.px == 0.0 && b.pct == 0.0 -> a.em
+            else -> null
+        }
     }
 
     private companion object {
-        const val MAX_CALC_DEPTH = 64
+        const val MAX_DEPTH = 64
+        val FUNCTIONS = listOf("calc", "min", "max", "clamp")
     }
 }
 
@@ -481,6 +625,7 @@ private fun String.toUnsignedNumber(): Double? {
 /** CSS times must carry a unit. That is what tells a duration apart from an iteration count in the `animation` shorthand. */
 internal fun parseCssTime(raw: String): Double? {
     val text = raw.trim().lowercase()
+    if (isMathFunction(text)) return CssMath(text).seconds()
     val scanner = NumberScanner(text)
     val value = scanner.number() ?: return null
     return when (text.substring(scanner.pos)) {
@@ -493,6 +638,7 @@ internal fun parseCssTime(raw: String): Double? {
 /** An angle in degrees. A bare number counts as degrees, because that is what SVG transform attributes mean by it. */
 internal fun parseAngle(raw: String): Double? {
     val text = raw.trim().lowercase()
+    if (isMathFunction(text)) return CssMath(text).degrees()
     val scanner = NumberScanner(text)
     val value = scanner.number() ?: return null
     return when (text.substring(scanner.pos)) {

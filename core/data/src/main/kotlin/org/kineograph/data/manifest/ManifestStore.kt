@@ -1,6 +1,7 @@
 package org.kineograph.data.manifest
 
 import org.kineograph.data.files.AtomicFile
+import org.kineograph.model.Background
 import org.kineograph.model.Project
 import java.io.File
 import java.io.IOException
@@ -72,6 +73,10 @@ public class ManifestStore(private val directory: File) {
 
     /** The cel files referred to by the backup manifest, which must be kept in case it is ever needed. */
     public fun filesReferencedByBackup(): Set<String> = readOrNull(previous)?.referencedFiles().orEmpty()
+
+    /** The background pictures that the project could reopen with, from whichever manifest that turned out to be. */
+    public fun backgroundFiles(): Set<String> =
+        listOfNotNull(readOrNull(current), readOrNull(previous)).mapNotNullTo(HashSet()) { (it.background as? Background.Image)?.file }
 
     private fun readOrNull(file: File): Project? {
         if (!file.isFile) return null

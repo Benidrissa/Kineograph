@@ -2,19 +2,36 @@ package org.kineograph.media.svg
 
 internal class Declaration(val name: String, val value: String, val important: Boolean)
 
-internal class StyleRule(val selector: Selector, val declarations: List<Declaration>, val order: Int)
+/** [layer] orders whole `@layer` blocks. See [Stylesheet.layerIndex]. */
+internal class StyleRule(val selector: Selector, val declarations: List<Declaration>, val order: Int, val layer: Int = UNLAYERED)
+
+/** What a rule outside every `@layer` counts as, which is above all of them. */
+internal const val UNLAYERED: Int = Int.MAX_VALUE
 
 internal class Keyframe(val offset: Double, val declarations: List<Declaration>)
 
 internal class Stylesheet {
     val rules: ArrayList<StyleRule> = ArrayList()
     val keyframes: HashMap<String, List<Keyframe>> = HashMap()
+    private val layers = HashMap<String, Int>()
+    private var anonymousLayers = 0
+
+    /** A layer's place is settled by when its name first appears, however much later its rules come. */
+    fun layerIndex(name: String): Int = layers.getOrPut(name) { layers.size }
+
+    fun newAnonymousLayer(): String = "\u0000${anonymousLayers++}"
 }
 
 private const val BYTES_PER_CHAR_OF_RULES = 200
 
 private val PREFIXED_PROPERTIES = ANIMATION_LONGHANDS + setOf("animation", "transform", "transform-origin", "transform-box")
 private val VENDOR_PREFIXES = listOf("-webkit-", "-moz-", "-ms-", "-o-")
+
+/** Browsers that a file is shown in have thrown these away by now. Anything else a file asks about, a current browser has. */
+private val GONE_PREFIXES = listOf("-moz-", "-ms-", "-o-", "-khtml-")
+
+/** Past this, one selector inside another has become something no stylesheet was written to do. */
+private const val MAX_NESTED_SELECTOR_CHARS = 64 * 1024
 
 /**
  * A forgiving CSS reader: whatever it cannot understand is skipped up to the next rule, because a stylesheet with one odd line
@@ -28,6 +45,7 @@ internal class CssParser(
     private val work: WorkMeter,
     private val limits: SvgLimits,
     private val nesting: Int = 0,
+    private val layerName: String? = null,
 ) {
     private val text: String = stripComments(text)
     private var pos = 0
@@ -64,13 +82,107 @@ internal class CssParser(
         }
         val selectorText = text.substring(start, open)
         pos = open
-        val body = readBlock()
-        val declarations = parseDeclarations(body)
+        addRules(selectorText, readBlock(), nesting)
+    }
+
+    private fun addRules(selectorText: String, body: String, depth: Int) {
+        val (ownDeclarations, inner) = splitNestedRules(body)
+        val declarations = parseDeclarations(ownDeclarations)
+        val selectors = ArrayList<Selector>(1)
         for (part in splitTopLevel(selectorText, ',')) {
             if (!work.spend(WorkCost.STYLE_RULE_READ + part.length)) return
-            val selector = parseSelector(part, limits.maxSelectorParts) { warnings += SvgWarning.LIMIT_REACHED } ?: continue
-            sheet.rules += StyleRule(selector, declarations, sheet.rules.size)
+            // One part that makes no sense voids the whole list, as in browsers, while `:is()` is there for those who want otherwise.
+            selectors += parseSelector(part, limits.maxSelectorParts) { warnings += SvgWarning.LIMIT_REACHED } ?: return
         }
+        val layer = layerName?.let(sheet::layerIndex) ?: UNLAYERED
+        for (selector in selectors) sheet.rules += StyleRule(selector, declarations, sheet.rules.size, layer)
+        for ((prelude, block) in inner) addNested(selectorText, prelude, block, depth + 1)
+    }
+
+    /** A rule inside a rule, which is ordinary CSS these days. `&` stands for the rule it is in, and with no `&` it means somewhere inside that. */
+    private fun addNested(parentText: String, prelude: String, block: String, depth: Int) {
+        if (depth >= limits.maxStylesheetNesting) {
+            warnings += SvgWarning.LIMIT_REACHED
+            return
+        }
+        if (prelude.startsWith("@")) {
+            val name = prelude
+                .drop(1)
+                .substringBefore(' ')
+                .substringBefore('(')
+                .lowercase()
+            val condition = prelude.drop(name.length + 1).trim()
+            val applies =
+                when (name) {
+                    "media" -> mediaMatches(condition, media)
+                    "supports" -> supportsMatches(condition)
+                    "layer" -> true
+                    else -> false
+                }
+            if (applies) addRules(parentText, block, depth)
+            return
+        }
+        val parent = ":is($parentText)"
+        val expanded = StringBuilder()
+        for (part in splitTopLevel(prelude, ',')) {
+            val piece = part.trim()
+            val parents = piece.count { it == '&' }
+            // Each `&` copies everything above it, so a short file could otherwise ask for more text than there is memory.
+            if (piece.length + maxOf(parents, 1).toLong() * parent.length + expanded.length > MAX_NESTED_SELECTOR_CHARS) {
+                warnings += SvgWarning.LIMIT_REACHED
+                return
+            }
+            if (expanded.isNotEmpty()) expanded.append(',')
+            if (parents > 0) expanded.append(piece.replace("&", parent)) else expanded.append(parent).append(' ').append(piece)
+        }
+        addRules(expanded.toString(), block, depth)
+    }
+
+    /** What is said directly in a block, and the blocks inside it, in order. */
+    private fun splitNestedRules(body: String): Pair<String, List<Pair<String, String>>> {
+        if ('{' !in body) return body to emptyList()
+        val own = StringBuilder()
+        val inner = ArrayList<Pair<String, String>>(1)
+        var start = 0
+        var i = 0
+        var quote = '\u0000'
+        var depth = 0
+        while (i < body.length) {
+            val c = body[i]
+            when {
+                quote != '\u0000' -> {
+                    if (c == quote) quote = '\u0000'
+                }
+
+                c == '"' || c == '\'' -> {
+                    quote = c
+                }
+
+                c == '(' -> {
+                    depth++
+                }
+
+                c == ')' -> {
+                    depth--
+                }
+
+                depth <= 0 && c == ';' -> {
+                    own.append(body, start, i + 1)
+                    start = i + 1
+                }
+
+                depth <= 0 && c == '{' -> {
+                    val (block, end) = readBalancedBlock(body, i)
+                    inner += body.substring(start, i).trim() to block
+                    i = end
+                    start = end
+                    continue
+                }
+            }
+            i++
+        }
+        own.append(body, start, body.length)
+        return own.toString() to inner
     }
 
     private fun parseAtRule() {
@@ -84,25 +196,36 @@ internal class CssParser(
         if (!hasBlock) {
             pos = (end + 1).coerceAtMost(text.length)
             if (name == "import") warnings += SvgWarning.EXTERNAL_REFERENCE_IGNORED
+            // Only naming layers, which is how a file decides their order before any of their rules come.
+            if (name == "layer") splitTopLevel(prelude, ',').forEach { sheet.layerIndex(qualifiedLayer(it.trim())) }
             return
         }
         val body = readBlock()
         when {
             name == "media" -> if (mediaMatches(prelude, media)) nested(body)
-            name == "supports" -> nested(body)
+            name == "supports" -> if (supportsMatches(prelude)) nested(body)
+            name == "layer" -> nested(body, qualifiedLayer(prelude.ifEmpty { sheet.newAnonymousLayer() }))
             name == "font-face" -> if ("url(" in body.lowercase()) warnings += SvgWarning.EXTERNAL_REFERENCE_IGNORED
             name.endsWith("keyframes") -> parseKeyframes(prelude, body)
         }
     }
 
+    private fun qualifiedLayer(name: String): String = if (layerName == null) name else "$layerName.$name"
+
     /** Each level reads all of its text again, and goes one level further down the stack. */
-    private fun nested(body: String) {
+    private fun nested(body: String, layer: String? = layerName) {
         if (nesting >= limits.maxStylesheetNesting) {
             warnings += SvgWarning.LIMIT_REACHED
             return
         }
-        CssParser(body, sheet, warnings, media, work, limits, nesting + 1).parse()
+        CssParser(body, sheet, warnings, media, work, limits, nesting + 1, layer).parse()
     }
+
+    /**
+     * Answers `@supports` the way a current browser does, because that is where the file was looked at. What this renderer can do comes into it only
+     * for properties it knows: anything else a file asks about exists in a browser, unless it is a prefix browsers have dropped.
+     */
+    private fun supportsMatches(condition: String): Boolean = SupportsReader(condition, limits.maxStylesheetNesting).matches()
 
     private fun parseKeyframes(rawName: String, body: String) {
         val name = rawName.trim().trim('"', '\'')
@@ -162,6 +285,81 @@ internal class CssParser(
         val (body, end) = readBalancedBlock(text, pos)
         pos = end
         return body
+    }
+}
+
+/** Reads the condition of `@supports`: `not`, `and`, `or`, and brackets around each other or around a declaration. */
+private class SupportsReader(private val text: String, private val maxDepth: Int) {
+    private var pos = 0
+
+    fun matches(): Boolean = either(0)
+
+    private fun skipSpace() {
+        while (pos < text.length && text[pos].isWhitespace()) pos++
+    }
+
+    private fun word(name: String): Boolean {
+        skipSpace()
+        if (!text.startsWith(name, pos, ignoreCase = true)) return false
+        val after = text.getOrNull(pos + name.length)
+        if (after != null && (after.isLetterOrDigit() || after == '-')) return false
+        pos += name.length
+        return true
+    }
+
+    private fun either(depth: Int): Boolean {
+        var result = both(depth)
+        while (word("or")) result = both(depth) || result
+        return result
+    }
+
+    private fun both(depth: Int): Boolean {
+        var result = term(depth)
+        while (word("and")) result = term(depth) && result
+        return result
+    }
+
+    private fun term(depth: Int): Boolean {
+        // Past this it is not a real condition. Saying no leaves out only what was inside it.
+        if (depth > maxDepth) return false
+        if (word("not")) return !term(depth + 1)
+        skipSpace()
+        val open = if (text.getOrNull(pos) == '(') pos else text.indexOf('(', pos)
+        if (open < 0) {
+            pos = text.length
+            return false
+        }
+        val close = matchingParen(text, open)
+        if (close < 0) {
+            pos = text.length
+            return false
+        }
+        val function = text.substring(pos, open).trim().lowercase()
+        val inner = text.substring(open + 1, close).trim()
+        pos = close + 1
+        return when {
+            function == "selector" -> parseSelector(inner) != null
+            function.isNotEmpty() -> false
+            looksLikeDeclaration(inner) -> declarationWorks(inner)
+            else -> SupportsReader(inner, maxDepth).matchesAt(depth + 1)
+        }
+    }
+
+    private fun matchesAt(depth: Int): Boolean = either(depth)
+
+    private fun looksLikeDeclaration(inner: String): Boolean {
+        val colon = inner.indexOf(':')
+        val bracket = inner.indexOf('(')
+        return colon > 0 && (bracket < 0 || colon < bracket)
+    }
+
+    private fun declarationWorks(inner: String): Boolean {
+        val name = inner.substringBefore(':').trim().lowercase()
+        val value = inner.substringAfter(':').trim()
+        if (name.isEmpty() || value.isEmpty()) return false
+        if (GONE_PREFIXES.any { name.startsWith(it) }) return false
+        val known = PROPERTIES[name] ?: return true
+        return known.css && parseProperty(name, value, css = true) != null
     }
 }
 
@@ -411,10 +609,69 @@ internal sealed interface Pseudo {
         }
     }
 
-    class Not(val inner: List<CompoundSelector>) : Pseudo {
+    class Not(val inner: List<Selector>) : Pseudo {
         override fun matches(el: SvgElement, work: WorkMeter): Boolean {
             work.spend(inner.size * WorkCost.SELECTOR_STEP)
             return inner.none { it.matches(el, work) }
+        }
+    }
+
+    /** `:is()` and `:where()`, which differ only in what they add to specificity. */
+    class Is(val inner: List<Selector>) : Pseudo {
+        override fun matches(el: SvgElement, work: WorkMeter): Boolean {
+            work.spend(inner.size * WorkCost.SELECTOR_STEP)
+            return inner.any { it.matches(el, work) }
+        }
+    }
+
+    /** What a still picture can never be in, such as `:hover`. It takes part in a selector like anything else, so `:not(:hover)` is always true. */
+    data object Never : Pseudo {
+        override fun matches(el: SvgElement, work: WorkMeter): Boolean = false
+    }
+
+    data object IsEmpty : Pseudo {
+        override fun matches(el: SvgElement, work: WorkMeter): Boolean = el.rawChildCount == 0 && el.content.isNullOrEmpty()
+    }
+
+    data object AnyLink : Pseudo {
+        override fun matches(el: SvgElement, work: WorkMeter): Boolean = el.tag == "a" && "href" in el.attrs
+    }
+
+    /** `:has()`. Everything it looks through is paid for, so a rule that every element tries cannot make the whole picture quadratic for free. */
+    class Has(val inner: List<Relative>) : Pseudo {
+        class Relative(val combinator: Char, val selector: Selector)
+
+        override fun matches(el: SvgElement, work: WorkMeter): Boolean = inner.any { candidate(it, el, work) }
+
+        private fun candidate(relative: Relative, el: SvgElement, work: WorkMeter): Boolean {
+            fun test(other: SvgElement): Boolean = work.spend(WorkCost.SELECTOR_STEP) && relative.selector.matches(other, work)
+            return when (relative.combinator) {
+                '>' -> {
+                    el.children.any(::test)
+                }
+
+                '+' -> {
+                    el.parent
+                        ?.children
+                        ?.getOrNull(el.siblingIndex + 1)
+                        ?.let(::test) == true
+                }
+
+                '~' -> {
+                    val siblings = el.parent?.children.orEmpty()
+                    (el.siblingIndex + 1 until siblings.size).any { test(siblings[it]) }
+                }
+
+                else -> {
+                    val waiting = ArrayList(el.children)
+                    while (waiting.isNotEmpty() && !work.isStopped) {
+                        val next = waiting.removeAt(waiting.lastIndex)
+                        if (test(next)) return true
+                        waiting += next.children
+                    }
+                    false
+                }
+            }
         }
     }
 }
@@ -504,6 +761,11 @@ internal class Selector(val parts: List<CompoundSelector>, val combinators: List
     }
 
     companion object {
+        /** All of these on one element, as a selector of its own. */
+        fun ofOne(
+            vararg pseudos: Pseudo,
+        ): Selector = Selector(listOf(CompoundSelector(null, null, emptyList(), emptyList(), pseudos.toList(), 0)), emptyList())
+
         const val ID_WEIGHT: Int = 1_000_000
         const val CLASS_WEIGHT: Int = 1_000
         private const val MATCHES = 0
@@ -519,9 +781,56 @@ internal const val DEFAULT_MAX_SELECTOR_PARTS: Int = 256
 /** `:not` can hold `:not`. Each level looks through the text again, and goes further down the stack. */
 private const val MAX_NOT_DEPTH = 8
 
+/** Nothing is ever hovered in an import, and no element has what comes before or after a pseudo-element. They are all valid, and all never true. */
+private val NEVER_TRUE_PSEUDO =
+    setOf(
+        "hover",
+        "active",
+        "focus",
+        "focus-visible",
+        "focus-within",
+        "visited",
+        "target",
+        "target-within",
+        "checked",
+        "disabled",
+        "enabled",
+        "indeterminate",
+        "default",
+        "valid",
+        "invalid",
+        "required",
+        "optional",
+        "in-range",
+        "out-of-range",
+        "read-only",
+        "read-write",
+        "placeholder-shown",
+        "autofill",
+        "user-valid",
+        "user-invalid",
+        "playing",
+        "paused",
+        "fullscreen",
+        "modal",
+        "popover-open",
+        "current",
+        "past",
+        "future",
+        "lang",
+        "dir",
+        "before",
+        "after",
+        "first-line",
+        "first-letter",
+    )
+
+private val PSEUDO_ELEMENTS =
+    setOf("before", "after", "first-line", "first-letter", "selection", "marker", "placeholder", "backdrop", "cue", "file-selector-button")
+
 /**
- * Returns null for a selector this renderer cannot honour, such as `:hover`. Treating those as "never matches" is exactly right
- * for an import: nothing is ever hovered.
+ * Returns null for a selector that makes no sense, which voids its rule. One that is simply never true here, such as `:hover`, is a selector like
+ * any other.
  */
 internal fun parseSelector(raw: String, maxParts: Int = DEFAULT_MAX_SELECTOR_PARTS, tooLong: () -> Unit = {}): Selector? =
     parseSelector(raw, maxParts, tooLong, 0)
@@ -652,8 +961,8 @@ private fun parseAttributeMatch(inner: String): AttributeMatch? {
 }
 
 private fun parsePseudo(text: String, start: Int, notDepth: Int): Triple<Pseudo, Int, Int>? {
-    if (text.startsWith("::", start)) return null
-    var pos = start + 1
+    val isElement = text.startsWith("::", start)
+    var pos = if (isElement) start + 2 else start + 1
     val nameStart = pos
     while (pos < text.length && (text[pos].isLetterOrDigit() || text[pos] == '-')) pos++
     val name = text.substring(nameStart, pos).lowercase()
@@ -664,6 +973,7 @@ private fun parsePseudo(text: String, start: Int, notDepth: Int): Triple<Pseudo,
         argument = text.substring(pos + 1, close).trim()
         pos = close + 1
     }
+    if (isElement) return if (name in PSEUDO_ELEMENTS) Triple(Pseudo.Never, pos, 1) else null
     val pseudo: Pseudo
     var weight = Selector.CLASS_WEIGHT
     when (name) {
@@ -692,17 +1002,63 @@ private fun parsePseudo(text: String, start: Int, notDepth: Int): Triple<Pseudo,
             pseudo = Pseudo.Nth(a, b, fromEnd = "last" in name, ofType = name.endsWith("type"))
         }
 
+        "only-child" -> {
+            pseudo = Pseudo.Is(listOf(Selector.ofOne(Pseudo.Nth(0, 1, false, false), Pseudo.Nth(0, 1, true, false))))
+        }
+
+        "only-of-type" -> {
+            pseudo = Pseudo.Is(listOf(Selector.ofOne(Pseudo.Nth(0, 1, false, true), Pseudo.Nth(0, 1, true, true))))
+        }
+
+        "empty" -> {
+            pseudo = Pseudo.IsEmpty
+        }
+
+        "scope" -> {
+            pseudo = Pseudo.Root
+        }
+
+        "link", "any-link" -> {
+            pseudo = Pseudo.AnyLink
+        }
+
         "not" -> {
             if (notDepth >= MAX_NOT_DEPTH) return null
-            val inner = ArrayList<CompoundSelector>()
+            val inner = ArrayList<Selector>()
             weight = 0
             for (part in splitTopLevel(argument, ',')) {
                 val selector = parseSelector(part, DEFAULT_MAX_SELECTOR_PARTS, {}, notDepth + 1) ?: return null
-                if (selector.parts.size != 1) return null
-                inner += selector.subject
+                inner += selector
                 weight = maxOf(weight, selector.specificity)
             }
             pseudo = Pseudo.Not(inner)
+        }
+
+        "is", "matches", "where", "-webkit-any", "-moz-any" -> {
+            if (notDepth >= MAX_NOT_DEPTH) return null
+            // Forgiving, as these are meant to be: what makes no sense only drops out of the list.
+            val inner = splitTopLevel(argument, ',').mapNotNull { parseSelector(it, DEFAULT_MAX_SELECTOR_PARTS, {}, notDepth + 1) }
+            weight = if (name == "where") 0 else inner.maxOfOrNull { it.specificity } ?: 0
+            pseudo = Pseudo.Is(inner)
+        }
+
+        "has" -> {
+            if (notDepth >= MAX_NOT_DEPTH) return null
+            val inner = ArrayList<Pseudo.Has.Relative>()
+            weight = 0
+            for (part in splitTopLevel(argument, ',')) {
+                val piece = part.trim()
+                val combinator = piece.firstOrNull()?.takeIf { it == '>' || it == '+' || it == '~' }
+                val rest = if (combinator != null) piece.substring(1) else piece
+                val selector = parseSelector(rest, DEFAULT_MAX_SELECTOR_PARTS, {}, notDepth + 1) ?: continue
+                inner += Pseudo.Has.Relative(combinator ?: ' ', selector)
+                weight = maxOf(weight, selector.specificity)
+            }
+            pseudo = Pseudo.Has(inner)
+        }
+
+        in NEVER_TRUE_PSEUDO -> {
+            pseudo = Pseudo.Never
         }
 
         else -> {
@@ -712,7 +1068,7 @@ private fun parsePseudo(text: String, start: Int, notDepth: Int): Triple<Pseudo,
     return Triple(pseudo, pos, weight)
 }
 
-private fun matchingParen(text: String, open: Int): Int {
+internal fun matchingParen(text: String, open: Int): Int {
     var depth = 0
     for (i in open until text.length) {
         if (text[i] == '(') depth++

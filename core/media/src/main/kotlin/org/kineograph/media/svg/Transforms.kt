@@ -151,6 +151,19 @@ internal sealed interface TransformOp {
         override fun matrix(context: TransformContext): Mat2D = Mat2D.skew(xDegrees, yDegrees)
     }
 
+    /**
+     * A turn around an axis through the picture, around x or y for a coin flip, seen straight on and with no perspective. Only what that does to
+     * the flat picture is drawn, but the angle stays, because that is what animation has to interpolate: `rotateY(360deg)` is the same flat picture as
+     * no turn at all, and a whole coin flip on the way there. [x], [y] and [z] make a vector of length one.
+     */
+    data class Turn3d(val x: Double, val y: Double, val z: Double, val degrees: Double) : TransformOp {
+        override fun matrix(context: TransformContext): Mat2D {
+            val (s, c) = sinCosDegrees(degrees)
+            val t = 1.0 - c
+            return Mat2D(c + x * x * t, x * y * t + z * s, x * y * t - z * s, c + y * y * t)
+        }
+    }
+
     data class Raw(val m: Mat2D) : TransformOp {
         override fun matrix(context: TransformContext): Mat2D = m
     }
@@ -201,7 +214,8 @@ private inline fun parseFunctions(text: String, commaBetween: Boolean, parseOne:
         if (pos >= text.length) break
         val open = text.indexOf('(', pos)
         if (open < 0) return null
-        val close = text.indexOf(')', open)
+        // Not just the next one, because an argument can be a calc() with brackets of its own.
+        val close = matchingParen(text, open)
         if (close < 0) return null
         ops += parseOne(text.substring(pos, open).trim(), text.substring(open + 1, close)) ?: return null
         pos = close + 1
@@ -310,13 +324,12 @@ private fun parseCssFunction(name: String, args: List<String>): TransformOp? {
             TransformOp.Rotate(angle(0) ?: return null)
         }
 
-        // Seen straight on, without perspective, a turn around x or y only squashes the picture along the other axis.
         "rotatex" -> {
-            TransformOp.Scale(1.0, cos(Math.toRadians(angle(0) ?: return null)))
+            TransformOp.Turn3d(1.0, 0.0, 0.0, angle(0) ?: return null)
         }
 
         "rotatey" -> {
-            TransformOp.Scale(cos(Math.toRadians(angle(0) ?: return null)), 1.0)
+            TransformOp.Turn3d(0.0, 1.0, 0.0, angle(0) ?: return null)
         }
 
         "rotate3d" -> {
@@ -360,11 +373,14 @@ private fun parseRotate3d(args: List<String>): TransformOp? {
     val y = parseNumberOrNull(args[1]) ?: return null
     val z = parseNumberOrNull(args[2]) ?: return null
     val angle = cssAngle(args[3]) ?: return null
+    val length = sqrt(x * x + y * y + z * z)
     return when {
+        // An axis of no length means no turn at all.
+        length == 0.0 || !length.isFinite() -> TransformOp.Rotate(0.0)
+
         x == 0.0 && y == 0.0 -> TransformOp.Rotate(if (z < 0) -angle else angle)
-        x == 0.0 && z == 0.0 -> TransformOp.Scale(cos(Math.toRadians(angle)), 1.0)
-        y == 0.0 && z == 0.0 -> TransformOp.Scale(1.0, cos(Math.toRadians(angle)))
-        else -> null
+
+        else -> TransformOp.Turn3d(x / length, y / length, z / length, angle)
     }
 }
 
@@ -375,6 +391,7 @@ private fun identityLike(op: TransformOp): TransformOp =
         is TransformOp.Scale -> TransformOp.Scale(1.0, 1.0)
         is TransformOp.Rotate -> TransformOp.Rotate(0.0, op.cx, op.cy)
         is TransformOp.Skew -> TransformOp.Skew(0.0, 0.0)
+        is TransformOp.Turn3d -> TransformOp.Turn3d(op.x, op.y, op.z, 0.0)
         is TransformOp.Raw -> TransformOp.Raw(Mat2D.IDENTITY)
         is TransformOp.Blend -> TransformOp.Raw(Mat2D.IDENTITY)
     }
@@ -424,6 +441,10 @@ private fun interpolateOp(a: TransformOp, b: TransformOp, p: Double): TransformO
 
         a is TransformOp.Skew && b is TransformOp.Skew -> {
             TransformOp.Skew(mix(a.xDegrees, b.xDegrees), mix(a.yDegrees, b.yDegrees))
+        }
+
+        a is TransformOp.Turn3d && b is TransformOp.Turn3d && a.x == b.x && a.y == b.y && a.z == b.z -> {
+            TransformOp.Turn3d(a.x, a.y, a.z, mix(a.degrees, b.degrees))
         }
 
         a is TransformOp.Raw && b is TransformOp.Raw -> {

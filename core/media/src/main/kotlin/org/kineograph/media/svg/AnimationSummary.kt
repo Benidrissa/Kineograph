@@ -12,6 +12,13 @@ internal object AnimationSummary {
      */
     private const val CYCLE_TOLERANCE_SECONDS = 0.002
 
+    /**
+     * Longer cycles get more room for the same reason, as `1.33s` is how four thirds gets written. A jump of a hundredth of a cycle at the join does
+     * not show, and neither does one of a sixtieth of a second, whatever the cycle.
+     */
+    private const val CYCLE_TOLERANCE_SHARE = 0.01
+    private const val CYCLE_TOLERANCE_MAX_SECONDS = 1.0 / 60.0
+
     /** No frame of an import could show a loop faster than this, and it is the same as not moving. */
     private const val MIN_LOOP_SECONDS = 0.001
 
@@ -27,6 +34,8 @@ internal object AnimationSummary {
         val cycles = ArrayList<Double>()
         var loopStart = 0.0
         var lastEnd = 0.0
+        var nestedIntro = false
+        var nestedRepeatsExactly = true
         for (timing in smil) {
             val count = timing.intervalCount
             if (count == 0) continue
@@ -74,17 +83,23 @@ internal object AnimationSummary {
             if (info.loopsForever) {
                 cycles += info.durationSeconds
                 loopStart = max(loopStart, info.loopStartSeconds)
+                nestedIntro = nestedIntro || info.hasIntro
+                nestedRepeatsExactly = nestedRepeatsExactly && info.repeatsExactly
             } else {
                 lastEnd = max(lastEnd, info.durationSeconds)
             }
         }
         val positive = cycles.filter { it > 0.0 && it.isFinite() }
         if (positive.isEmpty()) return SvgAnimationInfo(true, usableTime(lastEnd), false, 0.0)
+        val loop = commonCycle(positive, limits.maxSeamlessLoopSeconds)
         return SvgAnimationInfo(
             isAnimated = true,
-            durationSeconds = usableTime(seamlessLoop(positive, limits.maxSeamlessLoopSeconds)).coerceAtLeast(MIN_LOOP_SECONDS),
+            durationSeconds = usableTime(loop ?: positive.max()).coerceAtLeast(MIN_LOOP_SECONDS),
             loopsForever = true,
             loopStartSeconds = usableTime(max(loopStart, lastEnd)),
+            // Something that plays and ends is an intro, while a loop that only waits to start has nothing to lose by being cut at its start.
+            hasIntro = lastEnd > 0.0 || nestedIntro,
+            repeatsExactly = loop != null && nestedRepeatsExactly,
         )
     }
 
@@ -92,7 +107,10 @@ internal object AnimationSummary {
     private fun usableTime(seconds: Double): Double = if (seconds.isNaN()) 0.0 else seconds.coerceIn(0.0, MAX_TIME_SECONDS)
 
     /** The least common multiple of the cycles when that is short enough to be worth importing, or else the longest cycle. */
-    fun seamlessLoop(cycles: List<Double>, maxSeconds: Double): Double {
+    fun seamlessLoop(cycles: List<Double>, maxSeconds: Double): Double = commonCycle(cycles, maxSeconds) ?: cycles.max()
+
+    /** The least common multiple of the cycles. Null when that is too long to be worth importing, which leaves nothing that would repeat exactly. */
+    private fun commonCycle(cycles: List<Double>, maxSeconds: Double): Double? {
         val longest = cycles.max()
         val distinct = ArrayList<Double>()
         for (cycle in cycles.sorted()) {
@@ -105,11 +123,12 @@ internal object AnimationSummary {
             k++
             multiple = longest * k
         }
-        return longest
+        return null
     }
 
     private fun isWholeMultiple(total: Double, cycle: Double): Boolean {
         val ratio = total / cycle
-        return abs(ratio - floor(ratio + 0.5)) * cycle <= CYCLE_TOLERANCE_SECONDS
+        val tolerance = (cycle * CYCLE_TOLERANCE_SHARE).coerceIn(CYCLE_TOLERANCE_SECONDS, CYCLE_TOLERANCE_MAX_SECONDS)
+        return abs(ratio - floor(ratio + 0.5)) * cycle <= tolerance
     }
 }

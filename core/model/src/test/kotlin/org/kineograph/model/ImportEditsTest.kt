@@ -200,4 +200,21 @@ class ImportEditsTest {
         assertEquals(before.layers, result.layers)
         assertEquals(before.frames, result.frames)
     }
+
+    @Test
+    fun `something that ends gets its last moment as a tick of its own`() {
+        assertEquals(13, ImportEdits.tickCountThroughEnd(1.0, 12))
+        assertEquals(7, ImportEdits.tickCountThroughEnd(0.5, 12))
+        // Twelve ticks fall short of 1.02 seconds, so the one that shows the end has to be a thirteenth step along.
+        assertEquals(14, ImportEdits.tickCountThroughEnd(1.02, 12))
+        // A duration that comes from a whole number of ticks does not round up to another one.
+        assertEquals(4, ImportEdits.tickCountThroughEnd(0.1 * 3, 10))
+    }
+
+    @Test
+    fun `a duration past all reason still gives a number`() {
+        assertEquals(1, ImportEdits.tickCountThroughEnd(0.0, 12))
+        assertEquals(1, ImportEdits.tickCountThroughEnd(Double.NaN, 12))
+        assertEquals(Int.MAX_VALUE, ImportEdits.tickCountThroughEnd(1e300, 12))
+    }
 }

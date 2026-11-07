@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -67,6 +69,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -106,6 +109,7 @@ internal fun EditorBottomSheet(onDismiss: () -> Unit, content: @Composable Colum
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun LabelledSlider(
     label: String,
@@ -122,7 +126,6 @@ internal fun LabelledSlider(
             Text(label, style = MaterialTheme.typography.labelLarge)
             Text(valueText, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        // The slider itself is only 44 dp tall. The box around it keeps its neighbours out of the 48 dp that a touch needs.
         Box(
             Modifier
                 .fillMaxWidth()
@@ -130,14 +133,28 @@ internal fun LabelledSlider(
                 .then(if (testTag != null) Modifier.testTag(testTag) else Modifier),
             contentAlignment = Alignment.Center,
         ) {
+            val interaction = remember { MutableInteractionSource() }
+            val colors = kgSliderColors()
             Slider(
                 value = value,
                 onValueChange = onChange,
                 valueRange = range,
                 steps = steps,
                 onValueChangeFinished = onValueChangeFinished,
-                colors = kgSliderColors(),
-                modifier = Modifier.semantics { contentDescription = label },
+                colors = colors,
+                interactionSource = interaction,
+                // Left to itself, a slider takes the height of its 44 dp thumb, whatever it is asked for, and that is what can be touched.
+                thumb = {
+                    Box(Modifier.heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
+                        SliderDefaults.Thumb(interactionSource = interaction, colors = colors)
+                    }
+                },
+                // It would read out a bare number with no unit, and with the wrong decimal mark in some languages.
+                modifier =
+                    Modifier.semantics {
+                        contentDescription = label
+                        stateDescription = valueText
+                    },
             )
         }
     }

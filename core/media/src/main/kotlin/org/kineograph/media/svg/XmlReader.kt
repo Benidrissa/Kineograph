@@ -181,8 +181,8 @@ internal class SvgXmlReader(private val limits: SvgLimits, private val warnings:
                 true
             }
 
-            // None of these draw anything. A filter only matters where something refers to it, and that is warned about there.
-            "metadata", "title", "desc", "filter", "font", "font-face", "missing-glyph", "cursor", "view" -> {
+            // None of these draw anything.
+            "metadata", "title", "desc", "font", "font-face", "missing-glyph", "cursor", "view" -> {
                 true
             }
 

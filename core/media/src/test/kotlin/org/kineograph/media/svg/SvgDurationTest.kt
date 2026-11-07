@@ -327,4 +327,106 @@ class SvgDurationTest {
         assertEquals(90.0, AnimationSummary.seamlessLoop(listOf(90.0), 60.0), 1e-9)
         assertEquals(4.0, AnimationSummary.seamlessLoop(listOf(2.0, 4.0, 1.0), 60.0), 1e-9)
     }
+
+    // ----- Intros, and what cannot repeat -----
+
+    @Test
+    fun `something that plays and ends before a loop is an intro, and is said to be`() {
+        val info = css(".a { animation: k 3s linear forwards } .b { animation: k .5s steps(1) infinite }")
+        assertTrue(info.loopsForever)
+        assertTrue(info.hasIntro)
+        assertEquals(3.0, info.loopStartSeconds, 1e-9)
+        assertEquals(0.5, info.durationSeconds, 1e-9)
+    }
+
+    @Test
+    fun `a loop that only waits to start has no intro to lose`() {
+        val info = css(".a { animation: k 1s infinite 2s }")
+        assertTrue(info.loopsForever)
+        assertFalse(info.hasIntro)
+        assertEquals(2.0, info.loopStartSeconds, 1e-9)
+    }
+
+    @Test
+    fun `a common cycle too long to import is reported as not repeating`() {
+        val exact = doc(smil("""dur="2s" repeatCount="indefinite"""") + smil("""dur="3s" repeatCount="indefinite""""))
+        assertTrue(exact.repeatsExactly)
+        val uneven =
+            doc(
+                smil("""dur="7s" repeatCount="indefinite"""") + smil("""dur="11s" repeatCount="indefinite"""") +
+                    smil("""dur="13s" repeatCount="indefinite""""),
+            )
+        assertEquals(13.0, uneven.durationSeconds, 1e-9)
+        assertFalse(uneven.repeatsExactly)
+        assertTrue(doc(smil("""dur="2s"""")).repeatsExactly)
+    }
+
+    @Test
+    fun `four thirds written as 1_33 still lines up with four seconds`() {
+        val info = doc(smil("""dur="1.33s" repeatCount="indefinite"""") + smil("""dur="4s" repeatCount="indefinite""""))
+        assertEquals(4.0, info.durationSeconds, 1e-9)
+        assertTrue(info.repeatsExactly)
+    }
+
+    @Test
+    fun `cycles that really are different are not rounded together`() {
+        val info = doc(smil("""dur="1s" repeatCount="indefinite"""") + smil("""dur="1.1s" repeatCount="indefinite""""))
+        assertEquals(11.0, info.durationSeconds, 1e-6)
+    }
+
+    // ----- What nobody can see does not count -----
+
+    @Test
+    fun `an animation on something switched off does not count`() {
+        assertEquals(1.0, css(".a { display: none; animation: k 5s infinite } .b { animation: k 1s infinite }").durationSeconds, 1e-9)
+    }
+
+    @Test
+    fun `an animation inside something switched off does not count`() {
+        val info =
+            parse(
+                svg(
+                    """<style>@keyframes k { to { opacity: 0 } } .a { animation: k 5s infinite } .b { animation: k 1s infinite }</style>
+                       <g style="display:none"><rect class="a"/></g><rect class="b"/>""",
+                ),
+            ).animation
+        assertEquals(1.0, info.durationSeconds, 1e-9)
+    }
+
+    @Test
+    fun `something that animates its own display does count`() {
+        val info = doc("""<set attributeName="display" to="none" begin="1s"/><animate attributeName="opacity" to="0" dur="3s"/>""")
+        assertEquals(3.0, info.durationSeconds, 1e-9)
+        val hidden =
+            parse(
+                svg(
+                    """<rect width="10" height="10" display="none"><set attributeName="display" to="inline" begin="1s"/>
+                       <animate attributeName="x" to="5" dur="4s"/></rect>""",
+                ),
+            ).animation
+        assertEquals(4.0, hidden.durationSeconds, 1e-9)
+    }
+
+    @Test
+    fun `an animation in defs that nothing uses does not count, and it does once something uses it`() {
+        val unused =
+            """<defs><rect id="r" width="10" height="10"><animate attributeName="x" to="5" dur="7s" repeatCount="indefinite"/></rect></defs>"""
+        val info = parse(svg(unused)).animation
+        assertTrue(info.isAnimated)
+        assertEquals(0.0, info.durationSeconds, 1e-9)
+        val used = parse(svg("""$unused<use href="#r"/>""")).animation
+        assertEquals(7.0, used.durationSeconds, 1e-9)
+    }
+
+    @Test
+    fun `a gradient, a clip, a mask and a marker count when something refers to them`() {
+        val gradient =
+            """<defs><linearGradient id="g"><stop offset="0"><animate attributeName="stop-opacity" to="0" dur="6s"/></stop></linearGradient></defs>
+               <rect width="10" height="10" fill="url(#g)"/>"""
+        assertEquals(6.0, parse(svg(gradient)).animation.durationSeconds, 1e-9)
+        val clip =
+            """<clipPath id="c"><rect width="10" height="10"><animate attributeName="width" to="0" dur="6s"/></rect></clipPath>
+               <rect width="10" height="10" clip-path="url(#c)"/>"""
+        assertEquals(6.0, parse(svg(clip)).animation.durationSeconds, 1e-9)
+    }
 }

@@ -46,8 +46,17 @@ public enum class SvgImportPlace { NEW_LAYER, CURRENT_LAYER, BACKGROUND }
 public sealed interface SvgImportRequest {
     public val fit: SvgFit
 
-    /** One sampled picture per tick, on a new layer called [layerName] that starts on the current frame. */
-    public data class Animation(val durationSeconds: Double, override val fit: SvgFit, val layerName: String) : SvgImportRequest
+    /**
+     * One sampled picture per tick, on a new layer called [layerName] that starts on the current frame.
+     *
+     * @property withIntro for a file that plays something once before it settles into a loop, whether that goes in too. See [SvgSampling].
+     */
+    public data class Animation(
+        val durationSeconds: Double,
+        override val fit: SvgFit,
+        val layerName: String,
+        val withIntro: Boolean = true,
+    ) : SvgImportRequest
 
     /** The picture as it looks at [timeSeconds]. */
     public data class SingleImage(
@@ -58,7 +67,10 @@ public sealed interface SvgImportRequest {
     ) : SvgImportRequest
 }
 
-/** How an import ended, unless it was cancelled, which comes through as a [CancellationException]. Only [DONE] changed the project. */
+/**
+ * How an import ended, unless it was cancelled in time, which comes through as a [CancellationException]. Only [DONE] changed the project. A Cancel
+ * that comes too late to stop the change gets [DONE] as well, because what the screen says has to match what happened.
+ */
 public enum class SvgImportOutcome {
     DONE,
 
@@ -67,6 +79,9 @@ public enum class SvgImportOutcome {
 
     /** The picture is completely empty at every moment asked for. */
     NOTHING_TO_IMPORT,
+
+    /** More frames than this device can keep track of, which is decided before anything is drawn. See [maxImportFrames]. */
+    TOO_MANY_FRAMES,
     OUT_OF_MEMORY,
     OUT_OF_STORAGE,
 
@@ -97,15 +112,74 @@ public fun svgDestination(pictureWidth: Float, pictureHeight: Float, canvasWidth
 }
 
 /**
- * When an imported animation's first tick is. A loop with a delay or an intro only starts to repeat later on, and importing from there is
+ * When the part of a picture that repeats starts. A loop with a delay or an intro only starts to repeat later on, and importing from there is
  * what lets its last frame run back into its first. Everything else starts at the start.
  */
 public val SvgAnimationInfo.sampleStartSeconds: Double
     get() = if (loopsForever) loopStartSeconds else 0.0
 
+/** How long an import of this picture should be, given whether it includes the intro of a file that has one. */
+public fun SvgAnimationInfo.suggestedSeconds(withIntro: Boolean): Double =
+    if (hasIntro && withIntro) loopStartSeconds + durationSeconds else durationSeconds
+
+/**
+ * The moments an import takes its pictures at, tick by tick. A preview shows the same ones. There are three ways it goes:
+ *
+ *  - **Something that ends** samples every tick up to and including its last moment. The last frame is what stays on screen, so a fade has to get
+ *    to where it was going. That makes one tick more than the duration alone.
+ *  - **A loop** samples from where it starts to repeat, and leaves out the end, which is the same moment as the start. So that the step from the
+ *    last frame back to the first is the same as all the others, the ticks divide the duration evenly, even if that does not come to exactly
+ *    one tick of the file's own time. A loop always gets two, as one would show none of its motion.
+ *  - **A loop with an intro, kept in,** runs from the very start at the project's rate. Its end runs into its loop and not into its intro, so
+ *    there is no seam to look after.
+ */
+public class SvgSampling private constructor(
+    public val tickCount: Int,
+    private val startSeconds: Double,
+    private val stepSeconds: Double,
+    private val lastSeconds: Double,
+) {
+    public fun secondsAt(tick: Int): Double = minOf(startSeconds + tick * stepSeconds, lastSeconds)
+
+    public companion object {
+        public fun of(animation: SvgAnimationInfo, durationSeconds: Double, fps: Int, withIntro: Boolean = true): SvgSampling {
+            val rate = fps.coerceIn(MIN_FPS, MAX_FPS)
+            val oneTick = 1.0 / rate
+            return when {
+                !animation.loopsForever -> {
+                    SvgSampling(ImportEdits.tickCountThroughEnd(durationSeconds, rate), 0.0, oneTick, durationSeconds)
+                }
+
+                animation.hasIntro && withIntro -> {
+                    SvgSampling(ImportEdits.tickCount(durationSeconds, rate), 0.0, oneTick, durationSeconds)
+                }
+
+                else -> {
+                    val ticks = ImportEdits.tickCount(durationSeconds, rate).coerceAtLeast(MIN_LOOP_TICKS)
+                    val start = animation.loopStartSeconds
+                    SvgSampling(ticks, start, durationSeconds / ticks, start + durationSeconds)
+                }
+            }
+        }
+
+        private const val MIN_LOOP_TICKS = 2
+    }
+}
+
+/**
+ * The most frames this device can be asked to import. Each one costs the Java heap a little for as long as the project is open: its place on the
+ * timeline, its cel, and its share of a manifest that is encoded again by every autosave. At about two kilobytes each, half of the heap goes first, on
+ * [heapBytes] that are the device's own, and a normal phone still gets over an hour of animation at twelve frames per second.
+ */
+public fun maxImportFrames(heapBytes: Long = Runtime.getRuntime().maxMemory()): Int =
+    (heapBytes / HEAP_PER_FRAME).coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+
+private const val HEAP_PER_FRAME = 4L * 1024
+
 /**
  * Turns a parsed picture into drawings in the open project. All the drawing happens away from the main thread and the engine thread, and the
- * project only changes in the last step, as one undo step, so cancelling or failing at any point before that leaves it exactly as it was.
+ * project only changes in the last step, as one undo step, so cancelling or failing at any point before that leaves it exactly as it was, and
+ * takes back what was written on the way.
  *
  * While this runs, the files it writes are not yet part of the project, so whoever calls it must keep the sweep off them. See
  * `Autosaver.holdSweeps`.
@@ -118,60 +192,102 @@ public class SvgImporter(
     private val saveBackground: suspend (Bitmap) -> Background.Image,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
-    /** Runs one import. [onProgress] hears how many of the pictures are drawn. Cancelling throws [CancellationException] and changes nothing. */
+    /** What one import has done so far, which is what it may have to take back. */
+    private class Run {
+        val written = ArrayList<String>()
+
+        /** Once this is set, the project has changed, so nothing that comes after can make this import anything but done. */
+        @Volatile
+        var applied = false
+    }
+
+    /**
+     * Runs one import. [onProgress] hears how many of the pictures are drawn. Cancelling throws [CancellationException] and changes nothing, unless
+     * it comes after the project has already changed, and then this returns [SvgImportOutcome.DONE] as usual.
+     */
     public suspend fun import(
         document: SvgDocument,
         request: SvgImportRequest,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
-    ): SvgImportOutcome =
-        withContext(dispatcher) {
-            val written = ArrayList<String>()
-            try {
-                when (request) {
-                    is SvgImportRequest.Animation -> importAnimation(document, request, written, onProgress)
-                    is SvgImportRequest.SingleImage -> importSingleImage(document, request, written, onProgress)
+    ): SvgImportOutcome {
+        val run = Run()
+        return try {
+            withContext(dispatcher) {
+                try {
+                    when (request) {
+                        is SvgImportRequest.Animation -> importAnimation(document, request, run, onProgress)
+                        is SvgImportRequest.SingleImage -> importSingleImage(document, request, run, onProgress)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: OutOfMemoryError) {
+                    session.trimMemory()
+                    giveUp(run)
+                    SvgImportOutcome.OUT_OF_MEMORY
+                } catch (_: IOException) {
+                    giveUp(run)
+                    SvgImportOutcome.OUT_OF_STORAGE
+                } catch (_: IllegalArgumentException) {
+                    // A bitmap refuses a size past what the platform can address, which comes to the same thing for the person using the app.
+                    giveUp(run)
+                    SvgImportOutcome.OUT_OF_MEMORY
+                } catch (_: RuntimeException) {
+                    giveUp(run)
+                    SvgImportOutcome.FAILED
                 }
-            } catch (e: CancellationException) {
-                // What was written stays on disk for the normal sweep, which is cheaper than waiting for it now.
-                throw e
-            } catch (_: OutOfMemoryError) {
-                session.trimMemory()
-                SvgImportOutcome.OUT_OF_MEMORY
-            } catch (_: IOException) {
-                store.discard(written)
-                SvgImportOutcome.OUT_OF_STORAGE
-            } catch (_: IllegalArgumentException) {
-                // A bitmap refuses a size past what the platform can address, which comes to the same thing for the person using the app.
-                SvgImportOutcome.OUT_OF_MEMORY
-            } catch (_: RuntimeException) {
-                SvgImportOutcome.FAILED
             }
+        } catch (e: CancellationException) {
+            // A cancelled coroutine loses whatever withContext would have returned, including the news that the project has changed.
+            if (run.applied) return SvgImportOutcome.DONE
+            giveUp(run)
+            throw e
         }
+    }
+
+    /**
+     * Gives back everything an import wrote. Nothing will refer to it, and the sweep may not come for a long while, or at all on a nearly full disk,
+     * where a save has to succeed before one is due. A write that keeps failing would also make every later save fail along with it.
+     */
+    private suspend fun giveUp(run: Run) {
+        if (run.written.isEmpty()) return
+        withContext(NonCancellable) {
+            try {
+                store.awaitWrites()
+            } catch (_: IOException) {
+                // Whatever failed is what is being given up here.
+            } catch (_: OutOfMemoryError) {
+                // Same as above.
+            }
+            store.discard(run.written)
+        }
+    }
 
     private suspend fun importAnimation(
         document: SvgDocument,
         request: SvgImportRequest.Animation,
-        written: MutableList<String>,
+        run: Run,
         onProgress: (Int, Int) -> Unit,
     ): SvgImportOutcome {
-        val project = session.snapshot(commitSelection = true)
+        // Lifted pixels stay lifted until the last step, because cancelling should not have touched them. See DrawingSession.applyEdit.
+        val project = session.snapshot()
         val frameId = session.state.value.frameId
         val activeLayerId = session.state.value.layerId
-        val fps = project.fps.coerceIn(MIN_FPS, MAX_FPS)
-        val tickCount = ImportEdits.tickCount(request.durationSeconds, fps)
+        val sampling = SvgSampling.of(document.animation, request.durationSeconds, project.fps, request.withIntro)
+        val tickCount = sampling.tickCount
+        // Asked before the ticks are listed, which is the first thing here that takes up room for each one of them.
+        if (tickCount > maxImportFrames()) return SvgImportOutcome.TOO_MANY_FRAMES
         val ticks = ImportEdits.ticksToSample(project, frameId, tickCount)
-        val start = document.animation.sampleStartSeconds
         val destination = destinationOn(project, document, request.fit)
         val images = HashMap<Int, PlacedImage>()
         val frames = FrameSampler(project.width, project.height)
         try {
             var last: PlacedImage? = null
             for ((index, tick) in ticks.withIndex()) {
-                document.renderCancellable(frames.canvas, start + tick.toDouble() / fps, destination)
+                document.renderCancellable(frames.canvas, sampling.secondsAt(tick), destination)
                 if (!frames.sameAsPrevious()) {
-                    last = frames.cropToStore()?.also { written += it.file }
+                    last = frames.cropToStore()?.also { run.written += it.file }
                     // Checking as it goes means a full disk ends the import early, instead of piling up every picture in memory first.
-                    if (last != null && written.size % WRITE_CHECK_INTERVAL == 0) store.awaitWrites()
+                    if (last != null && run.written.size % WRITE_CHECK_INTERVAL == 0) store.awaitWrites()
                 }
                 last?.let { images[tick] = it }
                 frames.next()
@@ -183,7 +299,7 @@ public class SvgImporter(
         if (images.isEmpty()) return SvgImportOutcome.NOTHING_TO_IMPORT
         store.awaitWrites()
         val layerId = newId()
-        applyAsOneStep(layerId) { current ->
+        applyAsOneStep(run, layerId) { current ->
             ImportEdits.addAnimationLayer(current, activeLayerId, frameId, request.layerName, tickCount, images, layerId)
         }
         return SvgImportOutcome.DONE
@@ -192,10 +308,10 @@ public class SvgImporter(
     private suspend fun importSingleImage(
         document: SvgDocument,
         request: SvgImportRequest.SingleImage,
-        written: MutableList<String>,
+        run: Run,
         onProgress: (Int, Int) -> Unit,
     ): SvgImportOutcome {
-        val project = session.snapshot(commitSelection = true)
+        val project = session.snapshot()
         val frameId = session.state.value.frameId
         val activeLayerId = session.state.value.layerId
         val active = project.layer(activeLayerId)
@@ -212,27 +328,29 @@ public class SvgImporter(
             when (request.place) {
                 SvgImportPlace.NEW_LAYER -> {
                     val image = PlacedImage(store.write(crop(picture, bounds)), bounds)
-                    written += image.file
+                    run.written += image.file
                     store.awaitWrites()
                     val layerId = newId()
-                    applyAsOneStep(layerId) { current ->
+                    applyAsOneStep(run, layerId) { current ->
                         ImportEdits.addImageLayer(current, activeLayerId, frameId, request.layerName, image, layerId)
                     }
                 }
 
                 SvgImportPlace.CURRENT_LAYER -> {
-                    val image = combineWithCel(project, activeLayerId, frameId, picture, bounds) ?: return SvgImportOutcome.FAILED
-                    written += image.file
+                    // The picture goes over what the layer really holds, and that includes anything lifted, so that is only put down now.
+                    val latest = session.snapshot(commitSelection = true)
+                    val image = combineWithCel(latest, activeLayerId, frameId, picture, bounds) ?: return SvgImportOutcome.FAILED
+                    run.written += image.file
                     store.awaitWrites()
-                    applyAsOneStep(null) { current -> ImportEdits.replaceCel(current, activeLayerId, frameId, image) }
+                    applyAsOneStep(run, null) { current -> ImportEdits.replaceCel(current, activeLayerId, frameId, image) }
                 }
 
                 SvgImportPlace.BACKGROUND -> {
                     val background = saveBackground(picture)
                     currentCoroutineContext().ensureActive()
                     withContext(NonCancellable) {
-                        session.setBackground(background)
-                        session.awaitIdle()
+                        session.applyBackground(background)
+                        run.applied = true
                     }
                 }
             }
@@ -265,20 +383,14 @@ public class SvgImporter(
     }
 
     /**
-     * Once this starts, the import is going to count as done, so a late Cancel cannot leave the project changed while the screen says it was not.
-     * Memory can still run out while the result is being shown, after the project has changed. Taking that back keeps the promise that a
-     * failed import changes nothing.
+     * Once this starts, the import is going to count as done or as failed, and a Cancel can no longer stop it. What it comes to is noted down, and
+     * [import] goes by that note, because a Cancel can still arrive in time to lose the result on the way back.
      */
-    private suspend fun applyAsOneStep(selectLayerId: String?, edit: (Project) -> Project) {
+    private suspend fun applyAsOneStep(run: Run, selectLayerId: String?, edit: (Project) -> Project) {
         currentCoroutineContext().ensureActive()
         withContext(NonCancellable) {
-            var edited: Project? = null
-            try {
-                session.applyEdit(selectLayerId) { current -> edit(current).also { edited = it } }
-            } catch (e: OutOfMemoryError) {
-                if (edited != null && session.snapshot() === edited) session.undo()
-                throw e
-            }
+            session.applyEdit(selectLayerId, edit)
+            run.applied = true
         }
     }
 

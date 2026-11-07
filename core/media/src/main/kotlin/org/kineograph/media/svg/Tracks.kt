@@ -394,7 +394,24 @@ internal class CssTrack(
         val b = to.value ?: underlying
         if (property == "visibility") return interpolateVisibility(a, b, eased)
         if (property == "display") return interpolateDisplay(a, b, eased)
+        if (property == "clip-path") return interpolateClip(a, b, eased)
         return ValueMath.interpolate(a, b, eased, current) ?: if (eased < 0.5) a else b
+    }
+
+    /** One track only ever meets the few shapes its own frames name, and reading one again for every frame adds up. */
+    private val shapes = HashMap<String, BasicShape?>()
+
+    private fun shapeOf(value: SvgValue?): BasicShape? {
+        val text = (value as? KeywordValue)?.text ?: return null
+        return if (shapes.containsKey(text)) shapes[text] else parseBasicShape(text).also { shapes[text] = it }
+    }
+
+    /** Anything else, such as a `url()` or `none`, has no in-between and flips half way, as it does in browsers. */
+    private fun interpolateClip(a: SvgValue?, b: SvgValue?, p: Double): SvgValue? {
+        val from = shapeOf(a)
+        val to = shapeOf(b)
+        val mixed = if (from != null && to != null) from.interpolate(to, p) else null
+        return mixed?.let(::ClipShapeValue) ?: if (p < 0.5) a else b
     }
 
     /** The same idea for `display`: `none` only takes hold at the very end of the animation, so the element can still be seen fading. */

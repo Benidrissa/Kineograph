@@ -17,13 +17,16 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.kineograph.data.files.CelFileStore
 import org.kineograph.engine.session.DrawingSession
+import org.kineograph.model.Background
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Saves an open project about a second after the last change, and whenever [saveNow] is called, such as when
- * the app goes to the background. A failed save (a full disk, usually) keeps everything in memory, reports
- * it through [saveFailed], and is tried again after the next change.
+ * the app goes to the background. A failed save (a full disk, usually) first clears out files that nothing refers to and tries again. If that
+ * does not help, it keeps everything in memory, reports it through [saveFailed], and is tried again after the next change.
+ *
+ * @param listCelFiles what a sweep looks through. Only a test has any reason to change this.
  */
 public class Autosaver(
     private val session: DrawingSession,
@@ -31,11 +34,12 @@ public class Autosaver(
     private val store: CelFileStore,
     private val projectId: String,
     private val debounceMs: Long = 1000L,
+    private val listCelFiles: () -> Set<String> = store::listFiles,
 ) {
     private val mutex = Mutex()
     private var savedRevision = -1L
     private var savesSinceSweep = 0
-    private var thumbnailFiles: Set<String>? = null
+    private var thumbnailLook: Pair<Set<String>, Background>? = null
     private var watcher: Job? = null
     private val sweepHolds = AtomicInteger()
 
@@ -71,30 +75,53 @@ public class Autosaver(
                 val revision = session.state.value.revision
                 if (revision == savedRevision && !commitSelection) return@withLock
                 try {
-                    val project = session.snapshot(commitSelection)
-                    repository.save(project, store)
-                    savedRevision = revision
-                    _saveFailed.value = false
-                    // Only redraw the thumbnail when its images may have changed.
-                    val files = project.referencedFiles()
-                    if (files != thumbnailFiles) {
-                        repository.updateThumbnail(project, store)
-                        thumbnailFiles = files
-                    }
-                    if (++savesSinceSweep >= SAVES_BETWEEN_SWEEPS) {
-                        savesSinceSweep = 0
-                        sweep()
-                    }
+                    save(revision, commitSelection)
                 } catch (_: IOException) {
+                    // Files that nothing refers to any more may be what filled the disk, and saving is what normally leads to them being swept.
+                    if (!sweepAndSaveAgain(revision, commitSelection)) _saveFailed.value = true
+                } catch (_: OutOfMemoryError) {
                     _saveFailed.value = true
                 }
             }
         }
     }
 
+    @Throws(IOException::class)
+    private suspend fun save(revision: Long, commitSelection: Boolean) {
+        val project = session.snapshot(commitSelection)
+        repository.save(project, store)
+        savedRevision = revision
+        _saveFailed.value = false
+        // Only redraw the thumbnail when what it shows may have changed, and what is behind the layers shows too.
+        val look = project.referencedFiles() to project.background
+        if (look != thumbnailLook) {
+            repository.updateThumbnail(project, store)
+            thumbnailLook = look
+        }
+        if (++savesSinceSweep >= SAVES_BETWEEN_SWEEPS) {
+            savesSinceSweep = 0
+            sweep()
+        }
+    }
+
+    private suspend fun sweepAndSaveAgain(revision: Long, commitSelection: Boolean): Boolean =
+        try {
+            if (sweep()) {
+                save(revision, commitSelection)
+                true
+            } else {
+                false
+            }
+        } catch (_: IOException) {
+            false
+        } catch (_: OutOfMemoryError) {
+            false
+        }
+
     /**
      * Stops image files from being swept until [releaseSweeps]. An import writes many files that nothing refers to until its very end, and a
-     * sweep in the meantime would take them for garbage. A sweep already under way is safe too: it listed its files before these existed.
+     * sweep in the meantime would take them for garbage. A sweep already under way looks again once it has listed its files, so whatever it
+     * could have found of these, it leaves alone.
      */
     public fun holdSweeps() {
         sweepHolds.incrementAndGet()
@@ -105,12 +132,15 @@ public class Autosaver(
         sweepHolds.decrementAndGet()
     }
 
-    /** Deletes image files that nothing refers to any more. */
-    private suspend fun sweep() {
-        if (sweepHolds.get() > 0) return
-        val candidates = store.listFiles()
+    /** Deletes image files that nothing refers to any more. False if a hold stopped it, which leaves everything where it was. */
+    private suspend fun sweep(): Boolean {
+        if (sweepHolds.get() > 0) return false
+        val candidates = listCelFiles()
+        // A hold that began during the listing may have a file in it already. One that begins after this cannot.
+        if (sweepHolds.get() > 0) return false
         val keep = session.referencedFiles()
         repository.sweep(projectId, store, candidates, keep)
+        return true
     }
 
     /** Saves one last time and stops watching. Call before closing the session. */
@@ -120,12 +150,14 @@ public class Autosaver(
         withContext(Dispatchers.Default + NonCancellable) {
             mutex.withLock {
                 try {
-                    sweep()
+                    if (sweep()) repository.sweepBackgrounds(projectId, session.referencedFiles())
                 } catch (_: IOException) {
                     // Leftover files cost a little space and are swept next time.
                 }
             }
         }
+        // What was just swept may be the room a last save needed, and whatever is still only in memory goes with the session.
+        if (_saveFailed.value) saveNow(commitSelection = true)
     }
 
     private companion object {

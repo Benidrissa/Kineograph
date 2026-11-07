@@ -499,10 +499,18 @@ class SvgValuesTest {
     }
 
     @Test
-    fun `selectors nobody can match are refused rather than guessed at`() {
-        assertNull(parseSelector("rect:hover"))
-        assertNull(parseSelector("a::before"))
+    fun `selectors that make no sense are refused rather than guessed at`() {
         assertNull(parseSelector(""))
         assertNull(parseSelector(".a > "))
+        assertNull(parseSelector("a:::x"))
+        assertNull(parseSelector("a:nonsense"))
+        assertNull(parseSelector("a::nonsense"))
+    }
+
+    @Test
+    fun `selectors that can only never be true are still selectors`() {
+        assertNotNull(parseSelector("rect:hover"))
+        assertNotNull(parseSelector("a::before"))
+        assertNotNull(parseSelector(":not(:hover)"))
     }
 }

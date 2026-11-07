@@ -113,9 +113,8 @@ class SvgImportOnDiskTest {
     }
 
     @Test
-    fun `a cancelled import leaves its files for the next sweep, which takes them`() {
+    fun `a cancelled import takes its files away with it, without waiting for a sweep`() {
         val project = runBlocking { repository.create("One", 200, 100, 12, Background.Transparent, "Layer 1") }
-        val onDisk = ArrayList<File>()
         withEditor(project.id) { session, autosaver, importer ->
             autosaver.holdSweeps()
             val before = session.snapshot()
@@ -128,12 +127,31 @@ class SvgImportOnDiskTest {
             assertTrue(thrown is CancellationException)
             autosaver.releaseSweeps()
             assertEquals(before, session.snapshot())
-            // What was drawn so far is still there until a sweep comes along.
-            onDisk += cels(project.id)
+            assertTrue(cels(project.id).isEmpty())
         }
-        assertFalse(onDisk.isEmpty())
-        // Closing the editor sweeps, and nothing in the project refers to them.
-        assertTrue(cels(project.id).isEmpty())
+    }
+
+    @Test
+    fun `a background left behind by a cancel goes when the project closes`() {
+        val project = runBlocking { repository.create("One", 200, 100, 12, Background.Transparent, "Layer 1") }
+        val square = SvgParser.parse(
+            """<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20" fill="red"/></svg>""",
+        )
+        val media = File(files.projectDirectory(project.id), "media")
+        withEditor(project.id) { _, _, _ ->
+            repository.saveBackgroundImage(project.id, Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888))
+            assertEquals(1, media.listFiles().orEmpty().size)
+        }
+        assertEquals(0, media.listFiles().orEmpty().size)
+        withEditor(project.id) { session, _, importer ->
+            val request = SvgImportRequest.SingleImage(0.0, SvgImportPlace.BACKGROUND, SvgFit.ORIGINAL_SIZE, "Picture")
+            assertEquals(SvgImportOutcome.DONE, importer.import(square, request))
+            assertEquals(1, media.listFiles().orEmpty().size)
+            session.undo()
+        }
+        // Redo could still bring it back until the project closed. With that gone, nothing can.
+        withEditor(project.id) { _, _, _ -> }
+        assertEquals(0, media.listFiles().orEmpty().size)
     }
 
     @Test

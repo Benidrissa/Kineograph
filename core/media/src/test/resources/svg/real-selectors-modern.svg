@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200" fill="#ccc">
+  <style><![CDATA[
+    rect:not(:hover).nh { fill: #0aa; }
+    rect:hover { fill: #f00; }
+    rect::before { fill: #f00; }
+    :is(.isa, .isb) { fill: #050; }
+    :is(.isc, .bad:::x) { fill: #0a0; }
+    :where(.wh) { fill: #500; }
+    rect.wh2 { fill: #a50; }
+    :where(.wh2) { fill: #f00; }
+    g:has(> .hc) .hd { fill: #f80; }
+    g:has(.nothing) .he { fill: #f00; }
+    .sib2:has(+ .sib3) { fill: #808; }
+    :not(.keep, g) .gone { fill: #f00; }
+    .good, .bad:::x { fill: #f00; }
+    @supports (display: grid) { .sup { fill: #3a3; } }
+    @supports not (display: grid) { .sup { fill: #f00; } }
+    @supports (display: grid) and (not (fill: nonsense-value)) { .sup2 { fill: #2a7; } }
+    @supports (-ms-ime-align: auto) { .sup3 { fill: #f00; } }
+    @layer base, top;
+    @layer top { .lay { fill: #36a; } }
+    @layer base { .lay { fill: #f00; } }
+    @layer base { .lay2 { fill: #f00; } }
+    .lay2 { fill: #48c; }
+    @layer base { .imp { fill: #6a3 !important; } }
+    @layer top { .imp { fill: #f00 !important; } }
+    .imp { fill: #f00 !important; }
+    .nest { fill: #363; & .kid { fill: #636; } .kid2 { fill: #963; } &.me { fill: #396; } @media (min-width: 1px) { .kid3 { fill: #639; } } }
+  ]]></style>
+  <rect class="nh" x="0" y="0" width="30" height="30"/>
+  <rect class="isa" x="35" y="0" width="30" height="30"/>
+  <rect class="isc" x="70" y="0" width="30" height="30"/>
+  <rect class="wh" x="105" y="0" width="30" height="30"/>
+  <rect class="wh2" x="140" y="0" width="30" height="30"/>
+  <g><rect class="hc" x="0" y="35" width="30" height="30"/><rect class="hd" x="35" y="35" width="30" height="30"/><rect class="he" x="70" y="35" width="30" height="30"/></g>
+  <g><rect class="sib2" x="105" y="35" width="30" height="30"/><rect class="sib3" x="140" y="35" width="30" height="30"/></g>
+  <g class="keep"><rect class="gone" x="0" y="70" width="30" height="30"/></g>
+  <rect class="good" x="35" y="70" width="30" height="30"/>
+  <rect class="sup" x="70" y="70" width="30" height="30"/>
+  <rect class="sup2" x="105" y="70" width="30" height="30"/>
+  <rect class="sup3" x="140" y="70" width="30" height="30"/>
+  <rect class="lay" x="0" y="105" width="30" height="30"/>
+  <rect class="lay2" x="35" y="105" width="30" height="30"/>
+  <rect class="imp" x="70" y="105" width="30" height="30"/>
+  <g class="nest"><rect x="105" y="105" width="30" height="30"/><rect class="kid" x="140" y="105" width="30" height="30"/><rect class="kid2" x="0" y="140" width="30" height="30"/><rect class="kid3" x="35" y="140" width="30" height="30"/></g>
+  <g class="nest me"><rect x="70" y="140" width="30" height="30" style="fill:inherit"/></g>
+</svg>

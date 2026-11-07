@@ -16,7 +16,10 @@ public interface CelStore {
     /** Decodes an image, optionally reduced by a power-of-two [sampleSize]. Returns null if it cannot be read. */
     public fun read(file: String, sampleSize: Int = 1): Bitmap?
 
-    /** Suspends until every queued [write] has reached the disk. */
+    /**
+     * Suspends until every queued [write] has reached the disk. Throws [java.io.IOException] if any could not, or [OutOfMemoryError] if that was
+     * because memory ran out, since the thread that ran into it cannot tell anyone by itself.
+     */
     public suspend fun awaitWrites()
 
     /** Frees caches, for when memory runs low. */

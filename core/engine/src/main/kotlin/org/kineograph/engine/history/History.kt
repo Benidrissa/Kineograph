@@ -1,5 +1,6 @@
 package org.kineograph.engine.history
 
+import org.kineograph.model.Background
 import org.kineograph.model.IntRect
 import org.kineograph.model.Project
 import java.io.File
@@ -61,6 +62,20 @@ public class StructureEntry(
         const val ENTRY_OVERHEAD = 512L
         const val PER_CEL = 96L
         const val PER_FRAME = 48L
+    }
+}
+
+/** A change to what sits behind the layers. Structure entries leave that alone, since most ways of changing it are not undo steps. */
+public class BackgroundEntry(public val before: Background, public val after: Background) : HistoryEntry {
+    override val memoryBytes: Long get() = ENTRY_OVERHEAD
+    override val diskBytes: Long get() = 0L
+
+    override fun discard() {
+        // Holds no resources of its own. The picture files are swept when nothing refers to them any more.
+    }
+
+    private companion object {
+        const val ENTRY_OVERHEAD = 128L
     }
 }
 
@@ -141,13 +156,24 @@ public class History(
         }
     }
 
-    /** Cel files that undo or redo might bring back, which therefore must not be deleted. */
+    /** Files that undo or redo might bring back, which therefore must not be deleted. */
     public fun referencedFiles(): Set<String> {
         val files = HashSet<String>()
         (undoStack + redoStack).forEach { entry ->
-            if (entry is StructureEntry) {
-                files += entry.before.referencedFiles()
-                files += entry.after.referencedFiles()
+            when (entry) {
+                is StructureEntry -> {
+                    files += entry.before.referencedFiles()
+                    files += entry.after.referencedFiles()
+                }
+
+                is BackgroundEntry -> {
+                    (entry.before as? Background.Image)?.let { files += it.file }
+                    (entry.after as? Background.Image)?.let { files += it.file }
+                }
+
+                is PixelEntry -> {
+                    Unit
+                }
             }
         }
         return files

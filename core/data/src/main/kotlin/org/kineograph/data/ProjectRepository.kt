@@ -106,7 +106,7 @@ public class ProjectRepository(
                 val image = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) } ?: return@withContext null
                 val output = ByteArrayOutputStream()
                 image.compress(lossyFormat(), BACKGROUND_QUALITY, output)
-                val name = "media/background-${newId()}.webp"
+                val name = "$MEDIA_DIRECTORY/$BACKGROUND_PREFIX${newId()}.webp"
                 AtomicFile.write(File(files.projectDirectory(projectId), name), output.toByteArray())
                 Background.Image(name)
             } catch (_: IOException) {
@@ -119,7 +119,7 @@ public class ProjectRepository(
         }
 
     /**
-     * Keeps a finished picture as a project's background. Files under `media/` are not cels, so the sweep never touches them. Unlike a
+     * Keeps a finished picture as a project's background. Files under `media/` are not cels, so the sweep of cels never touches them. Unlike a
      * photo, this is usually flat colour with sharp edges, which lossy compression would visibly smear.
      */
     @Throws(IOException::class)
@@ -129,7 +129,7 @@ public class ProjectRepository(
             val output = ByteArrayOutputStream()
             val format = if (isWebp) Bitmap.CompressFormat.WEBP_LOSSLESS else Bitmap.CompressFormat.PNG
             if (!image.compress(format, LOSSLESS_EFFORT, output)) throw IOException("Could not encode the background")
-            val name = "media/background-${newId()}.${if (isWebp) "webp" else "png"}"
+            val name = "$MEDIA_DIRECTORY/$BACKGROUND_PREFIX${newId()}.${if (isWebp) "webp" else "png"}"
             AtomicFile.write(File(files.projectDirectory(projectId), name), output.toByteArray())
             Background.Image(name)
         }
@@ -150,6 +150,22 @@ public class ProjectRepository(
 
     /** Whether a project cannot be opened only because it came from a newer version of the app. */
     public suspend fun needsNewerApp(id: String): Boolean = withContext(io) { manifestStore(id).needsNewerApp() }
+
+    /**
+     * Deletes background pictures that nothing refers to, such as one that was replaced, or one saved by an import that was then cancelled. Nothing
+     * else would, and each can be as large as a whole canvas. Both manifests count, since either one could be what the project reopens from.
+     */
+    public suspend fun sweepBackgrounds(projectId: String, keep: Set<String>) {
+        withContext(io) {
+            val store = manifestStore(projectId)
+            val wanted = keep + store.backgroundFiles()
+            val media = File(files.projectDirectory(projectId), MEDIA_DIRECTORY)
+            for (file in media.listFiles().orEmpty()) {
+                val name = "$MEDIA_DIRECTORY/${file.name}"
+                if (file.isFile && file.name.startsWith(BACKGROUND_PREFIX) && name !in wanted) file.delete()
+            }
+        }
+    }
 
     /** Makes a project durable: images first, then the manifest that refers to them, then the index. */
     @Throws(IOException::class)
@@ -323,5 +339,7 @@ public class ProjectRepository(
         const val LOSSLESS_EFFORT = 50
         const val MIN_STORE_CACHE = 1024L * 1024
         const val TRASH_RETENTION_MS = 30L * 24 * 60 * 60 * 1000
+        const val MEDIA_DIRECTORY = "media"
+        const val BACKGROUND_PREFIX = "background-"
     }
 }

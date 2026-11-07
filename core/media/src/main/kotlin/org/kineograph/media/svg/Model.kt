@@ -54,6 +54,9 @@ internal class SvgElement(val tag: String, val parent: SvgElement?) {
     var conditionsPass: Boolean = true
     var image: EmbeddedImage? = null
 
+    /** On a `filter` element, what can be done about it. Worked out before the attributes it comes from are let go. */
+    var filterPlan: FilterPlan? = null
+
     val staticView: PropView by lazy(LazyThreadSafetyMode.NONE) { PropView(this, null) }
 
     fun addTrack(track: Track) {

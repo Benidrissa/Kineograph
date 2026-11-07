@@ -80,7 +80,7 @@ thread always sees a consistent set of layers.
 - **Pixel undo** stores only the changed rectangle. Patches start raw, are deflated in the background, and spill to disk
   when the memory budget is reached. At least 100 steps are always kept, even when budgets are exceeded.
 - **Playback** decodes ahead of the playhead at display resolution into `HARDWARE` bitmaps, off the Java heap.
-- **`OutOfMemoryError`** is caught on the engine thread: caches empty, history spills to disk, and the user is told.
+- **`OutOfMemoryError`** is caught on the engine thread and in background cel writes: caches empty, history spills to disk, and the user is told.
   Opening a canvas retries without the margin before giving up with an explanation.
 
 ## Saving
@@ -153,18 +153,20 @@ Bringing a file into a project has three parts, and each knows as little as it c
 :core:model       ImportEdits                            how the project changes, given the pictures
 ```
 
-- **The project changes once, at the very end.** Until then, the importer only writes files. Its last step is
-  `DrawingSession.applyEdit`, one undo step on the engine thread, with an edit from `ImportEdits`. So however an import ends early, by
-  Cancel, by running out of memory or storage, or by the app going away, there is nothing to take back.
-- **A timeline never changes under an import.** Slots are only added after the end. A tick is `1 / fps`, and the new layer's ticks line up with
+- **The project changes once, at the very end.** Until then, the importer only writes files, and any lifted selection stays lifted. Its last step is
+  `DrawingSession.applyEdit`, one undo step on the engine thread, with an edit from `ImportEdits`. It either happens or does not: if memory runs out in it, the project, the surface and
+  both undo stacks are as they were. However an import ends before that, nothing has changed, and what it wrote is given back. A Cancel that comes during that step is too late
+  to stop it, and the import reports itself done, because what the screen says has to match what happened.
+- **A timeline never changes under an import.** Slots are only added after the end. `SvgSampling` says which moment each tick shows, and the new layer's ticks line up with
   the ticks already on the timeline. A slot held for several ticks can only show one drawing, so it gets the moment it starts at and the
   animation stays in time with the rest of the project. `ImportEdits.ticksToSample` says which ticks will be seen, so that no others are drawn.
-- **Memory does not grow with the length of an animation.** Two canvas-sized bitmaps are reused for all of it, one to draw on and one to compare
+- **Bitmaps do not grow with the length of an animation.** Two canvas-sized bitmaps are reused for all of it, one to draw on and one to compare
   with, using a native comparison, and the store's queue limits what waits to reach the disk. Every eighth stored picture also waits for the disk, which
-  is how a full disk ends the import early rather than leaving every picture queued in memory.
+  is how a full disk ends the import early rather than leaving every picture queued in memory. The Java heap does grow, by a little for each frame, so `maxImportFrames` holds that to a
+  share of what the device has.
 - **The sweep has to be kept off.** Files of an import under way are not in the project yet, so a sweep would delete them. `Autosaver.holdSweeps`
-  stops sweeps until the import is settled. What a cancelled import wrote is left for the next sweep. What one wrote before running out of
-  storage is given up at once with `CelStore.discard`, because that space is needed now, and because a write that keeps failing would make
-  every later save fail as well.
+  stops sweeps until the import is settled. What an import wrote and did not use is given up at once with `CelStore.discard`, because that space may be needed now, and because a
+  write that keeps failing would make every later save fail as well.
 - **The preview cannot slow the sheet down.** It draws on a background thread into a few reused bitmaps, far smaller than the canvas where the canvas is
-  large, and a change of choices abandons whatever was being drawn. It plays exactly the moments that an import would sample.
+  large, and a change of choices abandons whatever was being drawn. It stops while the app is not on screen, and draws only into a bitmap that is not being shown. It plays exactly the
+  moments that an import would sample, holding still where a held slot would.

@@ -84,6 +84,7 @@ internal class SmilBuilder(
     private val work: ParseWork,
 ) {
     val timings: ArrayList<SmilTiming> = ArrayList()
+    private val targets = HashMap<SmilTiming, SvgElement>()
     var foundAnimation: Boolean = false
         private set
     private var order = 0
@@ -94,6 +95,9 @@ internal class SmilBuilder(
         timeline.solve()
         if (timeline.exhausted) warnings += SvgWarning.LIMIT_REACHED
     }
+
+    /** The element a timing moves. */
+    fun targetOf(timing: SmilTiming): SvgElement? = targets[timing]
 
     private fun walk(element: SvgElement) {
         if (element.tag in ANIMATION_TAGS) {
@@ -131,7 +135,7 @@ internal class SmilBuilder(
         return byId[href.substring(1)]
     }
 
-    private fun readTiming(element: SvgElement, fixedFreeze: Boolean? = null): SmilTiming {
+    private fun readTiming(element: SvgElement, target: SvgElement, fixedFreeze: Boolean? = null): SmilTiming {
         val attrs = element.attrs
         val begins = readTimeList(attrs["begin"], isBegin = true)
         val ends = readTimeList(attrs["end"], isBegin = false)
@@ -172,6 +176,7 @@ internal class SmilBuilder(
                 freeze = fixedFreeze ?: (attrs["fill"]?.trim() == "freeze"),
             )
         timings += timing
+        targets[timing] = target
         return timing
     }
 
@@ -243,7 +248,7 @@ internal class SmilBuilder(
             warnings += SvgWarning.INVALID_CONTENT_IGNORED
             return
         }
-        val timing = readTiming(element)
+        val timing = readTiming(element, target)
         val parse: (String) -> SvgValue? =
             if (tag == "animateTransform") {
                 val type = attrs["type"]?.trim() ?: "translate"
@@ -374,7 +379,7 @@ internal class SmilBuilder(
 
     private fun buildDiscard(element: SvgElement, target: SvgElement) {
         // Once discarded, an element stays gone for the rest of the picture, which is the same as `display: none`, frozen.
-        val timing = readTiming(element, fixedFreeze = true)
+        val timing = readTiming(element, target, fixedFreeze = true)
         target.addTrack(
             SmilValueTrack(
                 "display",
@@ -422,7 +427,7 @@ internal class SmilBuilder(
             warnings += SvgWarning.INVALID_CONTENT_IGNORED
             return
         }
-        val timing = readTiming(element)
+        val timing = readTiming(element, target)
         val rotate =
             when (val value = attrs["rotate"]?.trim()) {
                 null, "" -> MotionRotate.Fixed(0.0)

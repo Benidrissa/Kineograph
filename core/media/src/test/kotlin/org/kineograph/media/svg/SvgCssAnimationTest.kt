@@ -895,8 +895,8 @@ class SvgCssAnimationTest {
     }
 
     @Test
-    fun `motion paths in css warn rather than silently doing nothing`() {
-        val doc = parse(svg("""<rect style="offset-path: path('M0 0 L10 10')" width="100" height="100"/>"""))
+    fun `motion paths in css that cannot be followed warn rather than silently doing nothing`() {
+        val doc = parse(svg("""<rect style="offset-path: ray(45deg)" width="100" height="100"/>"""))
         assertTrue(SvgWarning.UNSUPPORTED_FEATURE_IGNORED in doc.warnings)
     }
 

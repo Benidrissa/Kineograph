@@ -1,5 +1,6 @@
 package org.kineograph.model
 
+import kotlin.math.ceil
 import kotlin.math.roundToLong
 
 /** A picture that is already in the project's files, and where it sits on the canvas. */
@@ -19,6 +20,16 @@ public object ImportEdits {
         if (durationSeconds.isNaN() || durationSeconds <= 0.0) return 1
         val ticks = (durationSeconds * fps.coerceIn(MIN_FPS, MAX_FPS)).roundToLong()
         return ticks.coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    }
+
+    /**
+     * How many ticks it takes to show a duration from its first moment up to and including its last, for something that ends instead of running
+     * back into its start. That is one more than the ticks between them, and what comes last stays on screen, so it is the one that must not go.
+     */
+    public fun tickCountThroughEnd(durationSeconds: Double, fps: Int): Int {
+        if (durationSeconds.isNaN() || durationSeconds <= 0.0) return 1
+        val between = ceil(durationSeconds * fps.coerceIn(MIN_FPS, MAX_FPS) - ROUNDING_MARGIN)
+        return if (between >= Int.MAX_VALUE - 1.0) Int.MAX_VALUE else between.toInt() + 1
     }
 
     /**
@@ -100,4 +111,7 @@ public object ImportEdits {
     /** Makes [image] what [layerId] shows on [frameId]. Combining it with what was there is up to whoever drew the picture. */
     public fun replaceCel(project: Project, layerId: String, frameId: String, image: PlacedImage): Project =
         ProjectEdits.withCel(project, CelKey(layerId, frameId), Cel(layerId, frameId, image.file, image.bounds))
+
+    /** Far less than any tick lasts. A duration worked out from a whole number of ticks must not round up to one more of them. */
+    private const val ROUNDING_MARGIN = 1e-6
 }

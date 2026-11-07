@@ -27,6 +27,9 @@ internal class Style {
     var letterSpacing: Length = Length.ZERO
     var wordSpacing: Length = Length.ZERO
     var textAnchor: Int = ANCHOR_START
+    var rightToLeft: Boolean = false
+    var verticalText: Boolean = false
+    var uprightText: Boolean = false
     var baseline: String = "auto"
     var textTransform: String = "none"
     var linearColors: Boolean = false
@@ -62,6 +65,9 @@ internal class Style {
         s.letterSpacing = letterSpacing
         s.wordSpacing = wordSpacing
         s.textAnchor = textAnchor
+        s.rightToLeft = rightToLeft
+        s.verticalText = verticalText
+        s.uprightText = uprightText
         s.baseline = baseline
         s.textTransform = textTransform
         s.linearColors = linearColors
@@ -194,6 +200,12 @@ internal fun deriveStyle(parent: Style, view: PropView): Style {
         "middle" -> style.textAnchor = Style.ANCHOR_MIDDLE
         "end" -> style.textAnchor = Style.ANCHOR_END
     }
+    keywordOf(view, "direction")?.let { style.rightToLeft = it == "rtl" }
+    keywordOf(view, "writing-mode")?.let {
+        style.verticalText =
+            it.startsWith("tb") || it.startsWith("vertical") || it.startsWith("sideways")
+    }
+    keywordOf(view, "text-orientation")?.let { style.uprightText = it == "upright" }
     keywordOf(view, "dominant-baseline")?.let { style.baseline = it }
     keywordOf(view, "text-transform")?.let { style.textTransform = it }
     keywordOf(view, "color-interpolation")?.let { style.linearColors = it == "linearrgb" }
@@ -249,6 +261,9 @@ private val INITIAL_KEYWORDS =
         "font-weight" to "normal",
         "font-style" to "normal",
         "text-anchor" to "start",
+        "direction" to "ltr",
+        "writing-mode" to "horizontal-tb",
+        "text-orientation" to "mixed",
         "dominant-baseline" to "auto",
         "text-transform" to "none",
         "color-interpolation" to "srgb",

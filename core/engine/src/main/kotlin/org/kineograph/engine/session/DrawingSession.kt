@@ -37,6 +37,7 @@ import org.kineograph.engine.compositor.LayerDraw
 import org.kineograph.engine.compositor.Scene
 import org.kineograph.engine.compositor.WetDraw
 import org.kineograph.engine.fill.FloodFill
+import org.kineograph.engine.history.BackgroundEntry
 import org.kineograph.engine.history.History
 import org.kineograph.engine.history.HistoryCursor
 import org.kineograph.engine.history.PatchPayload
@@ -527,6 +528,7 @@ public class DrawingSession(
                 when (val entry = history.popUndo()) {
                     is PixelEntry -> swapPixels(entry)
                     is StructureEntry -> restoreStructure(entry.before, entry.cursorBefore)
+                    is BackgroundEntry -> showBackground(entry.before)
                     null -> Unit
                 }
             }
@@ -541,6 +543,7 @@ public class DrawingSession(
             when (val entry = history.popRedo()) {
                 is PixelEntry -> swapPixels(entry)
                 is StructureEntry -> restoreStructure(entry.after, entry.cursorAfter)
+                is BackgroundEntry -> showBackground(entry.after)
                 null -> Unit
             }
             publishScene()
@@ -836,16 +839,67 @@ public class DrawingSession(
 
     /**
      * Applies a change worked out elsewhere, such as an import, as one undo step, and returns once it is done. Pending pixels are saved first,
-     * so [edit] sees the project as it stands. [selectLayerId] becomes the active layer if the result has it. Anything thrown, including running
-     * out of memory, comes back to the caller, because whoever made this change has to tell the user whether it happened.
+     * so [edit] sees the project as it stands. [selectLayerId] becomes the active layer if the result has it.
+     *
+     * It either happens or it does not. Running out of memory comes back to the caller, because whoever made this change has to tell the user
+     * whether it happened, and then the project, the surface and both undo stacks are as they were. That is why nothing is recorded until what can
+     * run out of memory is over: pushing an undo step would already have thrown away what the user could still redo.
      */
     public suspend fun applyEdit(selectLayerId: String? = null, edit: (Project) -> Project) {
         withContext(dispatcher) {
-            applyStructure { p ->
-                val next = edit(p)
-                next to HistoryCursor(frameId, selectLayerId?.takeIf { next.layer(it) != null } ?: layerId)
+            commitFloatingIfAny()
+            flushActive()
+            val before = project
+            val cursorBefore = HistoryCursor(frameId, layerId)
+            val after = edit(before)
+            val cursorAfter = HistoryCursor(frameId, selectLayerId?.takeIf { after.layer(it) != null } ?: layerId)
+            if (after == before && cursorAfter == cursorBefore) return@withContext
+            project = after
+            layerId = cursorAfter.layerId
+            try {
+                val resized = matchSurfacesToCanvas()
+                syncLive(forceActive = resized)
+            } catch (e: OutOfMemoryError) {
+                project = before
+                layerId = cursorBefore.layerId
+                trimAfterOutOfMemory()
+                putBackAfterFailedEdit()
+                throw e
             }
+            history.push(StructureEntry(before, after, cursorBefore, cursorAfter))
+            scheduleGhosts()
+            markChanged()
+            publishAfterEdit()
         }
+    }
+
+    /** The surface only changes once its new pixels are in hand, so failing to read the old ones again leaves it showing what it showed. */
+    private fun putBackAfterFailedEdit() {
+        try {
+            val resized = matchSurfacesToCanvas()
+            syncLive(forceActive = resized)
+        } catch (_: OutOfMemoryError) {
+            trimAfterOutOfMemory()
+        }
+        publishAfterEdit()
+    }
+
+    /** By now the edit stands or has been taken back, so failing to tell the screen is no reason to say otherwise. The next change tells it. */
+    private fun publishAfterEdit() {
+        try {
+            publishScene()
+            publishState()
+        } catch (_: OutOfMemoryError) {
+            trimAfterOutOfMemory()
+        }
+    }
+
+    /** Whatever is lifted goes down first, and the screen has to hear about it, or its selection bar would be left working on nothing. */
+    private fun commitFloatingIfAny() {
+        if (floating == null) return
+        commitFloatingInternal()
+        publishScene()
+        publishState()
     }
 
     private fun updateLayer(id: String, change: (Layer) -> Layer) {
@@ -905,13 +959,37 @@ public class DrawingSession(
     /** Replaces what sits behind the layers. */
     public fun setBackground(background: Background) {
         post {
-            project = project.copy(background = background)
-            backgroundImage = (background as? Background.Image)?.let { store.read(it.file) }
-            revealGeneration = -1
-            markChanged()
+            showBackground(background)
             publishScene()
             publishState()
         }
+    }
+
+    /**
+     * Replaces what sits behind the layers as one undo step, for when that is not something the user set out to change on its own terms, and
+     * returns once it is done. If memory runs out it comes back to the caller, with everything as it was.
+     */
+    public suspend fun applyBackground(background: Background) {
+        withContext(dispatcher) {
+            val before = project.background
+            if (before == background) return@withContext
+            // Reading comes first, because nothing has changed yet if it fails. It is also the only part that can.
+            val image = (background as? Background.Image)?.let { store.read(it.file) }
+            history.push(BackgroundEntry(before, background))
+            project = project.copy(background = background)
+            backgroundImage = image
+            revealGeneration = -1
+            markChanged()
+            publishAfterEdit()
+        }
+    }
+
+    private fun showBackground(background: Background) {
+        val image = (background as? Background.Image)?.let { store.read(it.file) }
+        project = project.copy(background = background)
+        backgroundImage = image
+        revealGeneration = -1
+        markChanged()
     }
 
     /**
@@ -952,12 +1030,18 @@ public class DrawingSession(
 
     /**
      * Writes pending pixels to the store and returns the project as it now stands. While the lasso holds
-     * lifted pixels the surface is incomplete, so they stay unsaved unless [commitSelection] is set.
+     * lifted pixels the surface is incomplete, so they stay unsaved unless [commitSelection] is set. Committing them is an edit like any other,
+     * and is published as one.
      */
     public suspend fun snapshot(commitSelection: Boolean = false): Project =
         withContext(dispatcher) {
+            val wasLifted = commitSelection && floating != null
             if (commitSelection) commitFloatingInternal()
             if (floating == null) flushActive()
+            if (wasLifted) {
+                publishScene()
+                publishState()
+            }
             project
         }
 
@@ -965,6 +1049,7 @@ public class DrawingSession(
     public suspend fun referencedFiles(): Set<String> =
         withContext(dispatcher) {
             val files = HashSet(project.referencedFiles())
+            (project.background as? Background.Image)?.let { files += it.file }
             files += history.referencedFiles()
             loadedFile?.let { files += it }
             frameClipboard?.frames?.forEach { frame -> frame.cels.values.forEach { cel -> cel.file?.let { files += it } } }
@@ -1071,16 +1156,16 @@ public class DrawingSession(
     private fun loadSurface(key: CelKey, cel: Cel?) {
         val target = surface ?: return
         val canvas = surfaceCanvas ?: return
-        target.eraseColor(0)
-        var bounds = IntRect.EMPTY
         val file = cel?.file
         val celBounds = cel?.bounds
-        if (file != null && celBounds != null) {
-            val image = store.read(file)
-            if (image != null) {
-                canvas.drawBitmap(image, (celBounds.left + overscan).toFloat(), (celBounds.top + overscan).toFloat(), null)
-                bounds = celBounds.translated(overscan, overscan).intersect(surfaceRect())
-            }
+        // Decoded before anything is erased. If memory runs out here the surface still holds what it says it holds, while erasing first would let
+        // the next stroke save itself over the cel with nothing else on it.
+        val image = if (file != null && celBounds != null) store.read(file) else null
+        target.eraseColor(0)
+        var bounds = IntRect.EMPTY
+        if (image != null && celBounds != null) {
+            canvas.drawBitmap(image, (celBounds.left + overscan).toFloat(), (celBounds.top + overscan).toFloat(), null)
+            bounds = celBounds.translated(overscan, overscan).intersect(surfaceRect())
         }
         contentBounds = bounds
         loadedKey = key
