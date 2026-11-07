@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <g fill="none" stroke-width="5" font-size="10">
+    <!-- Percentages of the viewport's normalized diagonal, which is 200 here. -->
+    <line x1="10" y1="20" x2="190" y2="20" stroke="#cc3333" stroke-dasharray="5% 2%"/>
+    <line x1="10" y1="40" x2="190" y2="40" stroke="#33aa33" stroke-dasharray="2em 1em"/>
+    <line x1="10" y1="60" x2="190" y2="60" stroke="#3366cc" stroke-dasharray="1cm 2mm" stroke-dashoffset="1mm"/>
+    <line x1="10" y1="80" x2="190" y2="80" stroke="#cc9900" stroke-dasharray="10" stroke-dashoffset="5%"/>
+    <line x1="10" y1="100" x2="190" y2="100" stroke="#990099" style="stroke-dasharray: 15px, 5px; stroke-dashoffset: 1em"/>
+    <line x1="10" y1="120" x2="190" y2="120" stroke="#00aaaa" stroke-width="5%"/>
+    <line x1="10" y1="150" x2="190" y2="150" stroke="#555555" stroke-width="1em"/>
+    <line x1="10" y1="180" x2="190" y2="180" stroke="#aa5500" stroke-width="2mm"/>
+  </g>
+</svg>

@@ -324,29 +324,36 @@ internal fun BoxScope.QuickSliders(tools: ToolState, side: ToolbarSide, onSize: 
     if (tools.tool != CanvasTool.BRUSH && tools.tool != CanvasTool.ERASER) return
     val sizeLabel = stringResource(R.string.slider_size)
     val opacityLabel = stringResource(R.string.slider_opacity)
-    Column(
-        Modifier
-            .align(if (side == ToolbarSide.LEFT) Alignment.CenterEnd else Alignment.CenterStart)
-            // In this order: filling the height first would leave nothing for the limit to limit. Above and below them, strokes can start.
-            .heightIn(max = 400.dp)
-            .fillMaxHeight()
-            .padding(vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        tonalElevation = 3.dp,
+        shadowElevation = 3.dp,
+        modifier =
+            Modifier
+                .align(if (side == ToolbarSide.LEFT) Alignment.CenterEnd else Alignment.CenterStart)
+                .padding(6.dp)
+                // In this order: filling the height first would leave nothing for the limit to limit. Above and below them, strokes can start.
+                .heightIn(max = 400.dp)
+                .fillMaxHeight(0.8f),
     ) {
-        VerticalSlider(
-            value = ToolState.sizeToSlider(tools.activeSize),
-            onValueChange = { onSize(ToolState.sliderToSize(it)) },
-            label = sizeLabel,
-            stateText = stringResource(R.string.slider_size_value, tools.activeSize.roundToInt()),
-            modifier = Modifier.weight(1f).testTag("slider_size"),
-        )
-        VerticalSlider(
-            value = tools.activeOpacity,
-            onValueChange = onOpacity,
-            label = opacityLabel,
-            stateText = "${(tools.activeOpacity * 100f).roundToInt()}%",
-            modifier = Modifier.weight(1f).testTag("slider_opacity"),
-        )
+        Column(Modifier.padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(KgIcons.BrushSize, contentDescription = null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            VerticalSlider(
+                value = ToolState.sizeToSlider(tools.activeSize),
+                onValueChange = { onSize(ToolState.sliderToSize(it)) },
+                label = sizeLabel,
+                stateText = stringResource(R.string.slider_size_value, tools.activeSize.roundToInt()),
+                modifier = Modifier.weight(1f).padding(vertical = 6.dp).testTag("slider_size"),
+            )
+            Icon(KgIcons.Opacity, contentDescription = null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            VerticalSlider(
+                value = tools.activeOpacity,
+                onValueChange = onOpacity,
+                label = opacityLabel,
+                stateText = "${(tools.activeOpacity * 100f).roundToInt()}%",
+                modifier = Modifier.weight(1f).padding(vertical = 6.dp).testTag("slider_opacity"),
+            )
+        }
     }
 }
 
@@ -456,6 +463,7 @@ internal fun EditorBottomBar(
     wideLayout: Boolean,
     onOpenLayers: () -> Unit,
     onPlay: () -> Unit,
+    onImportSvg: () -> Unit = {},
 ) {
     val frameActions = rememberFrameActions(session)
     Surface(tonalElevation = 2.dp) {
@@ -482,6 +490,12 @@ internal fun EditorBottomBar(
                 KgIconButton(KgIcons.Copy, stringResource(R.string.frame_copy), { session.copyFrames(listOf(state.frameId)) })
                 KgIconButton(KgIcons.Paste, stringResource(R.string.frame_paste), session::pasteFrames, enabled = state.hasFrameClipboard)
                 KgIconButton(KgIcons.Clear, stringResource(R.string.layer_clear), session::clearActiveCel)
+                KgIconButton(
+                    KgIcons.Import,
+                    stringResource(R.string.svg_import_action),
+                    onImportSvg,
+                    modifier = Modifier.testTag("import_svg"),
+                )
             }
         } else {
             Column {
@@ -515,7 +529,7 @@ internal fun EditorBottomBar(
                     )
                     LayersButton(state, thumbnails, onOpenLayers)
                     KgIconButton(KgIcons.Play, stringResource(R.string.playback_play), onPlay, modifier = Modifier.testTag("play_button"))
-                    OverflowActions(state, session)
+                    OverflowActions(state, session, onImportSvg)
                 }
             }
         }
@@ -523,7 +537,7 @@ internal fun EditorBottomBar(
 }
 
 @Composable
-private fun OverflowActions(state: SessionState, session: DrawingSession) {
+private fun OverflowActions(state: SessionState, session: DrawingSession, onImportSvg: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         KgIconButton(KgIcons.More, stringResource(R.string.editor_more), { open = true })
@@ -539,6 +553,10 @@ private fun OverflowActions(state: SessionState, session: DrawingSession) {
             MenuItem(KgIcons.Clear, stringResource(R.string.layer_clear)) {
                 open = false
                 session.clearActiveCel()
+            }
+            MenuItem(KgIcons.Import, stringResource(R.string.svg_import_action)) {
+                open = false
+                onImportSvg()
             }
         }
     }

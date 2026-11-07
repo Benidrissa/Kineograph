@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <!-- A clip with its own clip, and a child with its own clip. Both mean intersection. -->
+    <clipPath id="outer"><rect x="0" y="0" width="60" height="200"/></clipPath>
+    <clipPath id="inner" clip-path="url(#outer)"><circle cx="50" cy="50" r="40"/></clipPath>
+    <clipPath id="child"><circle cx="150" cy="50" r="40" clip-path="url(#band)"/></clipPath>
+    <clipPath id="band"><rect x="100" y="40" width="100" height="20"/></clipPath>
+    <clipPath id="xf" transform="translate(0 100) rotate(10)"><rect x="20" y="10" width="60" height="60" transform="scale(1 .5)"/></clipPath>
+    <clipPath id="usedtext"><use href="#shape"/><use href="#shape" x="30" y="10" transform="translate(0 20)"/></clipPath>
+    <rect id="shape" x="110" y="120" width="30" height="20"/>
+    <clipPath id="grouped"><g><rect x="0" y="0" width="200" height="200"/></g></clipPath>
+    <clipPath id="hidden"><rect x="0" y="0" width="200" height="200" visibility="hidden"/><rect x="110" y="170" width="20" height="20" display="none"/><rect x="150" y="170" width="20" height="20"/></clipPath>
+  </defs>
+  <rect width="100" height="100" fill="#cc3333" clip-path="url(#inner)"/>
+  <rect x="100" width="100" height="100" fill="#3366cc" clip-path="url(#child)"/>
+  <rect y="100" width="100" height="100" fill="#33aa33" clip-path="url(#xf)"/>
+  <rect x="100" y="100" width="100" height="60" fill="#cc9900" clip-path="url(#usedtext)"/>
+  <!-- A group is not allowed inside a clip, so this one clips away everything. -->
+  <rect x="0" y="180" width="100" height="20" fill="#000000" clip-path="url(#grouped)"/>
+  <rect x="100" y="165" width="100" height="30" fill="#990099" clip-path="url(#hidden)"/>
+</svg>

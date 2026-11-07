@@ -51,7 +51,7 @@
         <item quantity="many">Il vous faut %1$d de dessins pour 1 seconde d’animation</item>
         <item quantity="other">Il vous faut %1$d dessins pour 1 seconde d’animation</item>
     </plurals>
-    <string name="fps_preview_description">Une balle qui rebondit à %1$d images par seconde</string>
+    <string name="fps_preview_description">Une balle qui rebondit à %1$d images par seconde, sur un canevas de %2$d sur %3$d</string>
     <string name="paper_white">Blanc</string>
     <string name="paper_off_white">Blanc cassé</string>
     <string name="paper_grid">Quadrillé</string>
@@ -74,4 +74,27 @@
     <string name="size_width">Largeur</string>
     <string name="size_height">Hauteur</string>
     <string name="camera_unavailable">Aucune application d’appareil photo n’est disponible sur cet appareil. Choisissez une image ou un autre arrière-plan.</string>
+    <string name="paper_hint_white">Papier blanc uni</string>
+    <string name="paper_hint_off_white">Teinte chaude, comme un carnet de croquis</string>
+    <string name="paper_hint_grid">Lignes légères pour guider les proportions</string>
+    <string name="paper_hint_dots">Points légers pour guider les espacements</string>
+    <string name="paper_hint_dark">Papier sombre pour des dessins clairs</string>
+    <string name="background_hint_solid">La couleur de votre choix</string>
+    <string name="background_hint_image">Une image de votre galerie</string>
+    <string name="background_hint_camera">Prendre une photo maintenant</string>
+    <string name="background_hint_transparent">Rien derrière votre dessin</string>
+    <string name="canvas_group_video">Vidéo</string>
+    <string name="canvas_group_social">Réseaux sociaux</string>
+    <string name="canvas_group_pixel">Pixel art</string>
+    <string name="canvas_group_other">Autre</string>
+    <string name="preset_hint_hd">Un bon début, léger pour la mémoire</string>
+    <string name="preset_hint_full_hd">Plus net, utilise plus de mémoire</string>
+    <string name="preset_hint_4k">Très net, pour les téléphones puissants</string>
+    <string name="preset_hint_four_three">Le format classique de la télévision</string>
+    <string name="preset_hint_vertical">TikTok, Reels, Shorts, statut WhatsApp</string>
+    <string name="preset_hint_square">Publications dans un fil social</string>
+    <string name="preset_hint_pixel_64">Minuscule et pixelisé</string>
+    <string name="preset_hint_pixel_128">Petit, avec de la place pour les détails</string>
+    <string name="preset_hint_pixel_256">Pixel art détaillé</string>
+    <string name="preset_hint_custom">Choisissez votre largeur et votre hauteur</string>
 </resources>

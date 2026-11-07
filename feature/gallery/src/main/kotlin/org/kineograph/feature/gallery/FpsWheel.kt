@@ -29,6 +29,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -47,6 +50,7 @@ import org.kineograph.model.MAX_FPS
 import org.kineograph.model.MIN_FPS
 import org.kineograph.ui.rememberReduceMotion
 import kotlin.math.abs
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /** A scrolling wheel of frame rates that snaps to a value. TalkBack users can set it directly. */
@@ -127,11 +131,19 @@ public fun FpsWheel(fps: Int, onFpsChange: (Int) -> Unit, modifier: Modifier = M
 }
 
 /**
- * A ball bouncing at the chosen frame rate, in 12 numbered drawings: squash when it lands, stretch when it leaves.
- * This shows what the frame-rate number really means. It stands still if the user has turned off animations.
+ * A preview of the project about to be made: a ball bouncing, at the chosen frame rate, on the chosen canvas shape and
+ * background, so each choice can be judged by eye. The ball is 12 drawings: squash when it lands, stretch when it
+ * leaves. It stands still if the user has turned off animations.
  */
 @Composable
-public fun BouncePreview(fps: Int, modifier: Modifier = Modifier) {
+internal fun ProjectPreview(
+    fps: Int,
+    canvasWidth: Int,
+    canvasHeight: Int,
+    background: BackgroundChoice,
+    image: ImageBitmap?,
+    modifier: Modifier = Modifier,
+) {
     val reduceMotion = rememberReduceMotion()
     var step by remember { mutableIntStateOf(if (reduceMotion) IMPACT_STEP else 0) }
     if (!reduceMotion) {
@@ -143,18 +155,31 @@ public fun BouncePreview(fps: Int, modifier: Modifier = Modifier) {
             }
         }
     }
-    val colors = MaterialTheme.colorScheme
-    val description = stringResource(R.string.fps_preview_description, fps)
-    Canvas(modifier.semantics { contentDescription = description }) {
-        val floorY = size.height - 6.dp.toPx()
-        drawLine(colors.outline, Offset(0f, floorY), Offset(size.width, floorY), 2.dp.toPx())
-        val pose = BOUNCE[step]
-        val radius = size.height * 0.14f
-        val halfWidth = radius * pose[1]
-        val halfHeight = radius * pose[2]
-        val travel = size.height - 6.dp.toPx() - radius * 2.6f
-        val bottom = floorY - pose[0] * travel
-        drawOval(BALL_COLOR, Offset(size.width / 2f - halfWidth, bottom - halfHeight * 2f), Size(halfWidth * 2f, halfHeight * 2f))
+    val outline = MaterialTheme.colorScheme.outline
+    val description = stringResource(R.string.fps_preview_description, fps, canvasWidth, canvasHeight)
+    Canvas(modifier.semantics { contentDescription = description }.testTag("project_preview")) {
+        val scale = min(size.width / canvasWidth.coerceAtLeast(1), size.height / canvasHeight.coerceAtLeast(1))
+        val shape = Size(canvasWidth * scale, canvasHeight * scale)
+        val topLeft = Offset((size.width - shape.width) / 2f, (size.height - shape.height) / 2f)
+        clipRect(topLeft.x, topLeft.y, topLeft.x + shape.width, topLeft.y + shape.height) {
+            drawBackground(background, image, topLeft, shape)
+            val pose = BOUNCE[step]
+            val radius = min(shape.width, shape.height) * BALL_FRACTION
+            val floorY = topLeft.y + shape.height * FLOOR_FRACTION
+            val travel = (floorY - topLeft.y - radius * BALL_HEADROOM).coerceAtLeast(0f)
+            val halfWidth = radius * pose[1]
+            val halfHeight = radius * pose[2]
+            val bottom = floorY - pose[0] * travel
+            drawOval(
+                BALL_COLOR,
+                Offset(topLeft.x + shape.width / 2f - halfWidth, bottom - halfHeight * 2f),
+                Size(
+                    halfWidth * 2f,
+                    halfHeight * 2f,
+                ),
+            )
+        }
+        drawRect(outline, topLeft, shape, style = Stroke(1.dp.toPx()))
     }
 }
 
@@ -176,3 +201,6 @@ private val BOUNCE =
     )
 private const val IMPACT_STEP = 5
 private val BALL_COLOR = Color(0xFFE4572E)
+private const val BALL_FRACTION = 0.1f
+private const val FLOOR_FRACTION = 0.92f
+private const val BALL_HEADROOM = 2.4f

@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 public object KgIcons {
     public val Back: ImageVector by lazy { icon("Back", "M15 5 8 12l7 7") }
     public val Forward: ImageVector by lazy { icon("Forward", "M9 5l7 7-7 7") }
+    public val ChevronDown: ImageVector by lazy { icon("ChevronDown", "M6 9l6 6 6-6") }
     public val Close: ImageVector by lazy { icon("Close", "M6 6l12 12M18 6 6 18") }
     public val Check: ImageVector by lazy { icon("Check", "M5 12.5l4.5 4.5L19 7.5") }
     public val Add: ImageVector by lazy { icon("Add", "M12 5v14M5 12h14") }
@@ -38,6 +39,7 @@ public object KgIcons {
         )
     }
     public val Save: ImageVector by lazy { icon("Save", "M12 4v11M7.5 10.5 12 15l4.5-4.5M4 20h16") }
+    public val Import: ImageVector by lazy { icon("Import", "M12 4v11M7.5 10.5 12 15l4.5-4.5M4 14v6h16v-6") }
     public val Open: ImageVector by lazy { icon("Open", "M14 4h6v6M20 4l-9 9M18 14v6H4V6h6") }
     public val Export: ImageVector by lazy { icon("Export", "M12 15V4M7.5 8.5 12 4l4.5 4.5M4 14v6h16v-6") }
     public val Image: ImageVector by lazy { icon("Image", "M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15.5 9v.01") }
@@ -59,6 +61,12 @@ public object KgIcons {
             "Palette",
             "M12 3a9 9 0 0 0 0 18c1.5 0 2-1 2-2s-.5-1.5-.5-2.5 1-1.5 2-1.5h2.5c1.7 0 3-1.3 3-3C21 6.5 17 3 12 3zM8 8v.01M12.5 7v.01M16.5 9.5v.01M7 12.5v.01",
         )
+    }
+    public val BrushSize: ImageVector by lazy {
+        icon("BrushSize", "M7 13.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM15.5 6a5 5 0 1 0 0 10 5 5 0 0 0 0-10z")
+    }
+    public val Opacity: ImageVector by lazy {
+        icon("Opacity", "M12 3s6.5 6.6 6.5 11A6.5 6.5 0 0 1 5.5 14C5.5 9.6 12 3 12 3zM12 3v17.5M12 11h5M12 15h6")
     }
     public val Handle: ImageVector by lazy { icon("Handle", "M6 9h12M6 15h12") }
     public val Collapse: ImageVector by lazy { icon("Collapse", "M9 5l7 7-7 7") }

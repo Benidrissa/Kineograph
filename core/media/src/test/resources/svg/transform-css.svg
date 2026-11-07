@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    .a { transform: translate(10px, 20px) rotate(30deg); }
+    .b { transform: rotate(45deg); transform-origin: 150px 40px; }
+    .c { transform: scale(1.5); transform-origin: 50% 50%; }
+    .d { transform: skewX(20deg) skewY(5deg); }
+    .e { transform: matrix(1, 0.2, -0.2, 1, 120, 100); }
+    .f { transform: translateX(10px) translateY(150px) scaleX(2) scaleY(.5); }
+    .g { transform: rotate(0.25turn); transform-origin: 170px 170px; }
+    .h { transform: rotate(50grad); transform-origin: 40px 170px; }
+    .i { transform: rotate(0.5rad); transform-origin: 100px 170px; }
+    .none { transform: none; }
+    .bad { transform: translate(10px, 20px) rotate(30); }
+  </style>
+  <rect class="a" x="0" y="0" width="40" height="20" fill="#cc3333"/>
+  <rect class="b" x="130" y="30" width="40" height="20" fill="#3366cc"/>
+  <!-- 50% with the default box means the middle of the whole picture. -->
+  <rect class="c" x="70" y="70" width="30" height="20" fill="#33aa33"/>
+  <rect class="d" x="0" y="60" width="30" height="20" fill="#cc9900"/>
+  <rect class="e" x="0" y="0" width="30" height="20" fill="#990099"/>
+  <rect class="f" x="0" y="0" width="20" height="20" fill="#00aaaa"/>
+  <rect class="g" x="155" y="160" width="30" height="20" fill="#aa5500"/>
+  <rect class="h" x="25" y="160" width="30" height="20" fill="#555555"/>
+  <rect class="i" x="85" y="160" width="30" height="20" fill="#ff6600"/>
+  <!-- CSS beats the attribute. -->
+  <rect class="none" x="150" y="110" width="20" height="20" transform="translate(30 0)" fill="#0066ff"/>
+  <rect class="bad" x="180" y="60" width="15" height="20" fill="#66cc00"/>
+  <rect x="150" y="60" width="20" height="20" transform="translate(5 0)" style="transform: translate(0, 10px)" fill="#ff00ff"/>
+</svg>

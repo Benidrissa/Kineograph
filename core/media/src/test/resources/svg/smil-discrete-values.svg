@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <rect x="10" y="10" width="40" height="40" fill="#cc3333"><animate attributeName="visibility" values="visible;hidden;visible" dur="3s" fill="freeze"/></rect>
+  <rect x="60" y="10" width="40" height="40" fill="#3366cc"><animate attributeName="display" values="inline;none;inline" dur="3s" fill="freeze"/></rect>
+  <rect x="110" y="10" width="40" height="40" fill="none" stroke="#33aa33" stroke-width="10"><animate attributeName="stroke-linejoin" values="miter;round;bevel" dur="3s" fill="freeze"/></rect>
+  <path d="M10 90 L50 60 L100 90" fill="#cc9900" fill-rule="evenodd"><animate attributeName="fill-rule" values="nonzero;evenodd" dur="3s" fill="freeze"/></path>
+  <line x1="120" y1="80" x2="180" y2="80" stroke="#990099" stroke-width="10"><animate attributeName="stroke-linecap" from="butt" to="round" dur="3s" fill="freeze"/></line>
+  <!-- With only two values, discrete goes halfway for to and from. -->
+  <rect x="10" y="110" width="40" height="40" fill="#00aaaa"><animate attributeName="x" from="10" to="50" dur="3s" calcMode="discrete" fill="freeze"/></rect>
+  <text x="110" y="130" font-size="20" font-family="sans-serif" text-anchor="middle"><animate attributeName="text-anchor" values="start;middle;end" dur="3s" fill="freeze"/>Txt</text>
+  <rect x="60" y="110" width="20" height="20" fill="#ff6600"><animate attributeName="visibility" to="hidden" dur="3s" fill="freeze"/></rect>
+  <text x="10" y="180" font-size="20" font-family="sans-serif"><animate attributeName="font-weight" values="normal;bold" dur="3s" fill="freeze"/>Heavy</text>
+  <text x="110" y="180" font-size="20" font-family="sans-serif"><animate attributeName="font-family" values="sans-serif;serif" dur="3s" fill="freeze"/>Face</text>
+</svg>

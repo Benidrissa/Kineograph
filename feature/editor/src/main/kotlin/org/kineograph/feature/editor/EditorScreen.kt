@@ -7,7 +7,8 @@ import android.os.storage.StorageManager
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
-import androidx.compose.foundation.background
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -62,8 +64,10 @@ public fun EditorRoute(viewModel: EditorViewModel, wideLayout: Boolean, onBack: 
     val load by viewModel.load.collectAsStateWithLifecycle()
     when (val state = load) {
         EditorLoadState.Loading -> {
-            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+            EditorRootSurface {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
             }
         }
 
@@ -89,43 +93,55 @@ public fun EditorRoute(viewModel: EditorViewModel, wideLayout: Boolean, onBack: 
 /** There is no canvas to show, so this stays on screen, with something the user can do about it, until one fits. */
 @Composable
 private fun CanvasTooLarge(viewModel: EditorViewModel, width: Int, height: Int, onBack: () -> Unit) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .verticalScroll(rememberScrollState())
-            .padding(32.dp)
-            .testTag("canvas_too_large"),
-        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            stringResource(R.string.message_cannot_open, width, height),
-            textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.bodyLarge,
-        )
-        Button(onClick = { viewModel.retryOpen() }) { Text(stringResource(R.string.action_try_again)) }
-        val smallerWidth = (width / 2).coerceAtLeast(1)
-        val smallerHeight = (height / 2).coerceAtLeast(1)
-        if (smallerWidth != width || smallerHeight != height) {
-            OutlinedButton(onClick = { viewModel.retryOpen(smallerWidth, smallerHeight) }) {
-                Text(stringResource(R.string.action_use_smaller_canvas, smallerWidth, smallerHeight))
+    EditorRootSurface {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(32.dp)
+                .testTag("canvas_too_large"),
+            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                stringResource(R.string.message_cannot_open, width, height),
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Button(onClick = { viewModel.retryOpen() }) { Text(stringResource(R.string.action_try_again)) }
+            val smallerWidth = (width / 2).coerceAtLeast(1)
+            val smallerHeight = (height / 2).coerceAtLeast(1)
+            if (smallerWidth != width || smallerHeight != height) {
+                OutlinedButton(onClick = { viewModel.retryOpen(smallerWidth, smallerHeight) }) {
+                    Text(stringResource(R.string.action_use_smaller_canvas, smallerWidth, smallerHeight))
+                }
             }
+            TextButton(onClick = onBack) { Text(stringResource(R.string.action_back)) }
         }
-        TextButton(onClick = onBack) { Text(stringResource(R.string.action_back)) }
     }
 }
 
 @Composable
 private fun OpenProblem(message: String, onBack: () -> Unit) {
-    Column(
-        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(32.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(message, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge)
-        Button(onClick = onBack) { Text(stringResource(R.string.action_back)) }
+    EditorRootSurface {
+        Column(
+            Modifier.fillMaxSize().padding(32.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(message, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge)
+            Button(onClick = onBack) { Text(stringResource(R.string.action_back)) }
+        }
     }
+}
+
+/**
+ * The editor's backdrop. A Surface is what tells the text and icons inside which colour to be. With only a coloured
+ * background they fall back to black, which cannot be seen in the dark theme.
+ */
+@Composable
+internal fun EditorRootSurface(content: @Composable () -> Unit) {
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface, content = content)
 }
 
 /** Which sheet is showing. Only ever one at a time. */
@@ -144,6 +160,8 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
     val playbackController = viewModel.playback
     val playback = playbackController?.state?.collectAsStateWithLifecycle()?.value ?: PlaybackState()
     val thumbnails = viewModel.thumbnails
+    val svgImport = viewModel.svgImport
+    val svgState = svgImport?.state?.collectAsStateWithLifecycle()?.value ?: SvgImportState.Idle
 
     var sheet by remember { mutableStateOf<EditorSheet?>(null) }
     var canvasView by remember { mutableStateOf<KineographCanvasView?>(null) }
@@ -170,109 +188,120 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
     // Project settings, undo and redo can all change this, and nothing about them changes the size of the view.
     LaunchedEffect(sessionState.project.width, sessionState.project.height, canvasView) { canvasView?.onCanvasSizeChanged() }
 
+    val fallbackSvgName = stringResource(R.string.svg_import_default_name)
+    val svgPicker =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) svgImport?.open(uri, context.contentResolver, fallbackSvgName)
+        }
+    val pickSvg = {
+        try {
+            svgPicker.launch(SVG_MIME_TYPES)
+        } catch (_: ActivityNotFoundException) {
+            viewModel.notify(EditorMessage.NO_FILE_PICKER)
+        }
+    }
+
     val startPlayback: () -> Unit = {
         canvasView?.let { view -> viewModel.startPlayback(view, view.fitScale()) }
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
-            .windowInsetsPadding(WindowInsets.safeDrawing),
-    ) {
-        if (!playback.isPlaying) {
-            EditorTopBar(
-                state = sessionState,
-                saveFailed = saveFailed,
-                onBack = leave,
-                onToggleOnion = {
-                    session.updateSettings { it.copy(onionSkin = it.onionSkin.copy(enabled = !it.onionSkin.enabled)) }
-                },
-                onOnionSettings = { sheet = EditorSheet.ONION_SKIN },
-                onToggleGrid = { session.updateSettings { it.copy(grid = it.grid.copy(enabled = !it.grid.enabled)) } },
-                onProjectSettings = { sheet = EditorSheet.PROJECT_SETTINGS },
-                onExport = { sheet = EditorSheet.EXPORT },
-            )
-        }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            AndroidView(
-                factory = { viewContext ->
-                    KineographCanvasView(
-                        viewContext,
-                        session,
-                        ready.lowLatency,
-                        workspaceColor,
-                        toolConfig = { viewModel.tools.value.toCanvasConfig() },
-                        listener =
-                            object : CanvasListener {
-                                override fun onLayerNotDrawable() = viewModel.notify(EditorMessage.LAYER_LOCKED)
-
-                                override fun onPlaybackTapped() = viewModel.stopPlayback()
-                            },
-                    ).also { canvasView = it }
-                },
-                // A change of theme reaches here without the activity starting over, so the view has to be told.
-                update = { it.setWorkspaceColor(workspaceColor) },
-                // During playback, Back stops it from anywhere along the edge.
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .then(if (playback.isPlaying) Modifier else Modifier.canvasEdgeBands(LocalDensity.current))
-                        .testTag("canvas_host"),
-            )
+    EditorRootSurface {
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             if (!playback.isPlaying) {
-                EditorToolBar(
-                    tools = tools,
-                    side = settings.toolbarSide,
-                    onSideChange = viewModel::setToolbarSide,
-                    onSelect = { tool ->
-                        if (tools.tool == tool && tool.hasOptions()) {
-                            sheet = EditorSheet.TOOL_OPTIONS
-                        } else {
-                            viewModel.updateTools { it.copy(tool = tool) }
-                        }
+                EditorTopBar(
+                    state = sessionState,
+                    saveFailed = saveFailed,
+                    onBack = leave,
+                    onToggleOnion = {
+                        session.updateSettings { it.copy(onionSkin = it.onionSkin.copy(enabled = !it.onionSkin.enabled)) }
                     },
-                    onOpenColor = { sheet = EditorSheet.COLOR },
+                    onOnionSettings = { sheet = EditorSheet.ONION_SKIN },
+                    onToggleGrid = { session.updateSettings { it.copy(grid = it.grid.copy(enabled = !it.grid.enabled)) } },
+                    onProjectSettings = { sheet = EditorSheet.PROJECT_SETTINGS },
+                    onExport = { sheet = EditorSheet.EXPORT },
                 )
-                QuickSliders(
-                    tools = tools,
-                    side = settings.toolbarSide,
-                    onSize = { size -> viewModel.updateTools { it.withActiveSize(size) } },
-                    onOpacity = { opacity -> viewModel.updateTools { it.withActiveOpacity(opacity) } },
+            }
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                AndroidView(
+                    factory = { viewContext ->
+                        KineographCanvasView(
+                            viewContext,
+                            session,
+                            ready.lowLatency,
+                            workspaceColor,
+                            toolConfig = { viewModel.tools.value.toCanvasConfig() },
+                            listener =
+                                object : CanvasListener {
+                                    override fun onLayerNotDrawable() = viewModel.notify(EditorMessage.LAYER_LOCKED)
+
+                                    override fun onPlaybackTapped() = viewModel.stopPlayback()
+                                },
+                        ).also { canvasView = it }
+                    },
+                    // A change of theme reaches here without the activity starting over, so the view has to be told.
+                    update = { it.setWorkspaceColor(workspaceColor) },
+                    // During playback, Back stops it from anywhere along the edge.
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .then(if (playback.isPlaying) Modifier else Modifier.canvasEdgeBands(LocalDensity.current))
+                            .testTag("canvas_host"),
                 )
-                if (sessionState.selection != null) {
-                    SelectionBar(
-                        onDone = session::commitSelection,
-                        onCancel = session::cancelSelection,
-                        onDelete = session::deleteSelection,
-                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp),
+                if (!playback.isPlaying) {
+                    EditorToolBar(
+                        tools = tools,
+                        side = settings.toolbarSide,
+                        onSideChange = viewModel::setToolbarSide,
+                        onSelect = { tool ->
+                            if (tools.tool == tool && tool.hasOptions()) {
+                                sheet = EditorSheet.TOOL_OPTIONS
+                            } else {
+                                viewModel.updateTools { it.copy(tool = tool) }
+                            }
+                        },
+                        onOpenColor = { sheet = EditorSheet.COLOR },
                     )
+                    QuickSliders(
+                        tools = tools,
+                        side = settings.toolbarSide,
+                        onSize = { size -> viewModel.updateTools { it.withActiveSize(size) } },
+                        onOpacity = { opacity -> viewModel.updateTools { it.withActiveOpacity(opacity) } },
+                    )
+                    if (sessionState.selection != null) {
+                        SelectionBar(
+                            onDone = session::commitSelection,
+                            onCancel = session::cancelSelection,
+                            onDelete = session::deleteSelection,
+                            modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp),
+                        )
+                    }
                 }
+                if (sessionState.busy || playback.isPreparing || leaving) {
+                    CircularProgressIndicator(Modifier.align(Alignment.Center))
+                }
+                // A sheet covers this, so while one is open it shows the messages instead.
+                if (sheet == null && svgState !is SvgImportState.Ready) SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
             }
-            if (sessionState.busy || playback.isPreparing || leaving) {
-                CircularProgressIndicator(Modifier.align(Alignment.Center))
+            if (playback.isPlaying) {
+                PlaybackBar(
+                    project = sessionState.project,
+                    playback = playback,
+                    onStop = viewModel::stopPlayback,
+                    onTogglePause = viewModel::togglePlaybackPause,
+                    onMode = viewModel::setPlaybackMode,
+                    onFps = viewModel::setFps,
+                )
+            } else if (thumbnails != null) {
+                EditorBottomBar(
+                    state = sessionState,
+                    session = session,
+                    thumbnails = thumbnails,
+                    wideLayout = wideLayout,
+                    onOpenLayers = { sheet = EditorSheet.LAYERS },
+                    onPlay = startPlayback,
+                    onImportSvg = pickSvg,
+                )
             }
-            // A sheet covers this, so while one is open it shows the messages instead.
-            if (sheet == null) SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
-        }
-        if (playback.isPlaying) {
-            PlaybackBar(
-                project = sessionState.project,
-                playback = playback,
-                onStop = viewModel::stopPlayback,
-                onTogglePause = viewModel::togglePlaybackPause,
-                onMode = viewModel::setPlaybackMode,
-                onFps = viewModel::setFps,
-            )
-        } else if (thumbnails != null) {
-            EditorBottomBar(
-                state = sessionState,
-                session = session,
-                thumbnails = thumbnails,
-                wideLayout = wideLayout,
-                onOpenLayers = { sheet = EditorSheet.LAYERS },
-                onPlay = startPlayback,
-            )
         }
     }
 
@@ -318,6 +347,16 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
             null -> {
                 Unit
             }
+        }
+        if (svgImport != null) {
+            SvgImportHost(
+                controller = svgImport,
+                state = svgState,
+                project = sessionState.project,
+                frameId = sessionState.frameId,
+                canDrawOnActiveLayer = sessionState.canDrawOnActiveLayer,
+                backgroundImage = session.scene?.backgroundImage,
+            )
         }
     }
     exportState?.let { state ->
@@ -392,6 +431,12 @@ private fun openStorageSettings(context: Context) {
     }
 }
 
+/**
+ * SVG first, then anything, because some apps and file systems label these files differently. A file that turns out not to be SVG gets a
+ * friendly message when it is read.
+ */
+private val SVG_MIME_TYPES = arrayOf("image/svg+xml", "*/*")
+
 private fun EditorMessage.textRes(): Int =
     when (this) {
         EditorMessage.LAYER_LOCKED -> R.string.message_layer_locked
@@ -406,4 +451,11 @@ private fun EditorMessage.textRes(): Int =
         EditorMessage.CANVAS_DOES_NOT_FIT -> R.string.message_canvas_does_not_fit
         EditorMessage.BACKGROUND_NOT_USED -> R.string.message_background_not_used
         EditorMessage.BACKGROUND_NOT_CHANGED -> R.string.message_background_not_changed
+        EditorMessage.NO_FILE_PICKER -> R.string.message_no_file_picker
+        EditorMessage.SVG_EMPTY -> R.string.svg_problem_empty
+        EditorMessage.SVG_UNREADABLE -> R.string.svg_problem_unreadable
+        EditorMessage.SVG_TOO_LARGE -> R.string.svg_problem_too_large
+        EditorMessage.SVG_DAMAGED -> R.string.svg_problem_damaged
+        EditorMessage.SVG_NOT_SVG -> R.string.svg_problem_not_svg
+        EditorMessage.SVG_IMPORTED_INCOMPLETE -> R.string.svg_problem_incomplete
     }

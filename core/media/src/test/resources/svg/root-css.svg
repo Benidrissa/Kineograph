@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    svg { fill: #cc3333 }
+    :root { stroke: #000000; font-size: 30px }
+    svg > g > rect { fill: #3366cc }
+    :root g.x { fill: #33aa33 }
+  </style>
+  <rect x="10" y="10" width="2em" height="2em"/>
+  <g><rect x="110" y="10" width="2em" height="2em"/></g>
+  <g class="x"><circle cx="50" cy="150" r="30"/></g>
+</svg>

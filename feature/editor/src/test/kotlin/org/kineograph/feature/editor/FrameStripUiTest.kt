@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
@@ -246,6 +247,44 @@ class FrameStripUiTest {
     }
 
     @Test
+    fun `phones find Import SVG in the menu`() {
+        var imports = 0
+        showImportBar(wide = false) { imports++ }
+        compose.onNodeWithTag("import_svg").assertDoesNotExist()
+        compose.onNode(hasContentDescription("More actions")).performClick()
+        settle()
+        compose.onNodeWithText("Import SVG").assertIsDisplayed().performClick()
+        settle()
+        assertEquals(1, imports)
+    }
+
+    /** The narrowest window that gets the wide layout. */
+    @Test
+    @Config(sdk = [34], qualifiers = "w600dp-h480dp-xhdpi")
+    fun `wide screens find Import SVG in the bottom row, big enough to touch`() {
+        var imports = 0
+        showImportBar(wide = true) { imports++ }
+        compose.onNodeWithTag("import_svg").assertIsDisplayed().performClick()
+        assertEquals(1, imports)
+        val size = compose.onNodeWithTag("import_svg").fetchSemanticsNode().size
+        val minimum = with(compose.density) { 48.dp.roundToPx() }
+        assertEquals(true, size.width >= minimum && size.height >= minimum)
+    }
+
+    private fun showImportBar(wide: Boolean, onImport: () -> Unit) {
+        val thumbnails = ThumbnailLoader(store, 4 * 1024 * 1024)
+        compose.setContent {
+            val state by session.state.collectAsState()
+            KineographTheme(darkTheme = false) {
+                Surface {
+                    EditorBottomBar(state, session, thumbnails, wide, {}, {}, onImportSvg = onImport)
+                }
+            }
+        }
+        settle()
+    }
+
+    @Test
     fun `copy then paste makes a new frame`() {
         showBottomBar(wide = true)
         compose.onNode(hasContentDescription("Copy frame")).performClick()
@@ -302,6 +341,48 @@ class FrameStripUiTest {
         val minimum = with(compose.density) { 48.dp.roundToPx() }
         assertTrue("$size", size.width >= minimum && size.height >= minimum)
         return this
+    }
+
+    /** The defect this guards: text and icons in the editor were black on a dark background. */
+    @Test
+    fun `everything in the editor takes its colour from the theme`() {
+        var content = Color.Unspecified
+        var expected = Color.Unspecified
+        compose.setContent {
+            KineographTheme(darkTheme = true) {
+                EditorRootSurface {
+                    content = LocalContentColor.current
+                    expected = MaterialTheme.colorScheme.onSurface
+                }
+            }
+        }
+        compose.waitForIdle()
+        assertEquals(expected, content)
+    }
+
+    /** The real root, in the dark theme, to check by eye. */
+    @Test
+    fun `the editor chrome in the dark theme`() {
+        val thumbnails = ThumbnailLoader(store, 4 * 1024 * 1024)
+        repeat(5) { session.addFrame() }
+        settle()
+        compose.setContent {
+            val state by session.state.collectAsState()
+            KineographTheme(darkTheme = true) {
+                EditorRootSurface {
+                    Column(Modifier.fillMaxSize()) {
+                        EditorTopBar(state, {}, {}, {}, {}, {}, {})
+                        Box(Modifier.weight(1f).fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHighest)) {
+                            EditorToolBar(ToolState(), ToolbarSide.LEFT, {}, {}, {})
+                            QuickSliders(ToolState().copy(tool = CanvasTool.BRUSH), ToolbarSide.LEFT, {}, {})
+                        }
+                        EditorBottomBar(state, session, thumbnails, false, {}, {})
+                    }
+                }
+            }
+        }
+        settle()
+        compose.onRoot().saveScreenshot("editor_phone_dark")
     }
 
     /** Touch targets must be at least 48 dp. */

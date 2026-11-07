@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <mask id="w" maskUnits="userSpaceOnUse" x="0" y="0" width="200" height="200"><rect width="200" height="50" fill="#ffffff"/><rect y="50" width="200" height="50" fill="#808080"/><rect y="100" width="200" height="50" fill="#404040"/></mask>
+    <mask id="c" maskUnits="userSpaceOnUse" x="0" y="0" width="200" height="200"><rect width="50" height="200" fill="#ff0000"/><rect x="50" width="50" height="200" fill="#00ff00"/><rect x="100" width="50" height="200" fill="#0000ff"/><rect x="150" width="50" height="200" fill="#ffffff" fill-opacity=".5"/></mask>
+  </defs>
+  <rect width="200" height="200" fill="#dddddd"/>
+  <rect width="200" height="100" fill="#cc3333" mask="url(#w)"/>
+  <!-- A colour counts as its brightness. -->
+  <rect y="100" width="200" height="100" fill="#000000" mask="url(#c)"/>
+</svg>

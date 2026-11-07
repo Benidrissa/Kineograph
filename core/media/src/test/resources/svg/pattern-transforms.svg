@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <pattern id="r" patternUnits="userSpaceOnUse" width="20" height="20" patternTransform="rotate(30)"><rect width="10" height="20" fill="#cc3333"/></pattern>
+    <pattern id="s" patternUnits="userSpaceOnUse" width="10" height="10" patternTransform="scale(2 1)"><circle cx="5" cy="5" r="4" fill="#3366cc"/></pattern>
+    <pattern id="vb" patternUnits="userSpaceOnUse" width="40" height="20" viewBox="0 0 10 10" preserveAspectRatio="xMidYMid meet"><rect width="10" height="10" fill="#33aa33"/><circle cx="5" cy="5" r="3" fill="#ffffff"/></pattern>
+    <pattern id="vbs" patternUnits="userSpaceOnUse" width="40" height="20" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10" fill="#cc9900"/><circle cx="5" cy="5" r="3" fill="#ffffff"/></pattern>
+    <pattern id="cu" width=".25" height=".25" patternContentUnits="objectBoundingBox"><rect width=".125" height=".125" fill="#990099"/></pattern>
+    <pattern id="base" patternUnits="userSpaceOnUse" width="16" height="16"><path d="M0 0 L16 16 M16 0 L0 16" stroke="#00aaaa" stroke-width="2"/></pattern>
+    <pattern id="child" href="#base" patternTransform="scale(.75)"/>
+    <!-- A pattern is not a viewport of its own: percentages inside still mean the picture's, with or without a viewBox. -->
+    <pattern id="pc" patternUnits="userSpaceOnUse" width="20" height="20"><rect width="5%" height="5%" fill="#000000"/></pattern>
+    <pattern id="pv" patternUnits="userSpaceOnUse" width="20" height="20" viewBox="0 0 40 40"><rect width="10%" height="10%" fill="#ff6600"/></pattern>
+  </defs>
+  <rect x="10" y="10" width="80" height="50" fill="url(#r)"/>
+  <rect x="110" y="10" width="80" height="50" fill="url(#s)"/>
+  <rect x="10" y="70" width="80" height="50" fill="url(#vb)"/>
+  <rect x="110" y="70" width="80" height="50" fill="url(#vbs)"/>
+  <rect x="10" y="130" width="80" height="60" fill="url(#cu)"/>
+  <rect x="110" y="130" width="80" height="60" fill="url(#child)"/>
+  <!-- A pattern on a scaled shape scales with it. -->
+  <g transform="translate(95 125) scale(.5)"><rect x="-90" y="10" width="20" height="20" fill="url(#base)"/></g>
+  <rect x="90" y="5" width="18" height="18" fill="url(#pc)"/>
+  <rect x="90" y="175" width="18" height="18" fill="url(#pv)"/>
+</svg>

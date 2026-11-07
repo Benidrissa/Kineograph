@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Nobody can click during an import, so these wait forever, unless they have another way to start. -->
+  <rect x="10" y="10" width="30" height="30" fill="#cc3333"><animate attributeName="x" from="10" to="160" begin="click" dur="2s" fill="freeze"/></rect>
+  <rect x="10" y="50" width="30" height="30" fill="#3366cc"><animate attributeName="x" from="10" to="160" begin="mouseover+1s" dur="2s" fill="freeze"/></rect>
+  <rect x="10" y="90" width="30" height="30" fill="#33aa33"><animate attributeName="x" from="10" to="160" begin="click;1s" dur="2s" fill="freeze"/></rect>
+  <rect id="btn" x="160" y="170" width="30" height="20" fill="#aaaaaa"/>
+  <rect x="10" y="130" width="30" height="30" fill="#cc9900"><animate attributeName="x" from="10" to="160" begin="btn.click" dur="2s" fill="freeze"/></rect>
+  <rect x="10" y="170" width="30" height="20" fill="#990099"><animate attributeName="x" from="10" to="160" dur="2s" end="click" fill="freeze"/></rect>
+  <rect x="60" y="170" width="30" height="20" fill="#00aaaa"><set attributeName="fill" to="#ffff00" begin="accessKey(a)"/></rect>
+</svg>

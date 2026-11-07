@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <path id="p" d="M20 80 Q100 -20 180 80"/>
+    <path id="l" d="M10 110 H190"/>
+    <path id="m" d="M0 0 H100" transform="translate(50 150) rotate(10)"/>
+    <path id="c" d="M60 180 a30 15 0 1 1 80 0"/>
+  </defs>
+  <use href="#p" fill="none" stroke="#dddddd"/>
+  <use href="#l" fill="none" stroke="#dddddd"/>
+  <g font-size="16" font-family="sans-serif">
+    <text><textPath href="#p">Text on a curve</textPath></text>
+    <text fill="#cc3333"><textPath xlink:href="#l" startOffset="40">Offset</textPath></text>
+    <text fill="#3366cc" text-anchor="middle"><textPath href="#l" startOffset="75%">Mid</textPath></text>
+    <text dy="-5" fill="#33aa33"><textPath href="#m">Moved path</textPath></text>
+    <text fill="#990099" font-size="12"><textPath href="#c">Far too long for this path to hold it</textPath></text>
+    <!-- Letters and spans inside, and no path to follow. -->
+    <text y="30" x="10" fill="#00aaaa"><textPath href="#none">No path</textPath></text>
+    <text x="130" y="195" fill="#aa5500">a<textPath href="#l" startOffset="150"><tspan fill="#555555" dy="10">b</tspan>c</textPath></text>
+  </g>
+</svg>

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    .x { transform-box: fill-box; transform-origin: center; }
+    .ry { animation: ry 2s linear infinite; }
+    .rx { animation: rx 2s linear infinite; }
+    .r3 { animation: r3 2s linear infinite; }
+    .rd { animation: rd 2s linear infinite; }
+    .sx { animation: sx 2s linear infinite; }
+    @keyframes ry { to { transform: rotateY(360deg); } }
+    @keyframes rx { to { transform: rotateX(360deg); } }
+    @keyframes r3 { to { transform: rotate3d(0,1,0,180deg); } }
+    @keyframes rd { to { transform: rotate3d(1,1,0,180deg); } }
+    @keyframes sx { 0%,100% { transform: scaleX(1); } 50% { transform: scaleX(-1); } }
+  </style>
+  <rect class="x ry" x="10" y="10" width="60" height="50" fill="#e91e63"/>
+  <rect class="x rx" x="110" y="10" width="60" height="50" fill="#3f51b5"/>
+  <rect class="x r3" x="10" y="75" width="60" height="50" fill="#009688"/>
+  <rect class="x rd" x="110" y="75" width="60" height="50" fill="#795548"/>
+  <rect class="x sx" x="70" y="140" width="60" height="50" fill="#ff9800"/>
+</svg>

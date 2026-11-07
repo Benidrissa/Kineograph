@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 100 50" preserveAspectRatio="xMaxYMin meet">
+  <rect width="100" height="50" fill="#cc3333"/>
+  <circle cx="25" cy="25" r="20" fill="#ffffff"/>
+  <!-- Outside the viewBox but inside the element's own box, so it shows. -->
+  <rect x="0" y="50" width="100" height="10" fill="#3366cc"/>
+</svg>

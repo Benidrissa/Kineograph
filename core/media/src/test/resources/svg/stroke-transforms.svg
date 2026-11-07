@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- A stroke goes through the transform with its path, so scaling one way only thickens one way. -->
+  <g fill="none" stroke="#3366cc">
+    <circle cx="20" cy="20" r="15" stroke-width="3" transform="scale(2.5 1)"/>
+    <rect x="10" y="10" width="20" height="20" stroke-width="2" transform="translate(100 0) scale(3 1)" stroke="#cc3333"/>
+    <path d="M10 10 L50 10 L50 50" stroke-width="4" transform="translate(0 60) skewX(30)" stroke="#33aa33"/>
+    <!-- A non-scaling stroke keeps its width whatever the transform. -->
+    <circle cx="20" cy="20" r="15" stroke-width="3" transform="translate(100 60) scale(2.5 1)" vector-effect="non-scaling-stroke" stroke="#cc9900"/>
+    <path d="M0 0 L60 0" stroke-width="4" transform="translate(10 150) scale(1 10)" vector-effect="non-scaling-stroke" stroke="#990099"/>
+    <path d="M0 0 L60 0" stroke-width="4" transform="translate(110 150) scale(1 5)" stroke="#00aaaa"/>
+    <rect x="0" y="0" width="30" height="10" stroke-width="2" transform="translate(30 170) scale(3 1)" vector-effect="non-scaling-stroke" stroke-dasharray="5 5" stroke="#000000"/>
+  </g>
+</svg>

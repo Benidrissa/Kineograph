@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 100 100">
+  <style>
+    .heart { fill: #cc3333; transform-origin: center; transform-box: fill-box; animation: beat 1s ease-in-out infinite }
+    .ring { fill: none; stroke: #cc3333; stroke-width: 2; transform-origin: 50px 50px; animation: ring 1.5s ease-out infinite }
+    .fade { fill: #3366cc; animation: fade 2s linear infinite alternate }
+    @keyframes beat { 0%, 100% { transform: scale(1) } 50% { transform: scale(1.25) } }
+    @keyframes ring { 0% { transform: scale(.5); opacity: 1 } 100% { transform: scale(1.4); opacity: 0 } }
+    @keyframes fade { from { opacity: 1; transform: translateY(0) } to { opacity: .2; transform: translateY(10px) } }
+  </style>
+  <circle class="ring" cx="50" cy="50" r="30"/>
+  <path class="heart" d="M50 72 L30 52 A12 12 0 0 1 50 38 A12 12 0 0 1 70 52 Z"/>
+  <rect class="fade" x="42" y="82" width="16" height="6" rx="2"/>
+</svg>

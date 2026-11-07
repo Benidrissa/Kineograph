@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <style>
+    .line { stroke-dasharray: 100; stroke-dashoffset: 100; animation: draw 2s ease forwards }
+    .check { stroke-dasharray: 20; stroke-dashoffset: 20; animation: draw 1s ease 1.5s forwards; stroke: #33aa33 }
+    @keyframes draw { to { stroke-dashoffset: 0 } }
+  </style>
+  <circle class="line" pathLength="100" cx="12" cy="12" r="10"/>
+  <path class="check" pathLength="20" d="M8 12 l3 3 l5 -6"/>
+</svg>

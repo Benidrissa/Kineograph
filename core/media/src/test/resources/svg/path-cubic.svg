@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <path d="M10 50 C40 0 70 0 100 50 S160 100 190 50" fill="none" stroke="#cc3333" stroke-width="4"/>
+  <path d="M10 110 c30 -50 60 -50 90 0 s60 50 90 0" fill="#99ccff" stroke="#003366" stroke-width="2"/>
+  <!-- Repeated pairs, and S with no cubic before it, whose first control point is the pen. -->
+  <path d="M10 150 C20 130 40 130 50 150 60 170 80 170 90 150 S120 130 130 150 150 170 190 150" fill="none" stroke="#009900" stroke-width="3"/>
+  <path d="M10 190 L30 170 S50 150 70 190" fill="none" stroke="#000000" stroke-width="2"/>
+  <path d="M100 190 S130 150 160 190" fill="none" stroke="#990099" stroke-width="2"/>
+</svg>

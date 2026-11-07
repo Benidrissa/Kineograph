@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- The specification paces these by distance. Chromium spaces them evenly instead. -->
+  <rect x="10" y="100" width="20" height="20" fill="#33aa33"><animateTransform attributeName="transform" type="translate" values="0;20;160" dur="2s" calcMode="paced" fill="freeze"/></rect>
+  <rect x="10" y="130" width="20" height="20" fill="#cc9900"><animateTransform attributeName="transform" type="rotate" values="0;10;30" dur="2s" calcMode="paced" fill="freeze"/></rect>
+</svg>

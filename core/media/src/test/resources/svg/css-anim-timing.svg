@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    @keyframes mv { from { transform: translateX(10px) } to { transform: translateX(160px) } }
+    rect { animation-name: mv; animation-duration: 1s; animation-timing-function: linear }
+    .delay { animation-delay: 1s }
+    .delayn { animation-delay: -.5s; animation-fill-mode: forwards }
+    .count { animation-iteration-count: 2 }
+    .frac { animation-iteration-count: 2.5; animation-fill-mode: forwards }
+    .inf { animation-iteration-count: infinite }
+    .zero { animation-iteration-count: 0; animation-fill-mode: forwards }
+    .ms { animation-duration: 500ms; animation-delay: 250ms; animation-iteration-count: 3 }
+    .slow { animation-duration: 4s }
+  </style>
+  <rect class="delay" y="5" width="20" height="20" fill="#cc3333"/>
+  <rect class="delayn" y="30" width="20" height="20" fill="#3366cc"/>
+  <rect class="count" y="55" width="20" height="20" fill="#33aa33"/>
+  <rect class="frac" y="80" width="20" height="20" fill="#cc9900"/>
+  <rect class="inf" y="105" width="20" height="20" fill="#990099"/>
+  <rect class="zero" y="130" width="20" height="20" fill="#00aaaa"/>
+  <rect class="ms" y="155" width="20" height="20" fill="#555555"/>
+  <rect class="slow" y="180" width="20" height="20" fill="#ff6600"/>
+</svg>

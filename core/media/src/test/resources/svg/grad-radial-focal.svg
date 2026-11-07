@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <radialGradient id="a" fx=".3" fy=".3"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#cc0000"/></radialGradient>
+    <radialGradient id="b" fx=".8" fy=".5"><stop offset="0" stop-color="#ffff00"/><stop offset=".5" stop-color="#00aa00"/><stop offset="1" stop-color="#000000"/></radialGradient>
+    <!-- A focal point outside the circle is pulled onto its edge. -->
+    <radialGradient id="c" cx=".5" cy=".5" r=".3" fx="1.2" fy=".5"><stop offset="0" stop-color="#00ffff"/><stop offset="1" stop-color="#0000ff"/></radialGradient>
+    <radialGradient id="d" fx="0" fy=".5"><stop offset="0" stop-color="#ff00ff"/><stop offset="1" stop-color="#000000"/></radialGradient>
+    <radialGradient id="e" fx=".5" fy=".5" fr=".2"><stop offset="0" stop-color="#ff8800"/><stop offset="1" stop-color="#000088"/></radialGradient>
+    <radialGradient id="f" gradientUnits="userSpaceOnUse" cx="150" cy="150" r="40" fx="170" fy="130" fr="10"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#008800"/></radialGradient>
+  </defs>
+  <rect x="5" y="5" width="60" height="60" fill="url(#a)"/>
+  <rect x="70" y="5" width="60" height="60" fill="url(#b)"/>
+  <rect x="135" y="5" width="60" height="60" fill="url(#c)"/>
+  <rect x="5" y="70" width="60" height="60" fill="url(#d)"/>
+  <rect x="70" y="70" width="60" height="60" fill="url(#e)"/>
+  <rect x="105" y="105" width="90" height="90" fill="url(#f)"/>
+</svg>

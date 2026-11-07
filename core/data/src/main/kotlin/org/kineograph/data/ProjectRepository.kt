@@ -148,7 +148,7 @@ public class ProjectRepository(
                 if (!upright(image, exifOrientation(resolver, uri)).compress(lossyFormat(), BACKGROUND_QUALITY, output)) {
                     return@withContext null
                 }
-                val name = "media/background-${newId()}.webp"
+                val name = "$MEDIA_DIRECTORY/$BACKGROUND_PREFIX${newId()}.webp"
                 AtomicFile.write(File(files.projectDirectory(projectId), name), output.toByteArray())
                 Background.Image(name)
             } catch (_: IOException) {
@@ -161,16 +161,20 @@ public class ProjectRepository(
         }
 
     /**
-     * How a picture is meant to be turned, which many cameras only write down in a tag. A picture with no readable tag is taken
-     * to be upright, as losing a picture that decoded perfectly well would be worse.
+     * Keeps a finished picture as a project's background. Files under `media/` are not cels, so the sweep of cels never touches them. Unlike a
+     * photo, this is usually flat colour with sharp edges, which lossy compression would visibly smear.
      */
-    private fun exifOrientation(resolver: ContentResolver, uri: Uri): Int =
-        try {
-            resolver.openInputStream(uri)?.use {
-                ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
-            } ?: ExifInterface.ORIENTATION_NORMAL
-        } catch (_: IOException) {
-            ExifInterface.ORIENTATION_NORMAL
+    @Throws(IOException::class)
+    public suspend fun saveBackgroundImage(projectId: String, image: Bitmap): Background.Image =
+        withContext(io) {
+            // A very long canvas can be more than WebP can hold, and PNG has no such limit.
+            val isWebp = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && max(image.width, image.height) <= WEBP_MAX_EDGE
+            val output = ByteArrayOutputStream()
+            val format = if (isWebp) Bitmap.CompressFormat.WEBP_LOSSLESS else Bitmap.CompressFormat.PNG
+            if (!image.compress(format, LOSSLESS_EFFORT, output)) throw IOException("Could not encode the background")
+            val name = "$MEDIA_DIRECTORY/$BACKGROUND_PREFIX${newId()}.${if (isWebp) "webp" else "png"}"
+            AtomicFile.write(File(files.projectDirectory(projectId), name), output.toByteArray())
+            Background.Image(name)
         }
 
     /** Reads a project for editing. Returns null if nothing usable is on disk. */
@@ -189,6 +193,23 @@ public class ProjectRepository(
 
     /** Whether a project cannot be opened only because it came from a newer version of the app. */
     public suspend fun needsNewerApp(id: String): Boolean = withContext(io) { manifestStore(id).needsNewerApp() }
+
+    /**
+     * Deletes background pictures that nothing refers to, such as one that was replaced, or one saved by an import that was then cancelled. Nothing
+     * else would, and each can be as large as a whole canvas. Every manifest on disk counts, since any of them could be what the project reopens
+     * from, and if one cannot be read nothing is deleted, as it could need anything.
+     */
+    public suspend fun sweepBackgrounds(projectId: String, keep: Set<String>) {
+        withContext(io) {
+            val saved = manifestStore(projectId).backgroundFiles() ?: return@withContext
+            val wanted = keep + saved
+            val media = File(files.projectDirectory(projectId), MEDIA_DIRECTORY)
+            for (file in media.listFiles().orEmpty()) {
+                val name = "$MEDIA_DIRECTORY/${file.name}"
+                if (file.isFile && file.name.startsWith(BACKGROUND_PREFIX) && name !in wanted) file.delete()
+            }
+        }
+    }
 
     /** Makes a project durable: images first, then the manifest that refers to them, then the index. */
     @Throws(IOException::class)
@@ -464,17 +485,35 @@ public class ProjectRepository(
 
         /** The WebP format has only 14 bits for each edge. */
         const val WEBP_MAX_EDGE = 16383
+
+        /** For lossless formats, quality means how hard to try. A background is written once, so it can try a little harder than a cel. */
+        const val LOSSLESS_EFFORT = 50
         const val MIN_STORE_CACHE = 1024L * 1024
         const val TRASH_RETENTION_MS = 30L * 24 * 60 * 60 * 1000
         const val ORPHAN_AGE_MS = 60L * 60 * 1000
+        const val MEDIA_DIRECTORY = "media"
+        const val BACKGROUND_PREFIX = "background-"
     }
 }
+
+/**
+ * How a picture is meant to be turned, which many cameras only write down in a tag. A picture with no readable tag is taken
+ * to be upright, as losing a picture that decoded perfectly well would be worse.
+ */
+public fun exifOrientation(resolver: ContentResolver, uri: Uri): Int =
+    try {
+        resolver.openInputStream(uri)?.use {
+            ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        } ?: ExifInterface.ORIENTATION_NORMAL
+    } catch (_: IOException) {
+        ExifInterface.ORIENTATION_NORMAL
+    }
 
 /**
  * Turns a picture the way its orientation tag says it should be seen, since the tag does not survive being stored again. All eight
  * values matter: some cameras mirror selfies. For a moment this holds two full-size images, so the first goes as soon as it can.
  */
-internal fun upright(image: Bitmap, orientation: Int): Bitmap {
+public fun upright(image: Bitmap, orientation: Int): Bitmap {
     val matrix = Matrix()
     when (orientation) {
         ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> {

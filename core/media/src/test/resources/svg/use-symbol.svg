@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <symbol id="s" viewBox="0 0 10 10"><rect width="10" height="10" fill="#cc3333"/><circle cx="5" cy="5" r="4" fill="#ffffff"/></symbol>
+    <symbol id="n"><rect width="30" height="30" fill="#3366cc"/><circle cx="30" cy="30" r="10" fill="#000000"/></symbol>
+    <symbol id="w" viewBox="0 0 20 10" preserveAspectRatio="xMinYMin meet"><rect width="20" height="10" fill="#33aa33"/></symbol>
+    <symbol id="v" viewBox="0 0 10 10" overflow="visible"><circle cx="10" cy="10" r="5" fill="#cc9900"/></symbol>
+    <symbol id="z" viewBox="0 0 10 10" width="30" height="20" x="5" y="5"><rect width="10" height="10" fill="#990099"/></symbol>
+    <svg id="v2" viewBox="0 0 10 10"><rect width="10" height="10" fill="#00aaaa"/></svg>
+  </defs>
+  <!-- A symbol is drawn only through use, and takes its size from it. -->
+  <symbol id="direct"><rect width="200" height="200" fill="#000000"/></symbol>
+  <use href="#s" x="10" y="10" width="40" height="40"/>
+  <use href="#s" x="60" y="10" width="60" height="30"/>
+  <use href="#n" x="130" y="10" width="40" height="40"/>
+  <use href="#w" x="10" y="60" width="40" height="40"/>
+  <use href="#v" x="60" y="60" width="30" height="30"/>
+  <!-- With no size on the use: 100% wide and high, or the symbol's own size. -->
+  <g transform="translate(110 60) scale(.2)"><use href="#s"/></g>
+  <use href="#z" x="10" y="110"/>
+  <use href="#z" x="60" y="110" width="50"/>
+  <use href="#v2" x="120" y="110" width="30" height="30"/>
+  <use href="#s" x="10" y="150" width="40" height="40" fill="#000000" opacity=".5"/>
+  <use href="#s" x="60" y="150" width="0" height="40"/>
+  <use href="#s" x="110" y="150" width="40" height="40" transform="rotate(10 130 170)"/>
+  <use href="#s" x="160" y="150" width="50%" height="20"/>
+</svg>

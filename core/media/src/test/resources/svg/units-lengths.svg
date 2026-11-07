@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- 1in = 96px, 1cm = 96/2.54px, 1mm = 1cm/10, 1pt = 1/72in, 1pc = 12pt. -->
+  <g font-size="20">
+    <rect x="0.1in" y="0.1in" width="0.5in" height="10px" fill="#cc3333"/>
+    <rect x="0.5cm" y="1cm" width="2cm" height="10px" fill="#3366cc"/>
+    <rect x="5mm" y="15mm" width="25mm" height="10px" fill="#33aa33"/>
+    <rect x="10pt" y="60pt" width="60pt" height="10px" fill="#cc9900"/>
+    <rect x="1pc" y="6pc" width="5pc" height="10px" fill="#990099"/>
+    <rect x="0.5em" y="6em" width="3em" height="10px" fill="#00aaaa"/>
+    <rect x="5%" y="70%" width="50%" height="5%" fill="#aa5500"/>
+    <circle cx="1.5in" cy="1.5cm" r="1em" fill="#555555"/>
+    <circle cx="75%" cy="50%" r="10%" fill="#ff6600"/>
+    <rect x="1E2" y="1.5e2" width="4e1px" height="1em" fill="#000000"/>
+    <g font-size="10"><rect x="5em" y="18em" width="50%" height="1em" fill="#ff00ff"/></g>
+  </g>
+</svg>

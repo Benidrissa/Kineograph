@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    @keyframes mv { from { transform: translateX(10px) } to { transform: translateX(170px) } }
+    rect { animation: mv 1s forwards }
+    .l { animation-timing-function: linear }
+    .e { animation-timing-function: ease }
+    .ei { animation-timing-function: ease-in }
+    .eo { animation-timing-function: ease-out }
+    .eio { animation-timing-function: ease-in-out }
+    .cb { animation-timing-function: cubic-bezier(.1, .9, .2, 1) }
+    .over { animation-timing-function: cubic-bezier(.5, -.5, .5, 1.5) }
+    .dflt { }
+  </style>
+  <rect class="l" y="5" width="20" height="18" fill="#cc3333"/>
+  <rect class="e" y="30" width="20" height="18" fill="#3366cc"/>
+  <rect class="ei" y="55" width="20" height="18" fill="#33aa33"/>
+  <rect class="eo" y="80" width="20" height="18" fill="#cc9900"/>
+  <rect class="eio" y="105" width="20" height="18" fill="#990099"/>
+  <rect class="cb" y="130" width="20" height="18" fill="#00aaaa"/>
+  <rect class="over" y="155" width="20" height="18" fill="#555555"/>
+  <rect class="dflt" y="180" width="20" height="18" fill="#ff6600"/>
+</svg>

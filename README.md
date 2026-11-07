@@ -17,6 +17,7 @@ A free, open-source, ad-free frame-by-frame animation app for Android. Named aft
 - Lasso to move, scale and rotate parts of a drawing
 - Frames: add, insert, duplicate, delete, reorder, copy, paste
 - Unlimited layers with opacity and merge down
+- SVG import, still or animated, as a new layer, on the current layer or as the background
 - Onion skin with tinting and fall-off
 - Playback with a live frame-rate change
 - At least 100 steps of undo

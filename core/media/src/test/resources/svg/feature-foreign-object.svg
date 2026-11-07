@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <rect width="200" height="200" fill="#eeeeee"/>
+  <rect x="10" y="10" width="80" height="80" fill="#cc3333"/>
+  <foreignObject x="110" y="10" width="80" height="80"><div xmlns="http://www.w3.org/1999/xhtml" style="background:#3366cc;width:80px;height:80px"></div></foreignObject>
+</svg>

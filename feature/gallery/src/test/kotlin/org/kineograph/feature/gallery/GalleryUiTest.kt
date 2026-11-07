@@ -5,16 +5,19 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.media.ExifInterface
 import android.net.Uri
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.ActivityResultRegistryOwner
 import androidx.activity.result.contract.ActivityResultContract
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -23,6 +26,7 @@ import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.isPopup
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -33,6 +37,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.unit.Density
 import androidx.core.app.ActivityOptionsCompat
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -187,12 +192,18 @@ class GalleryUiTest {
     }
 
     private fun typeCustomSize(width: String, height: String) {
-        compose.onNodeWithText("Custom").performScrollTo().performClick()
+        compose.onNodeWithTag("canvas_size_dropdown").performScrollTo().performClick()
+        compose.onNodeWithTag("preset_custom").performScrollTo().performClick()
         compose.onNodeWithText("Width").performScrollTo().performTextClearance()
         if (width.isNotEmpty()) compose.onNodeWithText("Width").performTextInput(width)
         compose.onNodeWithText("Height").performTextClearance()
         if (height.isNotEmpty()) compose.onNodeWithText("Height").performTextInput(height)
         compose.waitForIdle()
+    }
+
+    private fun chooseBackground(tag: String) {
+        compose.onNodeWithTag("background_dropdown").performScrollTo().performClick()
+        compose.onNodeWithTag(tag).performScrollTo().performClick()
     }
 
     private fun availableMemoryIs(bytes: Long) {
@@ -225,7 +236,8 @@ class GalleryUiTest {
     fun `presets set the canvas size`() {
         var created: NewProjectRequest? = null
         showForm(onCreate = { created = it })
-        compose.onNodeWithText("Vertical 1080×1920").performScrollTo().performClick()
+        compose.onNodeWithTag("canvas_size_dropdown").performClick()
+        compose.onNodeWithTag("preset_vertical").performClick()
         compose.onNodeWithTag("create_project").performScrollTo().performClick()
         assertEquals(1080, created?.width)
         assertEquals(1920, created?.height)
@@ -234,13 +246,16 @@ class GalleryUiTest {
     @Test
     fun `4K is only offered if the encoder supports it`() {
         showForm(canEncode = { w, _ -> w < 3000 })
-        compose.onNodeWithText("4K 3840×2160").assertDoesNotExist()
+        compose.onNodeWithTag("canvas_size_dropdown").performClick()
+        compose.onNodeWithTag("preset_hd").assertIsDisplayed()
+        compose.onNodeWithTag("preset_uhd_4k").assertDoesNotExist()
     }
 
     @Test
     fun `4K appears when the encoder supports it`() {
         showForm(canEncode = { _, _ -> true })
-        compose.onNodeWithText("4K 3840×2160").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("canvas_size_dropdown").performClick()
+        compose.onNodeWithTag("preset_uhd_4k").assertExists()
     }
 
     @Test
@@ -371,12 +386,26 @@ class GalleryUiTest {
     fun `a phone with no camera app gets an explanation, not a crash`() {
         var created: NewProjectRequest? = null
         showFormOnPhoneWithoutCamera(onCreate = { created = it })
-        compose.onNodeWithText("Camera").performScrollTo().performClick()
+        chooseBackground("background_camera")
         compose.onNodeWithTag("camera_unavailable").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Transparent").performScrollTo().performClick()
+        chooseBackground("background_transparent")
         compose.onNodeWithTag("camera_unavailable").assertDoesNotExist()
         compose.onNodeWithTag("create_project").performScrollTo().performClick()
         assertEquals(Background.Transparent, created?.background)
+    }
+
+    @Test
+    fun `the preview shows a photo the way up it will be stored`() {
+        val file = temp.newFile("sideways.jpg")
+        val photo = Bitmap.createBitmap(80, 40, Bitmap.Config.ARGB_8888)
+        file.outputStream().use { photo.compress(Bitmap.CompressFormat.JPEG, 100, it) }
+        ExifInterface(file.path).run {
+            setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_ROTATE_90.toString())
+            saveAttributes()
+        }
+        val thumbnail = decodeThumbnail(Uri.fromFile(file), ApplicationProvider.getApplicationContext<Context>().contentResolver)
+        assertEquals(40, thumbnail?.width)
+        assertEquals(80, thumbnail?.height)
     }
 
     // ----- Surviving the camera -----
@@ -394,7 +423,7 @@ class GalleryUiTest {
         var created: NewProjectRequest? = null
         val restoration = StateRestorationTester(compose)
         restoration.showFormWith { created = it }
-        compose.onNodeWithText("Dots").performScrollTo().performClick()
+        chooseBackground("background_paper_dots")
         restoration.emulateSavedInstanceStateRestore()
         compose.onNodeWithTag("create_project").performScrollTo().performClick()
         assertEquals(Background.Paper(PaperKind.DOTS), created?.background)
@@ -405,7 +434,7 @@ class GalleryUiTest {
         var created: NewProjectRequest? = null
         val restoration = StateRestorationTester(compose)
         restoration.showFormWith { created = it }
-        compose.onNodeWithText("Transparent").performScrollTo().performClick()
+        chooseBackground("background_transparent")
         restoration.emulateSavedInstanceStateRestore()
         compose.onNodeWithTag("create_project").performScrollTo().performClick()
         assertEquals(Background.Transparent, created?.background)
@@ -602,7 +631,8 @@ class GalleryUiTest {
     fun `the background choice carries through`() {
         var created: NewProjectRequest? = null
         showForm(onCreate = { created = it })
-        compose.onNodeWithText("Transparent").performScrollTo().performClick()
+        compose.onNodeWithTag("background_dropdown").performClick()
+        compose.onNodeWithTag("background_transparent").performScrollTo().performClick()
         compose.onNodeWithTag("create_project").performScrollTo().performClick()
         assertEquals(Background.Transparent, created?.background)
     }
@@ -611,8 +641,97 @@ class GalleryUiTest {
     fun `papers can be chosen`() {
         var created: NewProjectRequest? = null
         showForm(onCreate = { created = it })
-        compose.onNodeWithText("Dots").performScrollTo().performClick()
+        compose.onNodeWithTag("background_dropdown").performClick()
+        compose.onNodeWithTag("background_paper_dots").performClick()
         compose.onNodeWithTag("create_project").performScrollTo().performClick()
         assertTrue(created?.background == Background.Paper(PaperKind.DOTS))
+    }
+
+    @Test
+    fun `choosing from a drop-down closes it and shows the choice`() {
+        showForm()
+        compose.onNodeWithTag("background_dropdown").assertTextContains("White")
+        compose.onNodeWithTag("background_dropdown").performClick()
+        compose.onNodeWithText("Dark paper for bright drawings").assertIsDisplayed()
+        compose.onNodeWithTag("background_paper_dark").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Dark paper for bright drawings").assertDoesNotExist()
+        compose.onNodeWithTag("background_dropdown").assertTextContains("Dark")
+    }
+
+    @Test
+    fun `canvas options are grouped and explain themselves`() {
+        showForm()
+        compose.onNodeWithTag("canvas_size_dropdown").assertTextContains("HD 1280×720")
+        compose.onNodeWithTag("canvas_size_dropdown").performClick()
+        compose.onNodeWithText("Social").assertExists()
+        compose.onNodeWithText("TikTok, Reels, Shorts, WhatsApp Status").assertExists()
+        compose.onNodeWithTag("preset_square").performScrollTo().performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("canvas_size_dropdown").assertTextContains("Square 1080×1080")
+    }
+
+    @Test
+    fun `the whole form fits on a phone without scrolling`() {
+        showForm()
+        compose.onNodeWithTag("create_project").assertIsDisplayed()
+        compose.onNodeWithTag("project_preview").assertIsDisplayed()
+    }
+
+    @Test
+    fun `at the largest font size the options grow with their text, and the form can still be finished`() {
+        var created: NewProjectRequest? = null
+        compose.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
+                KineographTheme(darkTheme = false) {
+                    NewProjectForm(defaultNumber = 3, canEncode = { _, _ -> false }, onCreate = { created = it })
+                }
+            }
+        }
+        compose.onNodeWithTag("background_dropdown").performScrollTo().performClick()
+        val option = compose.onNodeWithTag("background_paper_dots").performScrollTo().fetchSemanticsNode()
+        val title = compose.onNodeWithText("Dots", useUnmergedTree = true).fetchSemanticsNode()
+        val hint = compose.onNodeWithText("Light dots to help with spacing", useUnmergedTree = true).fetchSemanticsNode()
+        assertTrue("the name and the hint both fit", option.size.height >= title.size.height + hint.size.height)
+        compose.onNodeWithTag("background_paper_dots").performClick()
+        compose.onNodeWithTag("canvas_size_dropdown").performScrollTo().performClick()
+        compose.onNodeWithTag("preset_square").performScrollTo().performClick()
+        compose
+            .onNodeWithTag("create_project")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performClick()
+        assertEquals(1080, created?.width)
+        assertEquals(Background.Paper(PaperKind.DOTS), created?.background)
+    }
+
+    /** Lays the sheet out in both themes, with its menus open, to check by eye. */
+    @Test
+    fun `the form in both themes with its menus open`() {
+        var dark by mutableStateOf(false)
+        compose.setContent {
+            KineographTheme(darkTheme = dark) {
+                Surface {
+                    NewProjectForm(defaultNumber = 3, canEncode = { _, _ -> true }, onCreate = {})
+                }
+            }
+        }
+        for (isDark in listOf(false, true)) {
+            dark = isDark
+            compose.waitForIdle()
+            val theme = if (isDark) "dark" else "light"
+            compose.onRoot().saveScreenshot("new_project_$theme")
+            compose.onNodeWithTag("background_dropdown").performClick()
+            compose.waitForIdle()
+            compose.onNode(isPopup()).saveScreenshot("new_project_background_menu_$theme")
+            compose.onNodeWithTag("background_paper_white").performClick()
+            compose.waitForIdle()
+            compose.onNodeWithTag("canvas_size_dropdown").performClick()
+            compose.waitForIdle()
+            compose.onNode(isPopup()).saveScreenshot("new_project_canvas_menu_$theme")
+            compose.onNodeWithTag("preset_hd").performClick()
+            compose.waitForIdle()
+        }
     }
 }

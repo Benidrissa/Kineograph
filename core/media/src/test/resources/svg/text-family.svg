@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <g font-size="18">
+    <text x="10" y="25" font-family="sans-serif">Sans Quick</text>
+    <text x="10" y="50" font-family="serif">Serif Quick</text>
+    <text x="10" y="75" font-family="monospace">Mono Quick</text>
+    <text x="10" y="100" font-family="Helvetica, Arial, sans-serif" fill="#cc3333">Named Sans</text>
+    <text x="10" y="125" font-family="'Times New Roman', Times, serif" fill="#3366cc">Named Serif</text>
+    <text x="10" y="150" font-family="Courier New, monospace" fill="#33aa33">Named Mono</text>
+    <text x="10" y="175" style="font-family: serif" fill="#cc9900">Style Serif</text>
+    <text x="10" y="195" font-size="14">No family named</text>
+  </g>
+</svg>

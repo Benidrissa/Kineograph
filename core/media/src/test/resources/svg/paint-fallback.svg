@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs><linearGradient id="good"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/></linearGradient></defs>
+  <rect x="10" y="10" width="50" height="50" fill="url(#good) #00ff00"/>
+  <!-- A reference to nothing uses its fallback, and with no fallback paints nothing. -->
+  <rect x="70" y="10" width="50" height="50" fill="url(#missing) #33aa33"/>
+  <rect x="130" y="10" width="50" height="50" fill="url(#missing)" stroke="#000000"/>
+  <rect x="10" y="70" width="50" height="50" fill="url(#missing) none" stroke="#000000"/>
+  <rect x="70" y="70" width="50" height="50" fill="url('#good')"/>
+  <rect x="130" y="70" width="50" height="50" fill='url("#good")'/>
+  <rect x="10" y="130" width="50" height="50" fill=" url( #good ) "/>
+  <!-- A reference to something that cannot paint is treated like a missing one. -->
+  <rect x="70" y="130" width="50" height="50" fill="url(#notpaint) #cc9900"/>
+  <rect id="notpaint" x="130" y="130" width="50" height="50" fill="none" stroke="url(#good)" stroke-width="10"/>
+</svg>

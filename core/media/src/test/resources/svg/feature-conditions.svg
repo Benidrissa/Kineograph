@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <rect x="10" y="10" width="80" height="80" fill="#cc3333" requiredExtensions="http://example.invalid/none"/>
+  <rect x="110" y="10" width="80" height="80" fill="#3366cc" systemLanguage="en"/>
+  <rect x="10" y="110" width="80" height="80" fill="#33aa33" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Shape"/>
+  <rect x="110" y="110" width="80" height="80" fill="#cc9900" systemLanguage=""/>
+</svg>

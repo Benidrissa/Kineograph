@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <rect width="30" height="20" fill="#cc3333"><animateTransform attributeName="transform" type="translate" from="10 10" to="160 10" dur="2s" fill="freeze"/></rect>
+  <rect width="30" height="20" fill="#3366cc"><animateTransform attributeName="transform" type="translate" values="10 40;160 40;100 80" dur="2s" fill="freeze"/></rect>
+  <!-- One number means x only. -->
+  <rect y="100" width="30" height="20" fill="#33aa33"><animateTransform attributeName="transform" type="translate" from="10" to="160" dur="2s" fill="freeze"/></rect>
+  <rect y="130" width="30" height="20" fill="#cc9900" transform="translate(50 0)"><animateTransform attributeName="transform" type="translate" by="100" dur="2s" fill="freeze"/></rect>
+  <g transform="translate(0 170)"><animateTransform attributeName="transform" type="translate" from="10,170" to="160,170" dur="2s"/><rect width="30" height="20" fill="#990099"/></g>
+</svg>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    .dot { offset-path: path("M20 100 C60 20 140 20 180 100"); animation: run 2s linear infinite; offset-rotate: 0deg; }
+    .arrow { offset-path: path("M20 130 h160"); animation: run 2s linear infinite; }
+    .car { offset-path: path("M20 170 h160"); offset-distance: 50%; }
+    .back { offset-path: url(#track); offset-distance: 25%; offset-rotate: reverse; }
+    @keyframes run { from { offset-distance: 0%; } to { offset-distance: 100%; } }
+  </style>
+  <path id="track" d="M20 20 h160" fill="none" stroke="#ccc"/>
+  <path d="M20 100 C60 20 140 20 180 100" fill="none" stroke="#ccc"/>
+  <circle class="dot" r="8" fill="#e91e63"/>
+  <path class="arrow" d="M-10 -5 L10 0 L-10 5 z" fill="#009688"/>
+  <rect class="car" x="-10" y="-5" width="20" height="10" fill="#3f51b5"/>
+  <path class="back" d="M-10 -5 L10 0 L-10 5 z" fill="#ff9800"/>
+</svg>

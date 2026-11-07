@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    @keyframes mv { from { transform: translateX(10px) } to { transform: translateX(160px) } }
+    rect { animation: mv 1s linear 2 }
+    .rev { animation-direction: reverse }
+    .alt { animation-direction: alternate }
+    .altr { animation-direction: alternate-reverse }
+    .altf { animation-direction: alternate; animation-fill-mode: both; animation-iteration-count: 3 }
+    .revf { animation-direction: reverse; animation-fill-mode: forwards; animation-iteration-count: 1 }
+    .easy { animation-direction: reverse; animation-timing-function: ease-in; animation-iteration-count: 1 }
+  </style>
+  <rect y="10" width="20" height="20" fill="#cc3333"/>
+  <rect class="rev" y="35" width="20" height="20" fill="#3366cc"/>
+  <rect class="alt" y="60" width="20" height="20" fill="#33aa33"/>
+  <rect class="altr" y="85" width="20" height="20" fill="#cc9900"/>
+  <rect class="altf" y="110" width="20" height="20" fill="#990099"/>
+  <rect class="revf" y="135" width="20" height="20" fill="#00aaaa"/>
+  <rect class="easy" y="160" width="20" height="20" fill="#555555"/>
+</svg>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <rect id="m" width="30" height="30" fill="#cc3333"><animate attributeName="width" from="30" to="60" dur="2s" fill="freeze"/></rect>
+    <g id="g"><circle cx="15" cy="15" r="5"><animate attributeName="r" from="5" to="15" dur="2s" fill="freeze"/></circle></g>
+    <symbol id="s" viewBox="0 0 10 10"><rect width="10" height="10"><animate attributeName="fill" from="#ff0000" to="#0000ff" dur="2s" fill="freeze"/></rect></symbol>
+  </defs>
+  <use href="#m" x="10" y="10"/>
+  <use href="#m" x="110" y="10"/>
+  <use href="#g" x="10" y="60" fill="#3366cc"/>
+  <use href="#g" x="60" y="60" fill="#33aa33"/>
+  <use href="#s" x="110" y="60" width="30" height="30"/>
+  <!-- The use itself can move, and pass on an animated colour. -->
+  <use href="#g" y="110" fill="#000000"><animate attributeName="x" from="10" to="100" dur="2s" fill="freeze"/><animate attributeName="fill" from="#000000" to="#ff0000" dur="2s" fill="freeze"/></use>
+  <use href="#s" x="10" y="150" width="30" height="30"><animate attributeName="width" from="30" to="60" dur="2s" fill="freeze"/></use>
+</svg>

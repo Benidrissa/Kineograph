@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs><clipPath id="c"><circle cx="150" cy="50" r="40"/></clipPath></defs>
+  <!-- CSS basic shapes, and url references written in CSS. -->
+  <rect x="10" y="10" width="80" height="80" fill="#cc3333" style="clip-path: url(#c)"/>
+  <rect x="110" y="10" width="80" height="80" fill="#3366cc" style="clip-path: url(#c)"/>
+  <rect x="10" y="110" width="80" height="80" fill="#33aa33" style="clip-path: circle(50%)"/>
+  <rect x="110" y="110" width="80" height="80" fill="#cc9900" style="clip-path: inset(10px)"/>
+  <!-- The default box of a shape includes the stroke, and one can be named. -->
+  <rect x="20" y="20" width="40" height="40" fill="#990099" stroke="#000000" stroke-width="10" style="clip-path: inset(0)"/>
+  <rect x="30" y="30" width="20" height="20" fill="#00aaaa" stroke="#555555" stroke-width="6" style="clip-path: polygon(0 0, 100% 0, 50% 100%)"/>
+</svg>

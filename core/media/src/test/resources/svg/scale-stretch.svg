@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 100 25" preserveAspectRatio="none">
+  <defs>
+    <radialGradient id="r"><stop offset="0" stop-color="#ffff00"/><stop offset="1" stop-color="#cc0000"/></radialGradient>
+    <pattern id="p" patternUnits="userSpaceOnUse" width="10" height="5"><circle cx="5" cy="2.5" r="2" fill="#3366cc"/></pattern>
+  </defs>
+  <!-- A circle comes out an ellipse, and strokes get thicker one way, under a stretch. -->
+  <circle cx="15" cy="6" r="5" fill="url(#r)" stroke="#000000"/>
+  <rect x="30" y="1" width="30" height="10" fill="url(#p)"/>
+  <line x1="65" y1="2" x2="95" y2="10" stroke="#33aa33" stroke-width="2"/>
+  <rect x="5" y="14" width="40" height="8" fill="none" stroke="#000000" stroke-width="1" vector-effect="non-scaling-stroke"/>
+  <text x="55" y="21" font-size="8" font-family="sans-serif" fill="#990099">Tall</text>
+</svg>

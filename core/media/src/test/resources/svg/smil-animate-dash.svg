@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <g fill="none" stroke-width="6">
+    <line x1="10" y1="20" x2="190" y2="20" stroke="#cc3333" stroke-dasharray="20 10"><animate attributeName="stroke-dashoffset" from="0" to="60" dur="2s" fill="freeze"/></line>
+    <line x1="10" y1="50" x2="190" y2="50" stroke="#3366cc"><animate attributeName="stroke-dasharray" from="10 10" to="30 2" dur="2s" fill="freeze"/></line>
+    <line x1="10" y1="80" x2="190" y2="80" stroke="#33aa33"><animate attributeName="stroke-dasharray" values="10,20,30;30,20,10" dur="2s" fill="freeze"/></line>
+    <!-- Lists of different lengths repeat up to their common length. -->
+    <line x1="10" y1="110" x2="190" y2="110" stroke="#cc9900"><animate attributeName="stroke-dasharray" from="10 10" to="20 5 5" dur="2s" fill="freeze"/></line>
+    <circle cx="50" cy="160" r="30" stroke="#990099" stroke-dasharray="188.5"><animate attributeName="stroke-dashoffset" from="188.5" to="0" dur="2s" fill="freeze"/></circle>
+    <rect x="110" y="130" width="60" height="60" stroke="#00aaaa"><animate attributeName="stroke-width" from="1" to="15" dur="2s" fill="freeze"/><animate attributeName="stroke-miterlimit" from="1" to="4" dur="2s" fill="freeze"/></rect>
+    <line x1="10" y1="195" x2="190" y2="195" stroke="#555555" stroke-width="4" stroke-dasharray="none"><animate attributeName="stroke-dasharray" from="none" to="10 5" dur="2s" fill="freeze"/></line>
+  </g>
+</svg>

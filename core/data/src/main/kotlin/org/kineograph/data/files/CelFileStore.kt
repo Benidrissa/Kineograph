@@ -20,6 +20,7 @@ import java.nio.file.Files
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Semaphore
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Keeps cel images as files in a project's `cels/` directory.
@@ -34,11 +35,13 @@ public class CelFileStore(
     private val projectDirectory: File,
     compressedCacheBytes: Long,
     dispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(MAX_CONCURRENT_WRITES),
+    private val encoder: (Bitmap, String) -> ByteArray = ::encodeCel,
 ) : CelStore {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val pending = ConcurrentHashMap<String, Bitmap>()
     private val jobs = ConcurrentHashMap<String, Job>()
     private val failed = ConcurrentHashMap<String, Bitmap>()
+    private val ranOutOfMemory = AtomicBoolean(false)
 
     /** Limits queued images, so a huge merge cannot hold hundreds of full-size bitmaps in memory at once. */
     private val queueSlots = Semaphore(MAX_QUEUED_IMAGES)
@@ -62,7 +65,7 @@ public class CelFileStore(
         jobs[name] =
             scope.launch {
                 try {
-                    val encoded = encode(image, name)
+                    val encoded = encoder(image, name)
                     AtomicFile.write(File(projectDirectory, name), encoded)
                     cache.put(name, encoded)
                     pending.remove(name)
@@ -71,27 +74,16 @@ public class CelFileStore(
                     // Most likely the disk is full. The image stays in memory and awaitWrites will report it.
                     failed[name] = image
                 } catch (_: OutOfMemoryError) {
-                    // Same outcome: the image is kept and tried again later, now with the cache out of the way.
+                    // Encoding grows a buffer here, and an error nobody catches on this thread would end the whole app. It is a failed write like
+                    // any other: the image is kept and tried again, and giving up what is cached is the best chance of the next try working.
                     cache.evictAll()
+                    ranOutOfMemory.set(true)
                     failed[name] = image
                 } finally {
                     jobs.remove(name)
                     queueSlots.release()
                 }
             }
-    }
-
-    @Throws(IOException::class)
-    private fun encode(image: Bitmap, name: String): ByteArray {
-        val output = ByteArrayOutputStream(maxOf(1024, image.byteCount / 8))
-        val succeeded =
-            if (name.endsWith(".webp") && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                image.compress(Bitmap.CompressFormat.WEBP_LOSSLESS, WEBP_EFFORT, output)
-            } else {
-                image.compress(Bitmap.CompressFormat.PNG, PNG_QUALITY_IGNORED, output)
-            }
-        if (!succeeded) throw IOException("Could not encode $name")
-        return output.toByteArray()
     }
 
     override fun read(file: String, sampleSize: Int): Bitmap? {
@@ -147,7 +139,10 @@ public class CelFileStore(
             enqueue(name, image)
         }
         jobs.values.toList().joinAll()
-        if (failed.isNotEmpty()) throw IOException("${failed.size} images could not be saved")
+        if (failed.isNotEmpty()) {
+            if (ranOutOfMemory.getAndSet(false)) throw OutOfMemoryError("${failed.size} images could not be encoded")
+            throw IOException("${failed.size} images could not be saved")
+        }
     }
 
     override fun trimMemory() {
@@ -175,6 +170,16 @@ public class CelFileStore(
         }
     }
 
+    override fun discard(files: Collection<String>) {
+        ranOutOfMemory.set(false)
+        for (name in files) {
+            failed.remove(name)
+            pending.remove(name)
+            cache.remove(name)
+            resolve(name)?.delete()
+        }
+    }
+
     /** Stops background work. Call after a final [awaitWrites]. */
     public fun close() {
         scope.cancel()
@@ -188,9 +193,22 @@ public class CelFileStore(
 
         /** The WebP format has only 14 bits for each edge. An image past this could never be saved as one. */
         const val WEBP_MAX_EDGE = 16383
-
-        /** For lossless WebP, quality means effort. Low effort stays close to PNG's size at many times the speed. */
-        const val WEBP_EFFORT = 20
-        const val PNG_QUALITY_IGNORED = 100
     }
+}
+
+/** For lossless WebP, quality means effort. Low effort stays close to PNG's size at many times the speed. */
+private const val WEBP_EFFORT = 20
+private const val PNG_QUALITY_IGNORED = 100
+
+@Throws(IOException::class)
+private fun encodeCel(image: Bitmap, name: String): ByteArray {
+    val output = ByteArrayOutputStream(maxOf(1024, image.byteCount / 8))
+    val succeeded =
+        if (name.endsWith(".webp") && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            image.compress(Bitmap.CompressFormat.WEBP_LOSSLESS, WEBP_EFFORT, output)
+        } else {
+            image.compress(Bitmap.CompressFormat.PNG, PNG_QUALITY_IGNORED, output)
+        }
+    if (!succeeded) throw IOException("Could not encode $name")
+    return output.toByteArray()
 }

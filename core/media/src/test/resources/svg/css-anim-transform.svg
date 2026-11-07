@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    @keyframes mv { from { transform: translate(10px, 0) } to { transform: translate(160px, 0) } }
+    @keyframes sp { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
+    @keyframes gr { from { transform: scale(1) } to { transform: scale(2) } }
+    @keyframes sk { from { transform: skewX(0deg) } to { transform: skewX(45deg) } }
+    .a { animation: mv 2s linear forwards }
+    .b { animation: sp 2s linear forwards; transform-origin: 40px 70px }
+    .c { animation: gr 2s linear forwards; transform-origin: 140px 70px }
+    .d { animation: sk 2s linear forwards; transform-origin: 40px 130px }
+    .e { animation: mv 2s linear }
+  </style>
+  <rect class="a" y="10" width="30" height="20" fill="#cc3333"/>
+  <rect class="b" x="40" y="65" width="30" height="10" fill="#3366cc"/>
+  <rect class="c" x="125" y="60" width="30" height="20" fill="#33aa33"/>
+  <rect class="d" x="25" y="110" width="30" height="30" fill="#cc9900"/>
+  <rect class="e" x="0" y="170" width="30" height="20" fill="#990099"/>
+</svg>

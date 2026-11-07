@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <g transform="translate(0 1000)">
+    <path d="M.5-1e3L100-1e3 100-950Z" fill="#cc3333"/>
+  </g>
+  <path d="M110.5.5L199.5.5 199.5,50.5z" fill="#3366cc"/>
+  <path d="M+10+60L+5e1+60+50+1e2Z" fill="#33aa33"/>
+  <path d="M60,60h.5e2v.4E2h-5.e1z" fill="#cc9900"/>
+  <path d="M120 60l50.0-0 0 40-5e+1 0" fill="#990099"/>
+  <path d="M10,120C20-1 40,250,60,120" transform="translate(0 0)" fill="none" stroke="#000000" stroke-width="2"/>
+  <path d="M70 120h1e1.5e1v1E1z" fill="#00aaaa"/>
+  <path d="M100
+    120
+    ,130,
+    120
+  	130 150z" fill="#aa00aa"/>
+  <path d="M150 120l10-0-.0.3e1 1,1,2,2 3-3.5.5.5.5 10 10-20 10z" fill="#ff6600"/>
+</svg>

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="pad" x1=".4" x2=".6"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/></linearGradient>
+    <linearGradient id="ref" x1=".4" x2=".6" spreadMethod="reflect"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/></linearGradient>
+    <linearGradient id="rep" x1=".4" x2=".6" spreadMethod="repeat"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/></linearGradient>
+    <linearGradient id="diag" x1=".4" y1=".4" x2=".6" y2=".6" spreadMethod="reflect"><stop offset="0" stop-color="#ffff00"/><stop offset=".5" stop-color="#00ffff"/><stop offset="1" stop-color="#ff00ff"/></linearGradient>
+    <linearGradient id="hard" x2=".2" spreadMethod="repeat"><stop offset="0" stop-color="#000000"/><stop offset=".5" stop-color="#000000"/><stop offset=".5" stop-color="#ffffff"/><stop offset="1" stop-color="#ffffff"/></linearGradient>
+  </defs>
+  <rect x="10" y="10" width="180" height="30" fill="url(#pad)"/>
+  <rect x="10" y="50" width="180" height="30" fill="url(#ref)"/>
+  <rect x="10" y="90" width="180" height="30" fill="url(#rep)"/>
+  <rect x="10" y="130" width="60" height="60" fill="url(#diag)"/>
+  <rect x="80" y="130" width="110" height="60" fill="url(#hard)"/>
+</svg>

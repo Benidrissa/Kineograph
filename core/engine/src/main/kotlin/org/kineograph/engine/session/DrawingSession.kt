@@ -38,6 +38,7 @@ import org.kineograph.engine.compositor.LayerDraw
 import org.kineograph.engine.compositor.Scene
 import org.kineograph.engine.compositor.WetDraw
 import org.kineograph.engine.fill.FloodFill
+import org.kineograph.engine.history.BackgroundEntry
 import org.kineograph.engine.history.History
 import org.kineograph.engine.history.HistoryCursor
 import org.kineograph.engine.history.PatchPayload
@@ -593,6 +594,11 @@ public class DrawingSession(
                         }
                     }
 
+                    is BackgroundEntry -> {
+                        showBackground(entry.before)
+                        history.popUndo()
+                    }
+
                     null -> {
                         Unit
                     }
@@ -617,6 +623,11 @@ public class DrawingSession(
                         restoreStructure(entry.after, entry.cursorAfter, surfaces)
                         history.popRedo()
                     }
+                }
+
+                is BackgroundEntry -> {
+                    showBackground(entry.after)
+                    history.popRedo()
                 }
 
                 null -> {
@@ -1064,6 +1075,86 @@ public class DrawingSession(
         canvas.drawBitmap(image, bounds.left.toFloat(), bounds.top.toFloat(), paint)
     }
 
+    /**
+     * Applies a change worked out elsewhere, such as an import, as one undo step, and returns once it is done. Pending pixels are saved first,
+     * so [edit] sees the project as it stands. [selectLayerId] becomes the active layer if the result has it.
+     *
+     * It either happens or it does not. Running out of memory comes back to the caller as itself, and a save of pending pixels that cannot finish as
+     * an [IOException], because whoever made this change has to tell the user whether it happened. Then the project, the surface and both undo
+     * stacks are as they were. Once this returns the edit stands, and the caller can count on that.
+     */
+    @Throws(IOException::class)
+    public suspend fun applyEdit(selectLayerId: String? = null, edit: (Project) -> Project) {
+        withContext(dispatcher) {
+            try {
+                applyEditNow(selectLayerId, edit)
+            } catch (e: OutOfMemoryError) {
+                trimAfterOutOfMemory()
+                publishWhereThingsStand()
+                throw e
+            } catch (e: UnreadableCel) {
+                publishWhereThingsStand()
+                throw IOException("An earlier drawing could not be read while saving", e)
+            }
+        }
+    }
+
+    private fun applyEditNow(selectLayerId: String?, edit: (Project) -> Project) {
+        // A stroke must land on the frame and layer it started on, and this may be about to change the layer.
+        commitStroke()
+        settleOpacityPreview()
+        commitFloatingAndPublish()
+        flushActive()
+        val before = project
+        val cursorBefore = HistoryCursor(frameId, layerId)
+        val after = edit(before)
+        val cursorAfter = HistoryCursor(frameId, selectLayerId?.takeIf { after.layer(it) != null } ?: layerId)
+        if (after == before && cursorAfter == cursorBefore) return
+
+        // What can run out of memory comes first, while nothing has changed. The undo step comes last, as recording it throws away what could be redone.
+        val surfaces = surfacesForEdit(after)
+        val key = CelKey(cursorAfter.layerId, cursorAfter.frameId)
+        val cel = after.cels[key]
+        val reload = surfaces != null || key != loadedKey || cel?.file != loadedFile
+        val image = if (reload) readForEdit(cel) else null
+
+        project = after
+        layerId = cursorAfter.layerId
+        try {
+            moveToSurfaces(surfaces)
+            if (reload) showOnSurface(key, cel, image)
+            syncOtherLayers()
+            scheduleGhosts()
+            history.push(StructureEntry(before, after, cursorBefore, cursorAfter))
+        } catch (_: OutOfMemoryError) {
+            // The project has changed by now, and the caller would take its files back if told otherwise. So this only costs what can be rebuilt: the
+            // view is loaded again by the next command, and older undo steps would apply across a change they know nothing about.
+            loadedKey = null
+            loadedFile = null
+            layerLeftOut = true
+            history.clear()
+            trimAfterOutOfMemory()
+        }
+        markChanged()
+        publishWhereThingsStand()
+    }
+
+    /** Surfaces for the size an edit leaves the canvas at, or null if that does not differ. An edit that does not fit does not happen. */
+    private fun surfacesForEdit(after: Project): NewSurfaces? {
+        if (surface == null || (after.width == project.width && after.height == project.height)) return null
+        return makeSurfaces(after.width, after.height) ?: throw OutOfMemoryError("A canvas of this size does not fit in memory")
+    }
+
+    /**
+     * What an edit is about to show on the surface. Unlike [readCel] this tries only once, since the caller can tell the user and they can try again,
+     * and a file that is still there but gives nothing back counts as running out of memory, for the reasons given there.
+     */
+    private fun readForEdit(cel: Cel?): Bitmap? {
+        val file = cel?.file ?: return null
+        if (cel?.bounds == null) return null
+        return store.read(file) ?: if (store.isGone(file)) null else throw OutOfMemoryError("$file could not be decoded")
+    }
+
     private fun updateLayer(id: String, change: (Layer) -> Layer) {
         structureEdit { p -> ProjectEdits.updateLayer(p, id, change) to HistoryCursor(frameId, layerId) }
     }
@@ -1150,13 +1241,42 @@ public class DrawingSession(
     /** Replaces what sits behind the layers. */
     public fun setBackground(background: Background) {
         post {
-            project = project.copy(background = background)
-            backgroundImage = readBackgroundImage()
-            revealGeneration = -1
-            markChanged()
+            showBackground(background)
             publishScene()
             publishState()
         }
+    }
+
+    /**
+     * Replaces what sits behind the layers as one undo step, for when that is not something the user set out to change on its own terms, and
+     * returns once it is done. If memory runs out it comes back to the caller, with everything as it was.
+     */
+    public suspend fun applyBackground(background: Background) {
+        withContext(dispatcher) {
+            val before = project.background
+            if (before == background) return@withContext
+            // Reading comes first, because nothing has changed yet if it fails. It is also the only part that can.
+            val image = pictureFor(background)
+            history.push(BackgroundEntry(before, background))
+            showBackground(background, image)
+            publishWhereThingsStand()
+        }
+    }
+
+    private fun showBackground(background: Background, image: Bitmap? = pictureFor(background)) {
+        project = project.copy(background = background)
+        backgroundImage = image
+        revealGeneration = -1
+        markChanged()
+    }
+
+    /**
+     * The picture a background shows, or null if it shows none or its file has really gone. One that is there but will not fit stops whatever
+     * asked, before anything has changed, so that a background is never recorded as showing a picture that did not appear.
+     */
+    private fun pictureFor(background: Background): Bitmap? {
+        val file = (background as? Background.Image)?.file ?: return null
+        return readCel(file) ?: if (store.isGone(file)) null else throw OutOfMemoryError("The background picture does not fit in memory")
     }
 
     /**
@@ -1208,7 +1328,8 @@ public class DrawingSession(
 
     /**
      * Writes pending pixels to the store and returns the project as it now stands. While the lasso holds
-     * lifted pixels the surface is incomplete, so they stay unsaved unless [commitSelection] is set.
+     * lifted pixels the surface is incomplete, so they stay unsaved unless [commitSelection] is set. Committing them is an edit like any other,
+     * and is published as one.
      *
      * Throws an [IOException] when memory runs out or an earlier drawing the save has to keep cannot be read, with the
      * pixels still marked as unsaved, so callers treat it like any other failed save and the next attempt starts over.
@@ -1226,10 +1347,10 @@ public class DrawingSession(
                 project
             } catch (e: OutOfMemoryError) {
                 trimAfterOutOfMemory()
-                publishAfterFailure()
+                publishWhereThingsStand()
                 throw IOException("Ran out of memory while saving", e)
             } catch (e: UnreadableCel) {
-                publishAfterFailure()
+                publishWhereThingsStand()
                 throw IOException("An earlier drawing could not be read while saving", e)
             }
         }
@@ -1238,6 +1359,7 @@ public class DrawingSession(
     public suspend fun referencedFiles(): Set<String> =
         withContext(dispatcher) {
             val files = HashSet(project.referencedFiles())
+            (project.background as? Background.Image)?.let { files += it.file }
             files += history.referencedFiles()
             loadedFile?.let { files += it }
             frameClipboard?.frames?.forEach { frame -> frame.cels.values.forEach { cel -> cel.file?.let { files += it } } }
@@ -1391,6 +1513,10 @@ public class DrawingSession(
         if (forceActive || key != loadedKey || activeCel?.file != loadedFile) {
             loadSurface(key, activeCel)
         }
+        syncOtherLayers()
+    }
+
+    private fun syncOtherLayers() {
         val wanted = HashSet<String>()
         var leftOut = false
         for (layer in project.layers) {
@@ -1424,11 +1550,17 @@ public class DrawingSession(
      * once, because all they would otherwise see is an empty frame.
      */
     private fun loadSurface(key: CelKey, cel: Cel?) {
+        if (surface == null) return
+        val file = cel?.file
+        showOnSurface(key, cel, if (file != null && cel?.bounds != null) readCel(file) else null)
+    }
+
+    /** Decoding comes first, because if memory runs out the surface still holds what it says it holds, while erasing first would lose it. */
+    private fun showOnSurface(key: CelKey, cel: Cel?, image: Bitmap?) {
         val target = surface ?: return
         val canvas = surfaceCanvas ?: return
         val file = cel?.file
         val celBounds = cel?.bounds
-        val image = if (file != null && celBounds != null) readCel(file) else null
         if (file != null && celBounds != null && image == null) {
             loadedKey = null
             loadedFile = null
@@ -1750,13 +1882,16 @@ public class DrawingSession(
         }
     }
 
-    /** A command that stopped early may have got part of the way, so the screen is brought up to date with where things stand. */
-    private fun publishAfterFailure() {
+    /**
+     * Brings the screen up to date, after a command that stopped early and may have got part of the way, or an edit that has already happened. Failing
+     * to tell it is no reason to say otherwise about how that went, and the next successful command publishes everything anyway.
+     */
+    private fun publishWhereThingsStand() {
         try {
             publishScene()
             publishState()
         } catch (_: OutOfMemoryError) {
-            // The next successful command publishes everything anyway.
+            trimAfterOutOfMemory()
         }
     }
 
@@ -1770,11 +1905,11 @@ public class DrawingSession(
                     block()
                 } catch (_: OutOfMemoryError) {
                     trimAfterOutOfMemory()
-                    publishAfterFailure()
+                    publishWhereThingsStand()
                 } catch (_: UnreadableCel) {
                     // A save this command needed could not finish, and readCel has already warned. As with running out
                     // of memory, the command stops and the pixels stay unsaved for the next attempt.
-                    publishAfterFailure()
+                    publishWhereThingsStand()
                 }
             }
         } catch (_: RejectedExecutionException) {

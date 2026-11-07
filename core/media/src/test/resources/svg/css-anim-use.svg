@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    @keyframes mv { from { transform: translateX(0) } to { transform: translateX(60px) } }
+    @keyframes co { from { fill: #ff0000 } to { fill: #0000ff } }
+    #inner { animation: mv 2s linear forwards }
+    .u { animation: co 2s linear forwards }
+  </style>
+  <defs><rect id="inner" width="30" height="20" fill="#33aa33"/><g id="g"><rect width="30" height="20"/></g></defs>
+  <!-- An animation on the original also runs in each copy. -->
+  <use href="#inner" x="10" y="10"/>
+  <use href="#inner" x="110" y="10"/>
+  <!-- An animated colour on the use passes down. -->
+  <use class="u" href="#g" x="10" y="60"/>
+</svg>

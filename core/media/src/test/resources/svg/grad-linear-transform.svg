@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="r" gradientTransform="rotate(45)"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/></linearGradient>
+    <linearGradient id="c" gradientTransform="rotate(90 .5 .5)"><stop offset="0" stop-color="#ffff00"/><stop offset="1" stop-color="#00aa00"/></linearGradient>
+    <linearGradient id="s" gradientTransform="translate(.25 0) scale(.5 1)"><stop offset="0" stop-color="#000000"/><stop offset="1" stop-color="#ffffff"/></linearGradient>
+    <linearGradient id="u" gradientUnits="userSpaceOnUse" x1="0" x2="50" y1="0" y2="0" gradientTransform="translate(100 100) rotate(30)" spreadMethod="repeat"><stop offset="0" stop-color="#ff00ff"/><stop offset="1" stop-color="#00ffff"/></linearGradient>
+    <linearGradient id="m" gradientTransform="matrix(1 .5 -.5 1 0 0)"><stop offset="0" stop-color="#ff8800"/><stop offset="1" stop-color="#0088ff"/></linearGradient>
+  </defs>
+  <rect x="10" y="10" width="80" height="50" fill="url(#r)"/>
+  <rect x="110" y="10" width="80" height="50" fill="url(#c)"/>
+  <rect x="10" y="70" width="80" height="50" fill="url(#s)"/>
+  <rect x="110" y="70" width="80" height="50" fill="url(#m)"/>
+  <rect x="10" y="130" width="180" height="60" fill="url(#u)"/>
+</svg>

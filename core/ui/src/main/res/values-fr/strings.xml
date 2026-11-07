@@ -9,4 +9,6 @@
     <string name="canvas_size_too_big_for_android">Un canevas de cette taille dépasse ce qu’Android peut gérer en une seule image, quel que soit l’appareil. Choisissez une taille plus petite.</string>
     <string name="canvas_size_use">Utiliser %1$d × %2$d</string>
     <string name="canvas_size_large">Un canevas de cette taille demande beaucoup de mémoire et peut être lent sur cet appareil.</string>
+    <string name="dropdown_expanded">Développé</string>
+    <string name="dropdown_collapsed">Réduit</string>
 </resources>

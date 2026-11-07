@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    @-webkit-keyframes pre { from { -webkit-transform: translateX(10px) } to { -webkit-transform: translateX(170px) } }
+    @keyframes "quoted" { from { transform: translateX(10px) } to { transform: translateX(170px) } }
+    @keyframes dec { 0.0% { transform: translateX(10px) } 33.3% { transform: translateX(170px) } 66.6% { transform: translateX(10px) } 100.0% { transform: translateX(170px) } }
+    @keyframes vr { from { transform: translateX(var(--a)) } to { transform: translateX(var(--b)) } }
+    @keyframes em { from { transform: translateX(1em) } to { transform: translateX(10em) } }
+    @keyframes pc { from { transform: translateX(0%) } to { transform: translateX(100%) } }
+    @media screen { @keyframes med { from { transform: translateX(10px) } to { transform: translateX(170px) } } }
+    rect { animation-duration: 2s; animation-timing-function: linear; animation-fill-mode: forwards }
+    .a { -webkit-animation: pre 2s linear forwards }
+    .b { animation-name: "quoted" }
+    .c { animation-name: dec }
+    .d { --a: 10px; --b: 170px; animation-name: vr }
+    .e { font-size: 15px; animation-name: em }
+    .f { animation-name: pc }
+    .g { transform-box: fill-box; animation-name: pc }
+    .h { animation-name: med }
+    .i { animation: pre 2s cubic-bezier(.5, 0, .5, 1) forwards, nothing 1s; }
+  </style>
+  <rect class="a" y="2" width="20" height="18" fill="#cc3333"/>
+  <rect class="b" y="24" width="20" height="18" fill="#3366cc"/>
+  <rect class="c" y="46" width="20" height="18" fill="#33aa33"/>
+  <rect class="d" y="68" width="20" height="18" fill="#cc9900"/>
+  <rect class="e" y="90" width="20" height="18" fill="#990099"/>
+  <rect class="f" y="112" width="20" height="18" fill="#00aaaa"/>
+  <rect class="g" y="134" width="20" height="18" fill="#555555"/>
+  <rect class="h" y="156" width="20" height="18" fill="#ff6600"/>
+  <rect class="i" y="178" width="20" height="18" fill="#0066ff"/>
+</svg>

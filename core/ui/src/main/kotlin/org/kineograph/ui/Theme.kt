@@ -33,7 +33,7 @@ private val NightVariant = Color(0xFF2C3238)
 private val Mist = Color(0xFFE3E6E8)
 private val MistVariant = Color(0xFFBEC4C9)
 
-private val LightColors =
+internal val LightColors =
     lightColorScheme(
         primary = Teal40,
         onPrimary = Color.White,
@@ -58,10 +58,10 @@ private val LightColors =
         surfaceContainerHighest = Color(0xFFE9E3D6),
         surfaceContainerLow = Color(0xFFF8F4EB),
         outline = Color(0xFF75756C),
-        outlineVariant = Color(0xFFCFC9BB),
+        outlineVariant = Color(0xFFA8A294),
     )
 
-private val DarkColors =
+internal val DarkColors =
     darkColorScheme(
         primary = Teal80,
         onPrimary = Color(0xFF003737),
@@ -69,8 +69,8 @@ private val DarkColors =
         onPrimaryContainer = Teal90,
         secondary = Amber80,
         onSecondary = Color(0xFF4A3000),
-        secondaryContainer = Color(0xFF684700),
-        onSecondaryContainer = Amber90,
+        secondaryContainer = Color(0xFF7D5700),
+        onSecondaryContainer = Color(0xFFFFF0D6),
         tertiary = Coral80,
         onTertiary = Color(0xFF611600),
         tertiaryContainer = Color(0xFF8A2A10),
@@ -85,8 +85,8 @@ private val DarkColors =
         surfaceContainerHigh = Color(0xFF23282D),
         surfaceContainerHighest = Color(0xFF2B3136),
         surfaceContainerLow = Color(0xFF181B1F),
-        outline = Color(0xFF899096),
-        outlineVariant = Color(0xFF41474D),
+        outline = Color(0xFF9AA2A8),
+        outlineVariant = Color(0xFF626A71),
     )
 
 @Composable

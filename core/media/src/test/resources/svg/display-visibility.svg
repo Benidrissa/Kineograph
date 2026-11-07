@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <rect x="10" y="10" width="40" height="40" fill="#cc3333" display="none"/>
+  <g display="none"><rect x="60" y="10" width="40" height="40" fill="#cc3333" display="inline"/></g>
+  <rect x="110" y="10" width="40" height="40" fill="#33aa33" display="inline"/>
+  <rect x="160" y="10" width="30" height="40" fill="#cc3333" visibility="hidden"/>
+  <!-- Unlike display, a hidden parent can have a visible child. -->
+  <g visibility="hidden">
+    <rect x="10" y="60" width="40" height="40" fill="#cc3333"/>
+    <rect x="60" y="60" width="40" height="40" fill="#3366cc" visibility="visible"/>
+  </g>
+  <rect x="110" y="60" width="40" height="40" fill="#cc3333" visibility="collapse"/>
+  <rect x="160" y="60" width="30" height="40" fill="#33aa33" style="display: block"/>
+  <svg display="none"><rect x="10" y="110" width="40" height="40" fill="#cc3333"/></svg>
+  <use href="#hidden-target" x="0" y="0"/>
+  <rect id="hidden-target" x="60" y="110" width="40" height="40" fill="#cc9900" visibility="hidden"/>
+  <use href="#plain-target" y="50" visibility="visible"/>
+  <rect id="plain-target" x="110" y="60" width="40" height="40" fill="#990099" display="none"/>
+  <defs><rect id="in-defs" x="10" y="160" width="40" height="30" fill="#00aaaa"/></defs>
+  <use href="#in-defs"/>
+  <g visibility="hidden"><use href="#in-defs" x="50" visibility="visible"/></g>
+</svg>

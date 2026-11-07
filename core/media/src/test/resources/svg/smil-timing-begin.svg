@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- A list of start times, a late start, and a start before time zero. -->
+  <rect x="10" y="10" width="20" height="20" fill="#cc3333"><animate attributeName="x" from="10" to="160" begin="1s" dur="2s"/></rect>
+  <rect x="10" y="40" width="20" height="20" fill="#3366cc"><animate attributeName="x" from="10" to="160" begin="0s;2s" dur="1s"/></rect>
+  <rect x="10" y="70" width="20" height="20" fill="#33aa33"><animate attributeName="x" from="10" to="160" begin="-1s" dur="2s" fill="freeze"/></rect>
+  <rect x="10" y="100" width="20" height="20" fill="#cc9900"><animate attributeName="x" from="10" to="160" begin="500ms" dur="1000ms" fill="freeze"/></rect>
+  <rect x="10" y="130" width="20" height="20" fill="#990099"><animate attributeName="x" from="10" to="160" begin="0.02min" dur="00:00:01.5" fill="freeze"/></rect>
+  <rect x="10" y="160" width="20" height="20" fill="#00aaaa"><animate attributeName="x" from="10" to="160" begin=" 2s ; 1s " dur="1s" fill="freeze"/></rect>
+</svg>

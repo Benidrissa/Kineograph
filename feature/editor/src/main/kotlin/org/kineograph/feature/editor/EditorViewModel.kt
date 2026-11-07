@@ -37,6 +37,7 @@ import org.kineograph.media.export.ExportFormat
 import org.kineograph.media.export.ExportManager
 import org.kineograph.media.export.ExportStatus
 import org.kineograph.media.export.ExportWorker
+import org.kineograph.media.svgimport.SvgImporter
 import org.kineograph.model.Background
 import org.kineograph.model.PlaybackMode
 import java.io.File
@@ -86,6 +87,13 @@ internal enum class EditorMessage {
     CANVAS_DOES_NOT_FIT,
     BACKGROUND_NOT_USED,
     BACKGROUND_NOT_CHANGED,
+    NO_FILE_PICKER,
+    SVG_EMPTY,
+    SVG_UNREADABLE,
+    SVG_TOO_LARGE,
+    SVG_DAMAGED,
+    SVG_NOT_SVG,
+    SVG_IMPORTED_INCOMPLETE,
 }
 
 /** An export in progress or finished, and what has happened to the result so far, for the export dialog. */
@@ -154,6 +162,8 @@ public class EditorViewModel(
         private set
     internal var thumbnails: ThumbnailLoader? = null
         private set
+    internal var svgImport: SvgImportController? = null
+        private set
 
     init {
         viewModelScope.launch { open() }
@@ -214,6 +224,14 @@ public class EditorViewModel(
         autosaver.start(viewModelScope)
         playback = PlaybackController(viewModelScope, opened.store, budget.playbackCacheBytes, budget.isLowRam)
         thumbnails = ThumbnailLoader(opened.store, THUMBNAIL_CACHE_BYTES)
+        svgImport =
+            SvgImportController(
+                scope = viewModelScope,
+                importer = SvgImporter(session, opened.store, { image -> dependencies.repository.saveBackgroundImage(projectId, image) }),
+                holdFiles = autosaver::holdSweeps,
+                releaseFiles = autosaver::releaseSweeps,
+                onMessage = { _messages.trySend(it) },
+            )
         viewModelScope.launch {
             autosaver.saveFailed.collect { failed -> if (failed) _messages.trySend(EditorMessage.SAVE_FAILED) }
         }

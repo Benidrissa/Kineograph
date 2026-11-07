@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- CSS forms in the attribute, and attribute forms in CSS, are mistakes. Each leaves the shape where it is. -->
+  <rect x="10" y="10" width="20" height="20" fill="#cc3333" transform="translate(50px, 0)"/>
+  <rect x="10" y="40" width="20" height="20" fill="#3366cc" transform="rotate(45deg)"/>
+  <rect x="10" y="70" width="20" height="20" fill="#33aa33" transform="translateX(50)"/>
+  <rect x="10" y="100" width="20" height="20" fill="#cc9900" transform="scale(150%)"/>
+  <rect x="110" y="10" width="20" height="20" fill="#990099" style="transform: translate(50, 0)"/>
+  <rect x="110" y="40" width="20" height="20" fill="#00aaaa" style="transform: rotate(45)"/>
+  <rect x="110" y="70" width="20" height="20" fill="#555555" style="transform: rotate(45deg 120 80)"/>
+  <rect x="110" y="100" width="20" height="20" fill="#ff6600" style="transform: translate(10px 20px)"/>
+  <rect x="110" y="130" width="20" height="20" fill="#0066ff" style="transform: translate(10px), rotate(10deg)"/>
+  <!-- Zero needs no unit in CSS. -->
+  <rect x="10" y="130" width="20" height="20" fill="#66cc00" style="transform: translate(0, 10px) rotate(0)"/>
+  <rect x="10" y="165" width="20" height="20" fill="#ff00ff" style="transform: skewX(20deg) scale(1.5, 150%)"/>
+</svg>

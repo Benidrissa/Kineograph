@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- A browser shows a broken-picture icon here, and we show nothing, so that no such icon ends up in someone's animation. -->
+  <image x="10" y="10" width="80" height="80" href="https://example.invalid/picture.png"/>
+  <image x="110" y="10" width="80" height="80" href="picture.png"/>
+</svg>

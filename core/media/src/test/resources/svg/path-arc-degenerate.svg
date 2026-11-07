@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Zero radius is a line, identical ends draw nothing, too-small radii grow to fit, and negative radii lose their sign. -->
+  <path d="M20 20 A0 30 0 0 1 80 50" fill="none" stroke="#cc3333" stroke-width="4"/>
+  <path d="M120 20 A30 0 0 0 1 180 50" fill="none" stroke="#33aa33" stroke-width="4"/>
+  <path d="M20 80 A20 20 0 0 1 20 80 L60 80" fill="none" stroke="#3366cc" stroke-width="4"/>
+  <path d="M100 90 A5 5 0 0 1 180 90" fill="none" stroke="#cc9900" stroke-width="4"/>
+  <path d="M20 150 A-30 -20 0 0 1 80 170" fill="none" stroke="#990099" stroke-width="4"/>
+  <path d="M120 150 A5 2 45 0 0 180 180" fill="#99ccff" stroke="#003366" stroke-width="2"/>
+</svg>

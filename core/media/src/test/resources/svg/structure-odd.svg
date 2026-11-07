@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Elements nobody knows draw nothing, nor does anything inside them. -->
+  <nonsense><rect x="10" y="10" width="30" height="30" fill="#000000"/></nonsense>
+  <rect x="10" y="10" width="30" height="30" fill="#cc3333"><rect x="50" y="10" width="30" height="30" fill="#000000"/></rect>
+  <circle cx="110" cy="25" r="15" fill="#3366cc"><g><rect x="130" y="10" width="30" height="30" fill="#000000"/></g></circle>
+  <svg:rect xmlns:svg="http://www.w3.org/2000/svg" x="10" y="50" width="30" height="30" fill="#33aa33"/>
+  <rect xmlns="http://example.invalid/other" x="50" y="50" width="30" height="30" fill="#000000"/>
+  <title>A title <rect x="90" y="50" width="30" height="30" fill="#000000"/></title>
+  <desc><rect x="130" y="50" width="30" height="30" fill="#000000"/></desc>
+  <metadata><rect x="10" y="90" width="30" height="30" fill="#000000"/></metadata>
+  <!-- Content of a gradient or a text is not drawn as shapes. -->
+  <linearGradient id="g"><rect x="50" y="90" width="30" height="30" fill="#000000"/><stop offset="0" stop-color="#cc9900"/><stop offset="1" stop-color="#990099"/></linearGradient>
+  <rect x="90" y="90" width="30" height="30" fill="url(#g)"/>
+  <text x="130" y="110" font-size="10">a<rect x="130" y="90" width="30" height="30" fill="#000000"/>b</text>
+  <!-- Things defined in defs draw only when used, and a group in defs does not change that. -->
+  <defs><g><rect id="fromdefs" x="10" y="130" width="30" height="30" fill="#00aaaa"/></g><rect x="50" y="130" width="30" height="30" fill="#000000"/></defs>
+  <use href="#fromdefs"/>
+  <!-- An id inside something hidden can still be used. -->
+  <g display="none"><rect id="fromhidden" x="90" y="130" width="30" height="30" fill="#aa5500"/></g>
+  <use href="#fromhidden"/>
+  <!-- Two elements with one id: the first one counts. -->
+  <rect id="twice" x="130" y="130" width="30" height="30" fill="#555555"/>
+  <rect id="twice" x="130" y="165" width="30" height="30" fill="#ff6600"/>
+  <use href="#twice" x="40"/>
+  <a href="#nowhere"><g><rect x="10" y="170" width="30" height="20" fill="#0066ff"/></g></a>
+  <!-- Entities and character references in attributes. -->
+  <rect x="&#53;&#48;" y="170" width="30" height="20" fill="&#x23;66cc00"/>
+  <defs><style>rect.fromdefs { fill: #ff00ff }</style></defs>
+  <rect class="fromdefs" x="90" y="170" width="30" height="20"/>
+</svg>

@@ -125,10 +125,10 @@ public class BackgroundPainter {
 
     public companion object {
         private const val CHECKER_CELL = 16
-        private const val CHECKER_LIGHT = 0xFFFFFFFF.toInt()
-        private const val CHECKER_DARK = 0xFFDADDE1.toInt()
-        private const val GRID_LINE = 0xFFCFDDEB.toInt()
-        private const val DOT_COLOR = 0xFFBFC6CE.toInt()
+        public const val CHECKER_LIGHT: Int = 0xFFFFFFFF.toInt()
+        public const val CHECKER_DARK: Int = 0xFFDADDE1.toInt()
+        public const val GRID_LINE: Int = 0xFFCFDDEB.toInt()
+        public const val DOT_COLOR: Int = 0xFFBFC6CE.toInt()
         private const val PATTERN_DIVISIONS = 18f
 
         public fun paperColor(kind: PaperKind): Int =

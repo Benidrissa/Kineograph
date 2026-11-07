@@ -1,6 +1,7 @@
 package org.kineograph.data.manifest
 
 import org.kineograph.data.files.AtomicFile
+import org.kineograph.model.Background
 import org.kineograph.model.Project
 import java.io.File
 import java.io.IOException
@@ -80,16 +81,24 @@ public class ManifestStore(private val directory: File) {
 
     /**
      * The cel files that any revision on disk refers to, all of which [load] might need, so none may be deleted. Returns
-     * null if that cannot be known because a revision could not be read. Temporary files are left out of that rule: an
-     * unreadable one is just an unfinished write that nothing could ever load.
+     * null if that cannot be known because a revision could not be read.
      */
-    public fun filesReferencedByManifests(): Set<String>? {
-        val files = HashSet<String>()
+    public fun filesReferencedByManifests(): Set<String>? = revisions()?.flatMapTo(HashSet()) { it.referencedFiles() }
+
+    /** The background pictures that any revision on disk shows, on the same terms as [filesReferencedByManifests]. */
+    public fun backgroundFiles(): Set<String>? = revisions()?.mapNotNullTo(HashSet()) { (it.background as? Background.Image)?.file }
+
+    /**
+     * Everything [load] could end up with, or null if a revision could not be read and so could need anything. Temporary files are
+     * left out of that rule: an unreadable one is just an unfinished write that nothing could ever load.
+     */
+    private fun revisions(): List<Project>? {
+        val found = ArrayList<Project>(REVISION_FILES)
         for (file in listOf(current, previous)) {
-            if (file.isFile) files += (readOrNull(file) ?: return null).referencedFiles()
+            if (file.isFile) found += readOrNull(file) ?: return null
         }
-        readOrNull(temporary)?.let { files += it.referencedFiles() }
-        return files
+        readOrNull(temporary)?.let { found += it }
+        return found
     }
 
     /** Whether any manifest exists that could still mean something. A damaged one counts, but an unfinished first write does not. */
@@ -116,6 +125,7 @@ public class ManifestStore(private val directory: File) {
         private const val CURRENT = "manifest.json"
         private const val PREVIOUS = "manifest.prev.json"
         private const val TEMPORARY = "manifest.tmp"
+        private const val REVISION_FILES = 3
 
         /** Whether a file directly inside a project's directory is one of its manifest revisions. */
         public fun isManifestFile(name: String): Boolean = name == CURRENT || name == PREVIOUS || name == TEMPORARY

@@ -9,4 +9,6 @@
     <string name="canvas_size_too_big_for_android">A canvas this size is more than Android can hold as one picture, on any device. Use a smaller size.</string>
     <string name="canvas_size_use">Use %1$d × %2$d</string>
     <string name="canvas_size_large">A canvas this large needs a lot of memory and may run slowly on this device.</string>
+    <string name="dropdown_expanded">Expanded</string>
+    <string name="dropdown_collapsed">Collapsed</string>
 </resources>

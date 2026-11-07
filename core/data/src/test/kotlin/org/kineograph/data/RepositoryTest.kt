@@ -257,6 +257,70 @@ class RepositoryTest {
 
     /** Draws through a real session and checks that it all comes back from disk: the core promise of autosave. */
     @Test
+    fun `a background picture is kept under media, keeps its pixels, and is out of the sweep's reach`() {
+        val project = create()
+        val opened = runBlocking { repository.open(project.id) } ?: error("project did not open")
+        val picture = Bitmap.createBitmap(200, 100, Bitmap.Config.ARGB_8888)
+        picture.eraseColor(Color.RED)
+        Canvas(picture).drawRect(0f, 0f, 100f, 100f, Paint().apply { color = Color.BLUE })
+        val background = runBlocking { repository.saveBackgroundImage(project.id, picture) }
+        assertTrue(background.file.startsWith("media/"))
+        assertTrue(File(files.projectDirectory(project.id), background.file).isFile)
+
+        val session = DrawingSession(project, opened.store, MemoryBudget.forMemoryClass(256, false), temp.newFolder())
+        session.setBackground(background)
+        val autosaver = Autosaver(session, repository, opened.store, project.id)
+        runBlocking {
+            session.awaitIdle()
+            autosaver.finish()
+        }
+        session.close()
+        assertTrue(File(files.projectDirectory(project.id), background.file).isFile)
+
+        val read = opened.store.read(background.file) ?: error("the background could not be read back")
+        assertEquals(Color.BLUE, read.getPixel(10, 50))
+        assertEquals(Color.RED, read.getPixel(190, 50))
+        opened.store.close()
+        val reopened = runBlocking { repository.open(project.id) } ?: error("project did not reopen")
+        assertEquals(background, reopened.loaded.project.background)
+        reopened.store.close()
+    }
+
+    @Test
+    fun `a sweep leaves files alone while they are held, then takes them once nothing refers to them`() {
+        val project = create()
+        val opened = runBlocking { repository.open(project.id) } ?: error("project did not open")
+        val session = DrawingSession(project, opened.store, MemoryBudget.forMemoryClass(256, false), temp.newFolder())
+        val autosaver = Autosaver(session, repository, opened.store, project.id)
+        val onTheWay = opened.store.write(image())
+        runBlocking {
+            opened.store.awaitWrites()
+            autosaver.holdSweeps()
+            autosaver.finish()
+        }
+        assertTrue(opened.store.exists(onTheWay))
+        autosaver.releaseSweeps()
+        runBlocking { autosaver.finish() }
+        assertFalse(opened.store.exists(onTheWay))
+        session.close()
+        opened.store.close()
+    }
+
+    @Test
+    fun `discarded images are gone at once, and no longer make saves fail`() {
+        val project = create()
+        val store = CelFileStore(files.projectDirectory(project.id), 1024 * 1024)
+        val name = store.write(image())
+        runBlocking { store.awaitWrites() }
+        assertTrue(store.exists(name))
+        store.discard(listOf(name))
+        assertFalse(store.exists(name))
+        assertNull(store.read(name))
+        runBlocking { store.awaitWrites() }
+        store.close()
+    }
+
+    @Test
     fun `a session's work survives closing and reopening the project`() {
         val project = create()
         val opened = runBlocking { repository.open(project.id) } ?: error("could not open")
@@ -1160,6 +1224,284 @@ class RepositoryTest {
         runBlocking { repository.reconcile() }
         assertTrue(manifest.exists())
         assertTrue(list().isEmpty())
+    }
+
+    // ----- When a write fails -----
+
+    @Test
+    fun `running out of memory in a background write ends in an error someone can catch, and is retried`() {
+        val project = create()
+        var failing = true
+        val store =
+            CelFileStore(files.projectDirectory(project.id), 1024 * 1024, Dispatchers.IO) { bitmap, _ ->
+                if (failing) throw OutOfMemoryError("no room to encode")
+                val output = java.io.ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+                output.toByteArray()
+            }
+        val name = store.write(image())
+        val error = runCatching { runBlocking { store.awaitWrites() } }.exceptionOrNull()
+        assertTrue("got $error", error is OutOfMemoryError)
+        assertNotNull(store.read(name))
+        failing = false
+        runBlocking { store.awaitWrites() }
+        assertTrue(File(files.projectDirectory(project.id), name).isFile)
+        store.close()
+    }
+
+    @Test
+    fun `memory running out in a save is reported like any failed save`() {
+        val project = create()
+        var failing = true
+        val store =
+            CelFileStore(files.projectDirectory(project.id), 1024 * 1024, Dispatchers.IO) { bitmap, _ ->
+                if (failing) throw OutOfMemoryError("no room to encode")
+                val output = java.io.ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+                output.toByteArray()
+            }
+        val session = DrawingSession(project, store, MemoryBudget.forMemoryClass(256, false), temp.newFolder())
+        val autosaver = Autosaver(session, repository, store, project.id)
+        store.write(image())
+        session.addFrame()
+        runBlocking {
+            session.awaitIdle()
+            autosaver.saveNow()
+        }
+        assertTrue(autosaver.saveFailed.value)
+        failing = false
+        session.addFrame()
+        runBlocking {
+            session.awaitIdle()
+            autosaver.saveNow()
+        }
+        assertFalse(autosaver.saveFailed.value)
+        session.close()
+        store.close()
+    }
+
+    /** A disk that has no room until a certain file has gone, which is what a nearly full phone looks like from here. */
+    private fun storeThatNeedsRoom(project: org.kineograph.model.Project, inTheWay: () -> File?): CelFileStore =
+        CelFileStore(files.projectDirectory(project.id), 1024 * 1024, Dispatchers.IO) { bitmap, _ ->
+            if (inTheWay()?.isFile == true) throw java.io.IOException("disk full")
+            val output = java.io.ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+            output.toByteArray()
+        }
+
+    @Test
+    fun `a save that fails on a full disk clears out what nothing refers to, and goes through`() {
+        val project = create()
+        var orphan: File? = null
+        val store = storeThatNeedsRoom(project) { orphan }
+        val cels = File(files.projectDirectory(project.id), "cels")
+        cels.mkdirs()
+        orphan = File(cels, "left-behind.png").apply { writeBytes(ByteArray(16)) }
+        val session = DrawingSession(project, store, MemoryBudget.forMemoryClass(256, false), temp.newFolder())
+        val autosaver = Autosaver(session, repository, store, project.id)
+        store.write(image())
+        session.addFrame()
+        runBlocking {
+            session.awaitIdle()
+            autosaver.saveNow()
+        }
+        assertFalse(orphan?.isFile == true)
+        assertFalse(autosaver.saveFailed.value)
+        session.close()
+        store.close()
+    }
+
+    @Test
+    fun `while a hold is on, a save that fails does not clear anything out`() {
+        val project = create()
+        var orphan: File? = null
+        val store = storeThatNeedsRoom(project) { orphan }
+        val cels = File(files.projectDirectory(project.id), "cels")
+        cels.mkdirs()
+        orphan = File(cels, "held.png").apply { writeBytes(ByteArray(16)) }
+        val session = DrawingSession(project, store, MemoryBudget.forMemoryClass(256, false), temp.newFolder())
+        val autosaver = Autosaver(session, repository, store, project.id)
+        autosaver.holdSweeps()
+        store.write(image())
+        session.addFrame()
+        runBlocking {
+            session.awaitIdle()
+            autosaver.saveNow()
+        }
+        assertTrue(orphan?.isFile == true)
+        assertTrue(autosaver.saveFailed.value)
+        // Leaving the project lets go of the hold, and strokes drawn since the last good save still reach the disk.
+        autosaver.releaseSweeps()
+        runBlocking { autosaver.finish() }
+        assertFalse(autosaver.saveFailed.value)
+        session.close()
+        store.close()
+    }
+
+    @Test
+    fun `a sweep gives up if a hold begins while it is looking`() {
+        val project = create()
+        val opened = runBlocking { repository.open(project.id) } ?: error("project did not open")
+        val session = DrawingSession(project, opened.store, MemoryBudget.forMemoryClass(256, false), temp.newFolder())
+        val written = opened.store.write(image())
+        runBlocking { opened.store.awaitWrites() }
+        var autosaver: Autosaver? = null
+        autosaver =
+            Autosaver(session, repository, opened.store, project.id, listCelFiles = {
+                autosaver?.holdSweeps()
+                opened.store.listFiles()
+            })
+        runBlocking { autosaver.finish() }
+        assertTrue(opened.store.exists(written))
+        session.close()
+        opened.store.close()
+    }
+
+    // ----- Backgrounds on disk -----
+
+    @Test
+    fun `a replaced background goes once nothing refers to it, and the one in use stays`() {
+        val project = create()
+        val opened = runBlocking { repository.open(project.id) } ?: error("project did not open")
+        val session = DrawingSession(project, opened.store, MemoryBudget.forMemoryClass(256, false), temp.newFolder())
+        val autosaver = Autosaver(session, repository, opened.store, project.id)
+        val first = runBlocking { repository.saveBackgroundImage(project.id, image()) }
+        val cancelled = runBlocking { repository.saveBackgroundImage(project.id, image()) }
+        val second = runBlocking { repository.saveBackgroundImage(project.id, image()) }
+        session.setBackground(first)
+        runBlocking {
+            session.awaitIdle()
+            autosaver.saveNow()
+        }
+        session.setBackground(second)
+        runBlocking {
+            session.awaitIdle()
+            autosaver.saveNow()
+            session.addFrame()
+            session.awaitIdle()
+            autosaver.saveNow()
+            // The manifest before this one has moved on as well, so that nothing can come back to the first any more.
+            autosaver.finish()
+        }
+        val directory = files.projectDirectory(project.id)
+        assertFalse(File(directory, first.file).isFile)
+        assertFalse(File(directory, cancelled.file).isFile)
+        assertTrue(File(directory, second.file).isFile)
+        session.close()
+        opened.store.close()
+    }
+
+    @Test
+    fun `the manifests' own backgrounds stay, since either could be what reopens`() {
+        val project = create()
+        val opened = runBlocking { repository.open(project.id) } ?: error("project did not open")
+        val session = DrawingSession(project, opened.store, MemoryBudget.forMemoryClass(256, false), temp.newFolder())
+        val autosaver = Autosaver(session, repository, opened.store, project.id)
+        val first = runBlocking { repository.saveBackgroundImage(project.id, image()) }
+        val second = runBlocking { repository.saveBackgroundImage(project.id, image()) }
+        session.setBackground(first)
+        runBlocking {
+            session.awaitIdle()
+            autosaver.saveNow()
+        }
+        session.setBackground(second)
+        runBlocking {
+            session.awaitIdle()
+            autosaver.finish()
+        }
+        val directory = files.projectDirectory(project.id)
+        assertTrue(File(directory, first.file).isFile)
+        assertTrue(File(directory, second.file).isFile)
+        session.close()
+        opened.store.close()
+    }
+
+    @Test
+    fun `a sweep with a hold on leaves backgrounds alone too`() {
+        val project = create()
+        val opened = runBlocking { repository.open(project.id) } ?: error("project did not open")
+        val session = DrawingSession(project, opened.store, MemoryBudget.forMemoryClass(256, false), temp.newFolder())
+        val autosaver = Autosaver(session, repository, opened.store, project.id)
+        val onTheWay = runBlocking { repository.saveBackgroundImage(project.id, image()) }
+        autosaver.holdSweeps()
+        runBlocking { autosaver.finish() }
+        assertTrue(File(files.projectDirectory(project.id), onTheWay.file).isFile)
+        session.close()
+        opened.store.close()
+    }
+
+    @Test
+    fun `a background too long for WebP is saved as PNG, under a name that says so`() {
+        val project = create()
+        val long = Bitmap.createBitmap(16384, 1, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+        val background = runBlocking { repository.saveBackgroundImage(project.id, long) }
+        assertTrue(background.file, background.file.endsWith(".png"))
+        assertEquals(16384, BitmapFactory.decodeFile(File(files.projectDirectory(project.id), background.file).path).width)
+    }
+
+    @Test
+    fun `a sweep of backgrounds deletes nothing while a manifest cannot be read, as it could need anything`() {
+        val project = create()
+        val picture = runBlocking { repository.saveBackgroundImage(project.id, image()) }
+        File(files.projectDirectory(project.id), "manifest.json").writeText("{ damaged")
+        runBlocking { repository.sweepBackgrounds(project.id, emptySet()) }
+        assertTrue(File(files.projectDirectory(project.id), picture.file).isFile)
+    }
+
+    @Test
+    fun `a background only an unfinished rename refers to stays, since that is what would reopen`() {
+        val project = create()
+        val picture = runBlocking { repository.saveBackgroundImage(project.id, image()) }
+        val directory = files.projectDirectory(project.id)
+        File(directory, "manifest.tmp").writeText(ManifestCodec.encode(project.copy(background = picture)))
+        File(directory, "manifest.json").delete()
+        runBlocking { repository.sweepBackgrounds(project.id, emptySet()) }
+        assertTrue(File(directory, picture.file).isFile)
+    }
+
+    @Test
+    fun `replaced backgrounds only make room for a save once the project is closing`() {
+        val project = create()
+        var inTheWay: File? = null
+        val store = storeThatNeedsRoom(project) { inTheWay }
+        val session = DrawingSession(project, store, MemoryBudget.forMemoryClass(256, false), temp.newFolder())
+        val autosaver = Autosaver(session, repository, store, project.id)
+        val replaced = runBlocking { repository.saveBackgroundImage(project.id, image()) }
+        inTheWay = File(files.projectDirectory(project.id), replaced.file)
+        store.write(image())
+        session.addFrame()
+        runBlocking {
+            session.awaitIdle()
+            assertFalse("it may be on its way into the session", autosaver.saveNow())
+        }
+        assertTrue(inTheWay?.isFile == true)
+        runBlocking { autosaver.finish() }
+        assertFalse(inTheWay?.isFile == true)
+        assertFalse(autosaver.saveFailed.value)
+        session.close()
+        store.close()
+    }
+
+    @Test
+    fun `changing only the background redraws the thumbnail`() {
+        val project = create()
+        val opened = runBlocking { repository.open(project.id) } ?: error("project did not open")
+        val session = DrawingSession(project, opened.store, MemoryBudget.forMemoryClass(256, false), temp.newFolder())
+        val autosaver = Autosaver(session, repository, opened.store, project.id)
+        session.addFrame()
+        runBlocking {
+            session.awaitIdle()
+            autosaver.saveNow()
+        }
+        val before = files.thumbnail(project.id).readBytes()
+        session.setBackground(Background.Color(Color.RED))
+        runBlocking {
+            session.awaitIdle()
+            autosaver.saveNow()
+        }
+        assertFalse(before.contentEquals(files.thumbnail(project.id).readBytes()))
+        session.close()
+        opened.store.close()
     }
 
     private companion object {

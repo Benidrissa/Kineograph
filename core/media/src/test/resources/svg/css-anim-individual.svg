@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    @keyframes t { from { translate: 10px 0 } to { translate: 170px 0 } }
+    @keyframes r { from { rotate: 0deg } to { rotate: 90deg } }
+    @keyframes s { from { scale: 1 } to { scale: 2 } }
+    @keyframes all { from { translate: 0 0; rotate: 0deg; scale: 1 } to { translate: 60px 0; rotate: 45deg; scale: 1.5 } }
+    .a { animation: t 2s linear forwards }
+    .b { animation: r 2s linear forwards; transform-origin: 30px 70px }
+    .c { animation: s 2s linear forwards; transform-origin: 130px 70px }
+    .d { animation: all 2s linear forwards; transform-origin: 30px 150px }
+  </style>
+  <rect class="a" y="10" width="20" height="20" fill="#cc3333"/>
+  <rect class="b" x="20" y="60" width="30" height="20" fill="#3366cc"/>
+  <rect class="c" x="120" y="60" width="20" height="20" fill="#33aa33"/>
+  <rect class="d" x="20" y="140" width="30" height="20" fill="#cc9900"/>
+</svg>

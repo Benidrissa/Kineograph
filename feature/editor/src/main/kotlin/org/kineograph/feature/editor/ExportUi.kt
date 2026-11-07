@@ -65,6 +65,7 @@ import org.kineograph.model.MAX_FPS
 import org.kineograph.model.MIN_FPS
 import org.kineograph.model.Project
 import org.kineograph.ui.KgIcons
+import org.kineograph.ui.kgSliderColors
 import java.io.File
 import kotlin.math.max
 import kotlin.math.min
@@ -330,6 +331,7 @@ internal fun ExportOptions(project: Project, onExport: (ExportConfig) -> Unit) {
             value = range,
             onValueChange = { range = it },
             valueRange = 0f..lastFrame.toFloat(),
+            colors = kgSliderColors(),
             steps = rangeSliderSteps(lastFrame),
             modifier = Modifier.testTag("export_range_slider"),
         )

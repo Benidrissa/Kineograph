@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <g font-size="10">
+    <rect x="10" y="10" height="20" width="20" fill="#cc3333"><animate attributeName="width" from="10%" to="90%" dur="2s" fill="freeze"/></rect>
+    <rect x="10" y="40" height="20" width="20" fill="#3366cc"><animate attributeName="width" from="2em" to="10em" dur="2s" fill="freeze"/></rect>
+    <rect x="10" y="70" height="20" width="20" fill="#33aa33"><animate attributeName="width" from="1cm" to="1in" dur="2s" fill="freeze"/></rect>
+    <!-- Units can differ at the two ends. -->
+    <rect x="10" y="100" height="20" width="20" fill="#cc9900"><animate attributeName="width" from="10px" to="50%" dur="2s" fill="freeze"/></rect>
+    <rect x="10" y="130" height="20" width="20" fill="#990099"><animate attributeName="width" from="10%" to="10em" dur="2s" fill="freeze"/></rect>
+    <circle cx="30" cy="175" r="5" fill="#00aaaa"><animate attributeName="r" from="5" to="10%" dur="2s" fill="freeze"/></circle>
+    <circle cx="150" cy="175" r="10" fill="#555555"><animate attributeName="font-size" from="10" to="30" dur="2s" fill="freeze"/><animate attributeName="r" values="1em" dur="2s" fill="freeze"/></circle>
+  </g>
+</svg>

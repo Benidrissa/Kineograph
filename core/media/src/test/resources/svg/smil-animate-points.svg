@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <polygon fill="#cc3333" points="10,10 90,10 90,90"><animate attributeName="points" from="10,10 90,10 90,90" to="10,10 10,90 90,90" dur="2s" fill="freeze"/></polygon>
+  <polyline fill="none" stroke="#3366cc" stroke-width="4" points="110,50 150,10 190,50"><animate attributeName="points" values="110,50 150,10 190,50;110,50 150,90 190,50;110,10 150,50 190,10" dur="2s" fill="freeze"/></polyline>
+  <!-- A different number of points cannot be mixed. -->
+  <polygon fill="#33aa33" points="10,110 90,110 50,190"><animate attributeName="points" from="10,110 90,110 50,190" to="10,110 90,110 90,190 10,190" dur="2s" fill="freeze"/></polygon>
+  <polygon fill="#cc9900" points="110,110 190,110 150,190"><animate attributeName="points" by="0,-20 0,20 0,0" dur="2s" fill="freeze"/></polygon>
+</svg>

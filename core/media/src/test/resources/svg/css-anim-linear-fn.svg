@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    @keyframes mv { from { transform: translateX(10px) } to { transform: translateX(170px) } }
+    rect { animation: mv 1s forwards }
+    .a { animation-timing-function: linear(0, 0.9, 1) }
+    .b { animation-timing-function: linear(0, 0.25 75%, 1) }
+    .c { animation-timing-function: linear(0 0%, 0.5 25% 75%, 1 100%) }
+  </style>
+  <rect class="a" y="10" width="20" height="18" fill="#cc3333"/>
+  <rect class="b" y="40" width="20" height="18" fill="#3366cc"/>
+  <rect class="c" y="70" width="20" height="18" fill="#33aa33"/>
+</svg>

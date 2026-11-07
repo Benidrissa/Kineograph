@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 400 100" preserveAspectRatio="none">
+  <!-- Percentages are of the viewBox, not of the 200 pixels on screen. -->
+  <rect x="10%" y="10%" width="25%" height="30%" fill="#cc3333"/>
+  <circle cx="60%" cy="30%" r="10%" fill="#3366cc"/>
+  <line x1="0" y1="70%" x2="100%" y2="70%" stroke="#33aa33" stroke-width="2%"/>
+  <rect x="50%" y="80%" width="50%" height="20%" rx="5%" ry="50%" fill="#cc9900"/>
+  <ellipse cx="20%" cy="85%" rx="10%" ry="10%" fill="#990099"/>
+</svg>

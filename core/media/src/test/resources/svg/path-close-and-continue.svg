@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- After Z the pen is back at the start of the subpath, and a relative move counts from there. -->
+  <path d="M20 20 h40 v40 z l30 20 h30" fill="#ffcc66" stroke="#663300" stroke-width="3"/>
+  <path d="M20 110 h40 v40 z m50 0 h40 v40 z m50 0 h40 v40 z" fill="#66ccff" stroke="#003366" stroke-width="3"/>
+</svg>

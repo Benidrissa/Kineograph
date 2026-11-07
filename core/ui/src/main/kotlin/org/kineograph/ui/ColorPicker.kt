@@ -120,6 +120,7 @@ public fun ColorPicker(
                     value = alpha / 255f,
                     // Only the alpha changes. Going through hue and back could shift the colour by a level.
                     onValueChange = { onColorChange((argb and RGB_MASK) or ((it * 255f + 0.5f).toInt() shl 24)) },
+                    colors = kgSliderColors(),
                     modifier = Modifier.semantics { contentDescription = opacityLabel },
                 )
             }

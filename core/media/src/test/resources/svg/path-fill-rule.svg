@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <g fill="#cc3333" stroke="#000000" stroke-width="1">
+    <path d="M50 5 L79 95 L3 40 H97 L21 95 Z"/>
+    <path d="M150 5 L179 95 L103 40 H197 L121 95 Z" fill-rule="evenodd"/>
+    <path d="M10 110 h80 v80 h-80 z M30 130 h40 v40 h-40 z"/>
+    <path d="M110 110 h80 v80 h-80 z M130 130 v40 h40 v-40 z"/>
+  </g>
+  <path d="M110 110 h80 v80 h-80 z M130 130 h40 v40 h-40 z" fill="#33aa33" fill-opacity="0.5" fill-rule="evenodd"/>
+</svg>

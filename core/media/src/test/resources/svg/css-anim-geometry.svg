@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    @keyframes m1 { from { x: 10px; width: 20px } to { x: 100px; width: 90px } }
+    @keyframes m2 { from { cx: 20px; r: 5px } to { cx: 180px; r: 20px } }
+    @keyframes m3 { from { rx: 5px; ry: 5px } to { rx: 50px; ry: 15px } }
+    @keyframes m4 { from { d: path("M10 120 h40 v40 h-40 z") } to { d: path("M60 120 h80 v10 h-80 z") } }
+    @keyframes m5 { from { font-size: 10px } to { font-size: 30px } }
+    @keyframes m6 { from { stroke-width: 0 } to { stroke-width: 10% } }
+    .a { animation: m1 2s linear forwards }
+    .b { animation: m2 2s linear forwards }
+    .c { animation: m3 2s linear forwards }
+    .d { animation: m4 2s linear forwards }
+    .e { animation: m5 2s linear forwards }
+    .f { animation: m6 2s linear forwards }
+  </style>
+  <rect class="a" y="10" height="20" fill="#cc3333"/>
+  <circle class="b" cy="60" fill="#3366cc"/>
+  <ellipse class="c" cx="100" cy="100" fill="#33aa33"/>
+  <path class="d" fill="#cc9900"/>
+  <text class="e" x="150" y="150" font-family="sans-serif" fill="#990099">T</text>
+  <line class="f" x1="10" y1="180" x2="190" y2="180" stroke="#00aaaa"/>
+</svg>

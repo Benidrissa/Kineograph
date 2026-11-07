@@ -23,9 +23,19 @@ public interface CelStore {
      */
     public fun isGone(file: String): Boolean
 
-    /** Suspends until every queued [write] has reached the disk. */
+    /**
+     * Suspends until every queued [write] has reached the disk. Throws [java.io.IOException] if any could not, or [OutOfMemoryError] if that was
+     * because memory ran out, since the thread that ran into it cannot tell anyone by itself.
+     */
     public suspend fun awaitWrites()
 
     /** Frees caches, for when memory runs low. */
     public fun trimMemory()
+
+    /**
+     * Gives up on images that nothing will ever refer to, such as those of an import that ran out of storage. The sweep would get to the files
+     * in time, but the space is needed now, and a write that keeps failing would keep making every later save fail along with it.
+     * Call this only once [awaitWrites] has returned or thrown, so that none of them is still being written.
+     */
+    public fun discard(files: Collection<String>) {}
 }

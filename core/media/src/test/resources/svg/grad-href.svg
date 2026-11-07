@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="base" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/></linearGradient>
+    <!-- Takes the stops, keeps its own direction. -->
+    <linearGradient id="hor" xlink:href="#base" x2="1" y2="0"/>
+    <!-- Plain href, and a chain of two. -->
+    <linearGradient id="half" href="#hor" x2="0.25" spreadMethod="reflect"/>
+    <linearGradient id="chain" href="#half" spreadMethod="repeat"/>
+    <!-- A radial takes only the stops from a linear. -->
+    <radialGradient id="rad" href="#base" cx=".25"/>
+    <!-- Its own stops win over the referenced ones. -->
+    <linearGradient id="own" href="#base"><stop offset="0" stop-color="#00ff00"/><stop offset="1" stop-color="#ffff00"/></linearGradient>
+    <radialGradient id="rbase" cx=".3" cy=".3" r=".4" gradientTransform="translate(.1 .1)"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#000000"/></radialGradient>
+    <radialGradient id="rchild" href="#rbase" r=".6"><stop offset="0" stop-color="#ffff00"/><stop offset="1" stop-color="#ff00ff"/></radialGradient>
+    <!-- A loop stops rather than hangs. -->
+    <linearGradient id="loop1" href="#loop2"><stop offset="0" stop-color="#00ffff"/><stop offset="1" stop-color="#000000"/></linearGradient>
+    <linearGradient id="loop2" href="#loop1" x2="0" y2="1"/>
+  </defs>
+  <rect x="10" y="10" width="50" height="50" fill="url(#base)"/>
+  <rect x="70" y="10" width="50" height="50" fill="url(#hor)"/>
+  <rect x="130" y="10" width="60" height="50" fill="url(#half)"/>
+  <rect x="10" y="70" width="50" height="50" fill="url(#chain)"/>
+  <rect x="70" y="70" width="50" height="50" fill="url(#rad)"/>
+  <rect x="130" y="70" width="60" height="50" fill="url(#own)"/>
+  <rect x="10" y="130" width="50" height="50" fill="url(#rbase)"/>
+  <rect x="70" y="130" width="50" height="50" fill="url(#rchild)"/>
+  <rect x="130" y="130" width="60" height="50" fill="url(#loop2)"/>
+</svg>

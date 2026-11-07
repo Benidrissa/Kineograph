@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    @keyframes off { from { stroke-dashoffset: 0 } to { stroke-dashoffset: 60 } }
+    @keyframes arr { from { stroke-dasharray: 10 10 } to { stroke-dasharray: 30 2 } }
+    @keyframes mis { from { stroke-dasharray: 10 10 } to { stroke-dasharray: 20 5 5 } }
+    @keyframes draw { to { stroke-dashoffset: 0 } }
+    @keyframes pct { from { stroke-dasharray: 5% 5% } to { stroke-dasharray: 15% 1% } }
+    .a { animation: off 2s linear forwards; stroke-dasharray: 20 10 }
+    .b { animation: arr 2s linear forwards }
+    .c { animation: mis 2s linear forwards }
+    .d { animation: draw 2s linear forwards; stroke-dasharray: 188.5; stroke-dashoffset: 188.5 }
+    .e { animation: pct 2s linear forwards }
+    .f { animation: draw 2s linear forwards; stroke-dasharray: 1; stroke-dashoffset: 1 }
+  </style>
+  <g fill="none" stroke-width="6">
+    <line class="a" x1="10" y1="20" x2="190" y2="20" stroke="#cc3333"/>
+    <line class="b" x1="10" y1="50" x2="190" y2="50" stroke="#3366cc"/>
+    <line class="c" x1="10" y1="80" x2="190" y2="80" stroke="#33aa33"/>
+    <line class="e" x1="10" y1="110" x2="190" y2="110" stroke="#cc9900"/>
+    <circle class="d" cx="50" cy="160" r="30" stroke="#990099"/>
+    <path class="f" d="M110 130 h60 v60 h-60 z" pathLength="1" stroke="#00aaaa"/>
+  </g>
+</svg>

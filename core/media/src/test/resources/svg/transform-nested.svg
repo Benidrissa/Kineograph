@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <g transform="translate(100 100)">
+    <rect x="-5" y="-5" width="10" height="10" fill="#000000"/>
+    <g transform="rotate(30)">
+      <rect x="20" y="-5" width="60" height="10" fill="#cc3333"/>
+      <g transform="translate(80 0) rotate(60)">
+        <rect x="0" y="-5" width="40" height="10" fill="#3366cc"/>
+        <g transform="translate(40 0) scale(.5)">
+          <circle r="20" fill="#33aa33"/>
+          <g transform="scale(1 2) skewX(20)"><rect x="-10" y="-5" width="20" height="10" fill="#cc9900"/></g>
+        </g>
+      </g>
+    </g>
+    <use href="#arm" transform="rotate(150)"/>
+    <use href="#arm" transform="rotate(270) translate(10)"/>
+  </g>
+  <defs><path id="arm" d="M20 -5 H70 L80 0 L70 5 H20 Z" fill="#990099"/></defs>
+</svg>

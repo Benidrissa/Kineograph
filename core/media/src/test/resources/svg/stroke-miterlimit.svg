@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- The same sharp corner with limits either side of its miter length. -->
+  <g fill="none" stroke="#3366cc" stroke-width="8">
+    <path d="M10 40 L40 10 L70 40" stroke-miterlimit="1"/>
+    <path d="M75 40 L105 10 L135 40" stroke-miterlimit="1.5"/>
+    <path d="M140 40 L170 10 L198 40" stroke-miterlimit="2"/>
+    <path d="M10 90 L20 50 L30 90" stroke-miterlimit="3"/>
+    <path d="M50 90 L60 50 L70 90" stroke-miterlimit="4"/>
+    <path d="M90 90 L100 50 L110 90"/>
+    <path d="M130 90 L140 50 L150 90" stroke-miterlimit="10"/>
+    <path d="M170 90 L180 50 L190 90" stroke-miterlimit="20"/>
+    <!-- Below one is invalid, so the default applies. -->
+    <path d="M20 150 L30 110 L40 150" stroke-miterlimit="0.5"/>
+    <path d="M60 150 L65 100 L70 150" stroke-miterlimit="100" stroke-width="4"/>
+    <polygon points="100,150 120,110 140,150" stroke-miterlimit="1"/>
+    <polygon points="160,150 175,110 190,150" stroke-miterlimit="10"/>
+  </g>
+</svg>

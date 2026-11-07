@@ -15,6 +15,8 @@ The bouncing ball works from start to finish.
 - Undo and redo for pixels and structure, with at least 100 steps
 - Crash-safe autosave
 - GIF and MP4 export, with saving to the gallery and sharing
+- SVG import, still or animated: SMIL and CSS animation become frames on a new layer, with a live preview, a choice of fit, and one step of undo. It reads masks, `calc()`, motion paths,
+  right-to-left and vertical text, modern selectors and CSS layers, checked against Chromium
 - English and French
 
 ### Fixed
@@ -41,6 +43,7 @@ The bouncing ball works from start to finish.
   wrong instead, and tries again at the next launch
 - While saves are failing, the editor shows "Not saved", and Back asks before leaving instead of discarding your work. The
   last good save is never swept away
+- A save whose drawings do not fit on a full disk now clears out leftover files first and tries again
 - Undoing or redoing after the system cleared its cache no longer crashes; undo just cannot go back as far
 - Running out of memory no longer crashes the app or loses strokes, and a drawing that cannot be loaded is no longer
   overwritten by the next stroke
@@ -77,6 +80,9 @@ The bouncing ball works from start to finish.
 - Tapping anywhere on a project's card opens it, not only its picture
 - Closing search now ends it, and a search in force always shows its box, so projects no longer seem to go missing
 - The default project name now uses the first number not in use, so the first one is "My animation 1" and a name is never repeated
+- The editor's text, icons and sliders are now clearly visible in the dark theme
+- The New Project sheet now uses two drop-downs that show a picture of every option, with a live preview of the ball on the
+  chosen canvas and background, so the whole form fits on a phone without scrolling
 - The status bar's icons now follow the app's theme rather than the system's, and the area around the canvas follows the theme
   when it changes with a project open
 - The quick sliders no longer take up the whole edge of a tall canvas, so strokes can start above and below them

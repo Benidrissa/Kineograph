@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Every alignment with slice. The two-tone picture shows which part is kept. -->
+  <rect width="200" height="200" fill="#eeeeee"/>
+  <defs><g id="pic"><rect width="30" height="30" fill="#cc3333"/><rect x="10" width="10" height="30" fill="#3366cc"/><rect y="10" width="30" height="10" fill="#33aa33"/><rect x="10" y="10" width="10" height="10" fill="#ffffff"/></g></defs>
+  <svg x="0"   y="0"  width="60" height="20" viewBox="0 0 30 30" preserveAspectRatio="xMinYMin slice"><use href="#pic"/></svg>
+  <svg x="65"  y="0"  width="60" height="20" viewBox="0 0 30 30" preserveAspectRatio="xMidYMin slice"><use href="#pic"/></svg>
+  <svg x="130" y="0"  width="60" height="20" viewBox="0 0 30 30" preserveAspectRatio="xMaxYMin slice"><use href="#pic"/></svg>
+  <svg x="0"   y="25" width="60" height="20" viewBox="0 0 30 30" preserveAspectRatio="xMinYMid slice"><use href="#pic"/></svg>
+  <svg x="65"  y="25" width="60" height="20" viewBox="0 0 30 30" preserveAspectRatio="xMidYMid slice"><use href="#pic"/></svg>
+  <svg x="130" y="25" width="60" height="20" viewBox="0 0 30 30" preserveAspectRatio="xMaxYMid slice"><use href="#pic"/></svg>
+  <svg x="0"   y="50" width="60" height="20" viewBox="0 0 30 30" preserveAspectRatio="xMinYMax slice"><use href="#pic"/></svg>
+  <svg x="65"  y="50" width="60" height="20" viewBox="0 0 30 30" preserveAspectRatio="xMidYMax slice"><use href="#pic"/></svg>
+  <svg x="130" y="50" width="60" height="20" viewBox="0 0 30 30" preserveAspectRatio="xMaxYMax slice"><use href="#pic"/></svg>
+  <svg x="0"   y="80" width="20" height="60" viewBox="0 0 30 30" preserveAspectRatio="xMinYMin slice"><use href="#pic"/></svg>
+  <svg x="25"  y="80" width="20" height="60" viewBox="0 0 30 30" preserveAspectRatio="xMidYMin slice"><use href="#pic"/></svg>
+  <svg x="50"  y="80" width="20" height="60" viewBox="0 0 30 30" preserveAspectRatio="xMaxYMin slice"><use href="#pic"/></svg>
+  <svg x="75"  y="80" width="20" height="60" viewBox="0 0 30 30" preserveAspectRatio="xMinYMid slice"><use href="#pic"/></svg>
+  <svg x="100" y="80" width="20" height="60" viewBox="0 0 30 30" preserveAspectRatio="xMidYMid slice"><use href="#pic"/></svg>
+  <svg x="125" y="80" width="20" height="60" viewBox="0 0 30 30" preserveAspectRatio="xMaxYMid slice"><use href="#pic"/></svg>
+  <svg x="150" y="80" width="20" height="60" viewBox="0 0 30 30" preserveAspectRatio="xMinYMax slice"><use href="#pic"/></svg>
+  <svg x="175" y="80" width="20" height="60" viewBox="0 0 30 30" preserveAspectRatio="xMaxYMax slice"><use href="#pic"/></svg>
+  <svg x="10"  y="150" width="180" height="40" viewBox="5 5 20 20" preserveAspectRatio="xMidYMid slice"><use href="#pic"/></svg>
+</svg>

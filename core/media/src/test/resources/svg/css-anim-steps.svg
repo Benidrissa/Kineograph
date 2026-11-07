@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    @keyframes mv { from { transform: translateX(10px) } to { transform: translateX(170px) } }
+    rect { animation: mv 1s forwards }
+    .a { animation-timing-function: steps(4) }
+    .b { animation-timing-function: steps(4, end) }
+    .c { animation-timing-function: steps(4, start) }
+    .d { animation-timing-function: step-start }
+    .e { animation-timing-function: step-end }
+    .f { animation-timing-function: steps(4, jump-none) }
+    .g { animation-timing-function: steps(4, jump-both) }
+    .h { animation-timing-function: steps(3, jump-start) }
+  </style>
+  <rect class="a" y="5" width="20" height="18" fill="#cc3333"/>
+  <rect class="b" y="30" width="20" height="18" fill="#3366cc"/>
+  <rect class="c" y="55" width="20" height="18" fill="#33aa33"/>
+  <rect class="d" y="80" width="20" height="18" fill="#cc9900"/>
+  <rect class="e" y="105" width="20" height="18" fill="#990099"/>
+  <rect class="f" y="130" width="20" height="18" fill="#00aaaa"/>
+  <rect class="g" y="155" width="20" height="18" fill="#555555"/>
+  <rect class="h" y="180" width="20" height="18" fill="#ff6600"/>
+</svg>

@@ -11,7 +11,7 @@ well on 2–3 GB phones, and code that can be tested. This page explains how tho
 :feature:editor      Canvas view, renderers, tool bar, frame strip, sheets, playback, export UI
 :feature:settings    Settings, About
 :core:ui             Theme, original icon set, shared components, colour picker
-:core:media          GIF encoder, H.264 encoder, export pipeline, background worker, gallery writer
+:core:media          GIF encoder, H.264 encoder, export pipeline, background worker, gallery writer, SVG reader, SVG import
 :core:data           Room index, cel file store, manifest, autosave, sample project, preferences
 :core:engine         Brush engine, flood fill, selection, history, compositor, drawing session
 :core:model          Project data classes, timeline maths, structural edits (pure Kotlin, no Android)
@@ -145,7 +145,12 @@ Room is only an index for fast gallery listing. The manifests are the truth, and
 the index from them.
 
 A sweep deletes cel files nothing needs any more. It keeps whatever the session, its undo history or any manifest on disk
-refers to, deletes nothing if a manifest cannot be read, and never runs after a failed save.
+refers to, deletes nothing if a manifest cannot be read, and stays away altogether during `Autosaver.holdSweeps`, which is how
+an import keeps the files it has written but not yet added. It runs after a good save, and also when a save's images will not
+fit on the disk, since leftovers may be what is in the way. A manifest or index that cannot be written never sets one off:
+images are where the space goes, so that points to something else being wrong. Background pictures under `media/` follow the
+same rules through `ProjectRepository.sweepBackgrounds`, but only as a project closes, since one chosen in project settings
+may be on its way into the session until then.
 
 A save that fails, usually on a full disk, leaves the last good revision on disk and the newer work in memory. Memory cannot
 outlive the process, so the editor shows "Not saved" for as long as that lasts. Back saves first and, if that fails, asks the
@@ -186,3 +191,63 @@ not seen it yet. Android can still clear the cache by itself, and the dialog exp
 
 Saving to the gallery copies the whole file, so it runs on the app's scope from `EditorViewModel`, off the main thread, and
 the dialog cannot be closed until it has finished.
+
+## SVG reading
+
+`org.kineograph.media.svg` reads SVG and draws it with `android.graphics`. Android has no SVG renderer, and the available
+libraries cannot animate, so this is our own code. It knows nothing about the UI: the same code will display SVG returned by
+an AI model.
+
+```
+bytes  ->  XmlInput  ->  XmlReader  ->  tree of SvgElement  ->  SvgModelBuilder  ->  SvgDocument  ->  SvgRenderer  ->  Canvas
+                                                  stylesheets, cascade,              one instance per frame
+                                                  animation timing
+```
+
+- **Parsing happens once.** The cascade turns every attribute and CSS declaration into a typed `SvgValue`. Animation uses those
+  same values, so a length or a colour is only ever read in one way.
+- **Drawing a frame keeps no state.** `SvgDocument.render` is a function of the document and the time. Frames can be drawn in any
+  order, which is what makes importing an animation into frames safe. Timing is solved in advance, while parsing: `SmilTimeline`
+  works out every interval of every SMIL element, including those that depend on each other, and drawing only looks them up.
+- **Animations stack per property.** Each element holds tracks by property name. A frame starts from the value the cascade gave
+  and applies the tracks in priority order: SMIL by start time, then CSS animations. `!important` beats all of them.
+- **A file cannot take over the phone.** There is one mechanism for it. `SvgLimits` holds every size, depth and count, sized from the heap by
+  `SvgLimits.forDevice`. Every reference is checked for loops where it is followed. Whatever can take long pays first from a work
+  allowance, one for reading a file and one for each frame, in `SvgWork.kt`, so a native call that cannot be stopped is priced before it
+  starts. Going past a limit adds a warning and keeps what was read or drawn, except for input too much to read at all, which is refused
+  with a reason the UI can translate. See [decisions.md](decisions.md).
+- **A frame can be cancelled.** `SvgDocument.render` takes a check to ask, and also stops when its thread is interrupted, and
+  `renderCancellable` does the same for a coroutine. Only one native call, which is priced to be short, can delay that.
+- **Nothing here reaches outside the file.** There is no code that could run a script or open a URL. What was skipped is reported
+  in `SvgDocument.warnings`, as enum values, so that the screen showing them can pick a translated sentence.
+- **A real browser is what it is checked against.** `SvgBrowserComparisonTest` compares it with what Chromium drew for several hundred
+  moments of the fixtures, and `tools/svg-reference` makes those pictures. See [decisions.md](decisions.md) for where it follows Chromium, and
+  for where it knowingly does not.
+
+## SVG import
+
+Bringing a file into a project has three parts, and each knows as little as it can about the others.
+
+```
+:feature:editor   SvgImportSheet, SvgImportController    choices, preview, progress, messages
+:core:media       SvgImporter                            draws the pictures and stores them as cels
+:core:model       ImportEdits                            how the project changes, given the pictures
+```
+
+- **The project changes once, at the very end.** Until then, the importer only writes files, and any lifted selection stays lifted. Its last step is
+  `DrawingSession.applyEdit`, one undo step on the engine thread, with an edit from `ImportEdits`. It either happens or does not: if memory runs out in it, the project, the surface and
+  both undo stacks are as they were. However an import ends before that, nothing has changed, and what it wrote is given back. A Cancel that comes during that step is too late
+  to stop it, and the import reports itself done, because what the screen says has to match what happened.
+- **A timeline never changes under an import.** Slots are only added after the end. `SvgSampling` says which moment each tick shows, and the new layer's ticks line up with
+  the ticks already on the timeline. A slot held for several ticks can only show one drawing, so it gets the moment it starts at and the
+  animation stays in time with the rest of the project. `ImportEdits.ticksToSample` says which ticks will be seen, so that no others are drawn.
+- **Bitmaps do not grow with the length of an animation.** Two canvas-sized bitmaps are reused for all of it, one to draw on and one to compare
+  with, using a native comparison, and the store's queue limits what waits to reach the disk. Every eighth stored picture also waits for the disk, which
+  is how a full disk ends the import early rather than leaving every picture queued in memory. The Java heap does grow, by a little for each frame, so `maxImportFrames` holds that to a
+  share of what the device has.
+- **The sweep has to be kept off.** Files of an import under way are not in the project yet, so a sweep would delete them. `Autosaver.holdSweeps`
+  stops sweeps until the import is settled. What an import wrote and did not use is given up at once with `CelStore.discard`, because that space may be needed now, and because a
+  write that keeps failing would make every later save fail as well.
+- **The preview cannot slow the sheet down.** It draws on a background thread into a few reused bitmaps, far smaller than the canvas where the canvas is
+  large, and a change of choices abandons whatever was being drawn. It stops while the app is not on screen, and draws only into a bitmap that is not being shown. It plays exactly the
+  moments that an import would sample, holding still where a held slot would.

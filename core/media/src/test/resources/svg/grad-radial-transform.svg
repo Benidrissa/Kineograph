@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <radialGradient id="a" gradientTransform="translate(.5 .5) rotate(45) scale(.5 .25) translate(-.5 -.5)"><stop offset="0" stop-color="#ffff00"/><stop offset="1" stop-color="#cc0000"/></radialGradient>
+    <radialGradient id="b" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="30" gradientTransform="translate(50 150) scale(2 1)"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#0000cc"/></radialGradient>
+    <radialGradient id="c" gradientTransform="skewX(20)"><stop offset="0" stop-color="#00ffff"/><stop offset="1" stop-color="#ff00ff"/></radialGradient>
+    <radialGradient id="d" gradientUnits="userSpaceOnUse" cx="150" cy="150" r="20" fx="155" fy="150" gradientTransform="rotate(30 150 150)" spreadMethod="reflect"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#008800"/></radialGradient>
+  </defs>
+  <rect x="10" y="10" width="80" height="80" fill="url(#a)"/>
+  <rect x="110" y="10" width="80" height="80" fill="url(#c)"/>
+  <rect x="10" y="110" width="80" height="80" fill="url(#b)"/>
+  <rect x="110" y="110" width="80" height="80" fill="url(#d)"/>
+</svg>

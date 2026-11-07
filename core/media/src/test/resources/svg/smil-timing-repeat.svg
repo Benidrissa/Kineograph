@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <rect x="10" y="10" width="20" height="20" fill="#cc3333"><animate attributeName="x" from="10" to="170" dur="1s" repeatCount="2"/></rect>
+  <rect x="10" y="40" width="20" height="20" fill="#3366cc"><animate attributeName="x" from="10" to="170" dur="1s" repeatCount="2.5" fill="freeze"/></rect>
+  <rect x="10" y="70" width="20" height="20" fill="#33aa33"><animate attributeName="x" from="10" to="170" dur="1s" repeatCount="indefinite"/></rect>
+  <rect x="10" y="100" width="20" height="20" fill="#cc9900"><animate attributeName="x" from="10" to="170" dur="1s" repeatDur="1.5s" fill="freeze"/></rect>
+  <rect x="10" y="130" width="20" height="20" fill="#990099"><animate attributeName="x" from="10" to="170" dur="1s" repeatDur="indefinite"/></rect>
+  <!-- Both present: whichever ends first. -->
+  <rect x="10" y="160" width="20" height="20" fill="#00aaaa"><animate attributeName="x" from="10" to="170" dur="1s" repeatCount="3" repeatDur="2.2s" fill="freeze"/></rect>
+  <rect x="40" y="185" width="10" height="10" fill="#555555"><animate attributeName="x" from="10" to="170" dur="2s" repeatCount="0.75" fill="freeze"/></rect>
+</svg>

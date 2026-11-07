@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    .t { transform: rotate(15deg); transform-origin: center; transform-box: fill-box }
+    .o { transform: rotate(15deg); transform-origin: 0 0 }
+  </style>
+  <defs><g id="d"><rect width="30" height="15" fill="#555555"/></g></defs>
+  <g class="t"><rect x="10" y="10" width="30" height="15" fill="#cc3333"/></g>
+  <use class="t" href="#d" x="60" y="10"/>
+  <use class="o" href="#d" x="110" y="10"/>
+  <svg class="o" x="150" y="10" width="40" height="20"><rect width="30" height="15" fill="#3366cc"/></svg>
+  <text class="t" x="10" y="60" font-size="16" font-family="sans-serif" fill="#33aa33">Text</text>
+  <text class="o" x="70" y="50" font-size="16" font-family="sans-serif" fill="#cc9900">Orig</text>
+  <image class="t" x="130" y="40" width="30" height="15" image-rendering="pixelated" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='1'%3E%3Crect width='2' height='1' fill='%23990099'/%3E%3C/svg%3E"/>
+  <!-- Boxes named as a CSS box model would have them. -->
+  <rect x="10" y="90" width="30" height="15" fill="#00aaaa" stroke="#000000" stroke-width="8" style="transform: rotate(15deg); transform-origin: 0 0; transform-box: content-box"/>
+  <rect x="70" y="90" width="30" height="15" fill="#aa5500" stroke="#000000" stroke-width="8" style="transform: rotate(15deg); transform-origin: 0 0; transform-box: border-box"/>
+  <!-- Percent lengths in a transform measure the box too. -->
+  <rect x="130" y="90" width="30" height="15" fill="#ff6600" style="transform: translate(50%, 100%); transform-box: fill-box"/>
+  <rect x="10" y="130" width="30" height="15" fill="#0066ff" style="transform: translate(10%, 10%)"/>
+  <!-- transform attribute with a CSS transform-origin and transform-box. -->
+  <rect x="70" y="130" width="30" height="15" fill="#66cc00" transform="rotate(20)" style="transform-origin: center; transform-box: fill-box"/>
+  <!-- A transform on a mask or a gradient's children, and on symbols, comes through too. -->
+  <clipPath id="c"><rect x="130" y="130" width="30" height="15" style="transform: rotate(15deg); transform-origin: center; transform-box: fill-box"/></clipPath>
+  <rect x="120" y="120" width="60" height="40" fill="#ff00ff" clip-path="url(#c)"/>
+</svg>

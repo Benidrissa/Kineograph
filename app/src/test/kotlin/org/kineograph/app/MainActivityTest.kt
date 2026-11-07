@@ -196,7 +196,8 @@ class MainActivityTest {
         compose.waitUntil(WAIT_MS) { compose.onAllNodesWithTag("new_project_button").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("new_project_button").performClick()
         compose.waitForIdle()
-        compose.onNodeWithText("Image").performScrollTo().performClick()
+        compose.onNodeWithTag("background_dropdown").performScrollTo().performClick()
+        compose.onNodeWithTag("background_image").performScrollTo().performClick()
         compose.waitForIdle()
         val picker = checkNotNull(shadowOf(activity).nextStartedActivityForResult) { "the photo picker should have been asked for" }
         activity.activityResultRegistry.dispatchResult(

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <g>
+    <rect x="0"   y="0" width="50" height="33" fill="#f00"/>
+    <rect x="50"  y="0" width="50" height="33" fill="#00FF00"/>
+    <rect x="100" y="0" width="50" height="33" fill="#0000ff80"/>
+    <rect x="150" y="0" width="50" height="33" fill="#f808"/>
+    <rect x="0"   y="33" width="50" height="33" fill="rgb(10,200,30)"/>
+    <rect x="50"  y="33" width="50" height="33" fill="rgb(50%, 25%, 75%)"/>
+    <rect x="100" y="33" width="50" height="33" fill="rgba(200,0,100,.5)"/>
+    <rect x="150" y="33" width="50" height="33" fill="rgb(255 128 0 / 50%)"/>
+    <rect x="0"   y="66" width="50" height="33" fill="hsl(120,100%,25%)"/>
+    <rect x="50"  y="66" width="50" height="33" fill="hsl(300 50% 50%)"/>
+    <rect x="100" y="66" width="50" height="33" fill="hsla(240,100%,50%,0.25)"/>
+    <rect x="150" y="66" width="50" height="33" fill="hsl(30deg 80% 60% / .75)"/>
+    <rect x="0"   y="99" width="50" height="33" fill="RED"/>
+    <rect x="50"  y="99" width="50" height="33" fill="DarkOliveGreen"/>
+    <rect x="100" y="99" width="50" height="33" fill="transparent" stroke="#000000"/>
+    <rect x="150" y="99" width="50" height="33" fill=" rebeccapurple "/>
+    <rect x="0"   y="132" width="50" height="33" fill="rgb(300,-20,127.6)"/>
+    <rect x="50"  y="132" width="50" height="33" fill="hsl(480,100%,50%)"/>
+    <rect x="100" y="132" width="50" height="33" fill="hsl(-60,100%,50%)"/>
+    <rect x="150" y="132" width="50" height="33" fill="rgba(0,0,0,2)"/>
+    <!-- Nonsense colours fall back to the inherited value, black. -->
+    <rect x="0"   y="165" width="50" height="33" fill="#12"/>
+    <rect x="50"  y="165" width="50" height="33" fill="notacolor"/>
+    <rect x="100" y="165" width="50" height="33" fill="rgb(1,2)"/>
+    <rect x="150" y="165" width="50" height="33" fill="#ggg"/>
+  </g>
+</svg>

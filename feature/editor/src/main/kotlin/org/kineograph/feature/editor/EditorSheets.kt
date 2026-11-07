@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
@@ -75,6 +77,7 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -96,6 +99,7 @@ import org.kineograph.ui.ColorPicker
 import org.kineograph.ui.DefaultSwatches
 import org.kineograph.ui.KgIconButton
 import org.kineograph.ui.KgIcons
+import org.kineograph.ui.kgSliderColors
 import org.kineograph.ui.rememberCanvasFit
 import kotlin.math.roundToInt
 
@@ -124,6 +128,7 @@ internal fun EditorBottomSheet(onDismiss: () -> Unit, content: @Composable Colum
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun LabelledSlider(
     label: String,
@@ -132,6 +137,7 @@ internal fun LabelledSlider(
     range: ClosedFloatingPointRange<Float> = 0f..1f,
     steps: Int = 0,
     onValueChangeFinished: (() -> Unit)? = null,
+    testTag: String? = null,
     onChange: (Float) -> Unit,
 ) {
     Column {
@@ -140,14 +146,37 @@ internal fun LabelledSlider(
             Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f).padding(end = 8.dp))
             Text(valueText, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Slider(
-            value = value,
-            onValueChange = onChange,
-            valueRange = range,
-            steps = steps,
-            onValueChangeFinished = onValueChangeFinished,
-            modifier = Modifier.semantics { contentDescription = label },
-        )
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .then(if (testTag != null) Modifier.testTag(testTag) else Modifier),
+            contentAlignment = Alignment.Center,
+        ) {
+            val interaction = remember { MutableInteractionSource() }
+            val colors = kgSliderColors()
+            Slider(
+                value = value,
+                onValueChange = onChange,
+                valueRange = range,
+                steps = steps,
+                onValueChangeFinished = onValueChangeFinished,
+                colors = colors,
+                interactionSource = interaction,
+                // Left to itself, a slider takes the height of its 44 dp thumb, whatever it is asked for, and that is what can be touched.
+                thumb = {
+                    Box(Modifier.heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
+                        SliderDefaults.Thumb(interactionSource = interaction, colors = colors)
+                    }
+                },
+                // It would read out a bare number with no unit, and with the wrong decimal mark in some languages.
+                modifier =
+                    Modifier.semantics {
+                        contentDescription = label
+                        stateDescription = valueText
+                    },
+            )
+        }
     }
 }
 

@@ -17,6 +17,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SliderColors
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -137,7 +139,15 @@ public fun VerticalSlider(
                 .width(4.dp)
                 .fillMaxHeight()
                 .clip(RoundedCornerShape(2.dp))
-                .background(colors.outlineVariant),
+                .background(colors.onSurface.copy(alpha = TRACK_ALPHA)),
+        )
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .width(4.dp)
+                .fillMaxHeight(value.coerceIn(0f, 1f))
+                .clip(RoundedCornerShape(2.dp))
+                .background(colors.primary),
         )
         Box(
             Modifier
@@ -151,3 +161,20 @@ public fun VerticalSlider(
         )
     }
 }
+
+/**
+ * Slider colours that stay readable in both themes. The default unfilled part of the track uses a container colour
+ * that nearly vanishes against a dark sheet.
+ */
+@Composable
+public fun kgSliderColors(): SliderColors {
+    val colors = MaterialTheme.colorScheme
+    return SliderDefaults.colors(
+        inactiveTrackColor = colors.onSurface.copy(alpha = TRACK_ALPHA),
+        activeTickColor = colors.onPrimary,
+        inactiveTickColor = colors.onSurface.copy(alpha = TICK_ALPHA),
+    )
+}
+
+private const val TRACK_ALPHA = 0.28f
+private const val TICK_ALPHA = 0.7f

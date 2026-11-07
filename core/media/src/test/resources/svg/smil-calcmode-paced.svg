@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Paced spaces the values so speed stays even. -->
+  <rect x="10" y="10" width="20" height="20" fill="#cc3333"><animate attributeName="x" values="10;30;170" dur="2s" calcMode="paced" fill="freeze"/></rect>
+  <rect x="10" y="40" width="20" height="20" fill="#3366cc"><animate attributeName="x" values="10;150;10" dur="2s" calcMode="paced" fill="freeze"/></rect>
+  <rect x="10" y="70" width="20" height="20" fill="#000000"><animate attributeName="fill" values="#ff0000;#ff1000;#00ff00" dur="2s" calcMode="paced" fill="freeze"/></rect>
+  <rect x="10" y="160" width="20" height="20" fill="#990099"><animate attributeName="width" values="20;40;180" keyTimes="0;.9;1" dur="2s" calcMode="paced" fill="freeze"/></rect>
+</svg>

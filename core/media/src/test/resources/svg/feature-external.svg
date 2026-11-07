@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Nothing outside the file is fetched, so these show nothing or their fallback. -->
+  <use href="https://example.invalid/sprites.svg#icon" x="10" y="110"/>
+  <rect x="10" y="110" width="80" height="80" fill="url(other.svg#g) #33aa33"/>
+  <rect x="110" y="110" width="80" height="80" fill="#3366cc"/>
+</svg>

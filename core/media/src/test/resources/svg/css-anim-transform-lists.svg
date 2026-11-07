@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    /* Lists of the same shape go function by function, and others through matrices. */
+    @keyframes same { from { transform: translate(0, 0) rotate(0deg) } to { transform: translate(60px, 20px) rotate(180deg) } }
+    @keyframes diff { from { transform: translate(0, 0) rotate(0deg) } to { transform: rotate(180deg) translate(60px, 0) } }
+    @keyframes none1 { from { transform: none } to { transform: translate(60px, 0) scale(2) } }
+    @keyframes short { from { transform: translate(60px) } to { transform: translate(0) rotate(90deg) } }
+    @keyframes big { from { transform: rotate(0deg) } to { transform: rotate(720deg) } }
+    @keyframes mat { from { transform: matrix(1, 0, 0, 1, 0, 0) } to { transform: matrix(0, 1, -1, 0, 60, 0) } }
+    @keyframes tog { from { transform: translate(0,0) scale(1) } to { transform: scale(2) translate(30px,0) } }
+    .a { animation: same 2s linear forwards }
+    .b { animation: diff 2s linear forwards }
+    .c { animation: none1 2s linear forwards }
+    .d { animation: short 2s linear forwards }
+    .e { animation: big 2s linear forwards; transform-origin: 40px 180px }
+    .f { animation: mat 2s linear forwards }
+    .g { animation: tog 2s linear forwards }
+  </style>
+  <g transform="translate(15 15)"><rect class="a" width="20" height="10" fill="#cc3333"/></g>
+  <g transform="translate(115 15)"><rect class="b" width="20" height="10" fill="#3366cc"/></g>
+  <g transform="translate(15 60)"><rect class="c" width="20" height="10" fill="#33aa33"/></g>
+  <g transform="translate(115 60)"><rect class="d" width="20" height="10" fill="#cc9900"/></g>
+  <rect class="e" x="30" y="170" width="40" height="20" fill="#990099"/>
+  <g transform="translate(115 120)"><rect class="f" width="20" height="10" fill="#00aaaa"/></g>
+  <g transform="translate(15 120)"><rect class="g" width="20" height="10" fill="#555555"/></g>
+</svg>

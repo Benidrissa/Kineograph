@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <style>
+    .wipe { clip-path: inset(0 100% 0 0); animation: wipe 2s linear forwards; fill: #0ea5e9; }
+    @keyframes wipe { to { clip-path: inset(0 0 0 0); } }
+    .poly { clip-path: polygon(0 0, 0 0, 0 100%, 0 100%); animation: poly 2s linear forwards; fill: #ef4444; }
+    @keyframes poly { to { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); } }
+    .circ { clip-path: circle(0 at 50% 50%); animation: circ 2s linear forwards; fill: #22c55e; }
+    @keyframes circ { to { clip-path: circle(50% at 50% 50%); } }
+    .oval { clip-path: ellipse(10% 10% at 50% 50%); animation: oval 2s linear forwards; fill: #a855f7; }
+    @keyframes oval { to { clip-path: ellipse(50% 30% at 50% 50%); } }
+    .flip { clip-path: circle(40%); animation: flip 2s linear forwards; fill: #f59e0b; }
+    @keyframes flip { to { clip-path: inset(0 0 0 0); } }
+  </style>
+  <rect class="wipe" x="10" y="10" width="80" height="50"/>
+  <rect class="poly" x="110" y="10" width="80" height="50"/>
+  <rect class="circ" x="10" y="75" width="80" height="50"/>
+  <rect class="oval" x="110" y="75" width="80" height="50"/>
+  <rect class="flip" x="60" y="140" width="80" height="50"/>
+</svg>

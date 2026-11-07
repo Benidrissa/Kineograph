@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <marker id="fix" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="45"><path d="M0 0 L10 5 L0 10 Z" fill="#cc3333"/></marker>
+    <marker id="aut" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#33aa33"/></marker>
+    <marker id="rev" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#3366cc"/></marker>
+    <marker id="rad" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="1.57rad"><path d="M0 0 L10 5 L0 10 Z" fill="#cc9900"/></marker>
+  </defs>
+  <g fill="none" stroke="#000000">
+    <path d="M15 30 L95 30" marker-start="url(#fix)" marker-end="url(#fix)"/>
+    <path d="M110 15 L190 45" marker-start="url(#aut)" marker-end="url(#aut)"/>
+    <path d="M15 75 L95 95" marker-start="url(#rev)" marker-end="url(#rev)"/>
+    <path d="M110 75 L190 75" marker-mid="url(#rad)" marker-end="url(#rad)"/>
+    <!-- On curves, the angle bisects the directions either side of the vertex. -->
+    <path d="M15 150 C30 110 60 110 80 150 S120 190 150 150 Q170 120 190 150" marker-start="url(#aut)" marker-mid="url(#aut)" marker-end="url(#aut)"/>
+    <path d="M30 190 A30 30 0 0 1 90 190" marker-start="url(#aut)" marker-end="url(#aut)"/>
+    <!-- Closed, the start and end share one direction. -->
+    <path d="M120 170 h40 v25 h-40 z" marker-start="url(#aut)" marker-mid="url(#aut)" marker-end="url(#rev)"/>
+  </g>
+</svg>

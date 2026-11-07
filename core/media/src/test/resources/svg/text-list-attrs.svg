@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <g font-size="16" font-family="sans-serif">
+    <!-- Shorter and longer lists, and nesting: the innermost value for each letter wins. -->
+    <text x="10 40" y="20" fill="#cc3333">abcdef</text>
+    <text x="10" y="45 55 45" fill="#3366cc">abcdef</text>
+    <text x="10 30 50 70 90 110 130 150 170" y="70" fill="#33aa33">abc</text>
+    <text x="10" y="95" dx="5 5 5" fill="#cc9900">abcdef</text>
+    <text x="10 40 70 100 130" y="120" fill="#990099">a<tspan x="200 80" fill="#00aaaa">bc</tspan>de</text>
+    <text x="10" y="145" dy="0 5 5 -5"><tspan fill="#aa5500">abc</tspan><tspan dy="10" fill="#555555">de</tspan>f</text>
+    <!-- Absolute positions for a letter in a run, with an anchor. -->
+    <text x="100 100" y="170 190" text-anchor="middle" fill="#ff6600">MW</text>
+    <text x="150" y="175" text-anchor="end" font-size="1.25em" fill="#0066ff"><tspan>end</tspan><tspan x="195">e</tspan></text>
+  </g>
+</svg>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Each repeat builds on the last. -->
+  <rect y="10" width="20" height="20" fill="#cc3333"><animateTransform attributeName="transform" type="translate" from="0" to="50" dur="1s" repeatCount="3" accumulate="sum" fill="freeze"/></rect>
+  <rect x="30" y="-10" width="30" height="10" fill="#3366cc" transform="translate(100 60)"><animateTransform attributeName="transform" type="rotate" by="60" dur="1s" repeatCount="3" accumulate="sum" additive="sum" fill="freeze"/></rect>
+  <g transform="translate(50 150)"><rect x="-10" y="-10" width="20" height="20" fill="#33aa33"><animateTransform attributeName="transform" type="scale" from="1" to="1.5" dur="1s" repeatCount="3" accumulate="sum" fill="freeze"/></rect></g>
+</svg>

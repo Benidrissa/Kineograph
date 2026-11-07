@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <g transform="translate(40 40)"><rect x="-15" y="-15" width="30" height="30" fill="#cc3333"><animateTransform attributeName="transform" type="scale" from="1" to="2.5" dur="2s" fill="freeze"/></rect></g>
+  <g transform="translate(140 40)"><rect x="-15" y="-15" width="30" height="30" fill="#3366cc"><animateTransform attributeName="transform" type="scale" from="1 1" to="2 .5" dur="2s" fill="freeze"/></rect></g>
+  <g transform="translate(40 140)"><rect x="-15" y="-15" width="30" height="30" fill="#33aa33"><animateTransform attributeName="transform" type="scale" values="1;2;.5" dur="2s" fill="freeze"/></rect></g>
+  <g transform="translate(140 140)"><rect x="-15" y="-15" width="30" height="30" fill="#cc9900" transform="scale(1.5)"><animateTransform attributeName="transform" type="scale" by="1" dur="2s" fill="freeze"/></rect></g>
+</svg>

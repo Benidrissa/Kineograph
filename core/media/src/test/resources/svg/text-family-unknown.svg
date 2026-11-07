@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <!-- A browser falls back to its default serif for a font it does not have. We pick sans-serif, which is likelier what the author saw. -->
+  <text x="10" y="40" font-size="20" font-family="NoSuchFontAnywhere">Unknown font</text>
+  <text x="10" y="80" font-size="20" font-family="NoSuchFontAnywhere, AnotherMissingOne" fill="#3366cc">Two unknown</text>
+</svg>

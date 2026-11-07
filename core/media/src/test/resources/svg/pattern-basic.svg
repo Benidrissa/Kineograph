@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <pattern id="u" patternUnits="userSpaceOnUse" width="20" height="20"><rect width="10" height="10" fill="#cc3333"/><circle cx="15" cy="15" r="5" fill="#3366cc"/></pattern>
+    <pattern id="off" patternUnits="userSpaceOnUse" x="5" y="5" width="20" height="20"><rect width="10" height="10" fill="#33aa33"/></pattern>
+    <pattern id="b" width=".25" height=".5"><rect width="20" height="10" fill="#cc9900"/></pattern>
+    <pattern id="clip" patternUnits="userSpaceOnUse" width="20" height="20"><circle cx="20" cy="20" r="12" fill="#990099"/></pattern>
+    <pattern id="vis" patternUnits="userSpaceOnUse" width="20" height="20" overflow="visible"><circle cx="20" cy="20" r="12" fill="#00aaaa"/></pattern>
+  </defs>
+  <rect x="10" y="10" width="80" height="80" fill="url(#u)"/>
+  <rect x="110" y="10" width="80" height="80" fill="url(#off)"/>
+  <rect x="10" y="110" width="80" height="40" fill="url(#b)"/>
+  <rect x="110" y="110" width="80" height="35" fill="url(#clip)" stroke="#000000"/>
+  <rect x="110" y="155" width="80" height="35" fill="url(#vis)" stroke="#000000"/>
+  <circle cx="50" cy="175" r="20" fill="none" stroke="url(#u)" stroke-width="10"/>
+</svg>
