@@ -2129,6 +2129,22 @@ class DrawingSessionTest {
         await()
     }
 
+    @Test
+    fun `an eraser stroke reports its stamps in order, and its end after all of them`() {
+        session.wantsRevealImage = true
+        val out = StampBuffer()
+        out.add(50f, 50f, 8f, 1f, 0f)
+        val run = out.snapshot()
+        // The low-latency path issues its commit from the end's report, so a late stamp would be lost. All of these run on the engine.
+        val reported = ArrayList<String>()
+        session.beginStroke(BrushPresets.ERASER, black)
+        session.addStamps(run) { reported += "first stamps" }
+        session.addStamps(run) { reported += "last stamps" }
+        session.endStroke { reported += "end" }
+        await()
+        assertEquals(listOf("first stamps", "last stamps", "end"), reported)
+    }
+
     private companion object {
         /** More failures in a row than any test needs, for "this keeps failing until the test says otherwise". */
         const val LOTS = 1000

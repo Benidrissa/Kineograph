@@ -155,7 +155,12 @@ class WetStrokeSequencerTest {
     }
 
     private fun runEngine() {
-        while (engineThread.isNotEmpty()) engineThread.removeFirst()()
+        while (engineThread.isNotEmpty()) runEngineTask()
+    }
+
+    /** Does only the engine's next job, so a test can look at what the layers show in between. */
+    private fun runEngineTask() {
+        engineThread.removeFirst()()
     }
 
     private fun runRenderThread() {
@@ -256,11 +261,43 @@ class WetStrokeSequencerTest {
     @Test
     fun `eraser stamps all reach the front layer before the commit, because the engine reports them in order`() {
         val id = sequencer.beginStroke()
+        val stamps = listOf(eraserStamp(id), eraserStamp(id))
+        penUp(id)
+        runRenderThread()
+        assertTrue("nothing can be painted until the engine has reported it", library.front.isEmpty())
+
+        runEngineTask()
+        runRenderThread()
+        assertEquals(stamps.take(1), library.front)
+        runEngineTask()
+        runRenderThread()
+        assertEquals(stamps, library.front)
+        assertTrue(library.frontVisible)
+        assertEquals("the commit is still behind them on the engine", 0, library.commitCount)
+
+        runEngineTask()
+        assertEquals(1, library.commitCount)
+        runRenderThread()
+        assertEquals(1, library.scenesDrawn)
+        assertFalse("the merged stroke has replaced the wet one", library.frontVisible)
+        settle()
+        assertFalse("the front layer must not come back once the commit is done", library.frontVisible)
+    }
+
+    @Test
+    fun `eraser stamps the render thread had no time for give way to the commit and never come back`() {
+        val id = sequencer.beginStroke()
         eraserStamp(id)
         eraserStamp(id)
         penUp(id)
-        runEngine()
+        repeat(2) { runEngineTask() }
+        assertEquals("both are waiting to be painted", 2, library.queuedPaints)
+
+        runEngineTask()
+        assertEquals("the commit took the requests to paint them", 0, library.queuedPaints)
         settle()
+        assertEquals(1, library.scenesDrawn)
+        assertTrue(library.front.isEmpty())
         assertFalse(library.frontVisible)
     }
 
