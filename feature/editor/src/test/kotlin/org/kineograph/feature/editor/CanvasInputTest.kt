@@ -193,6 +193,12 @@ class CanvasInputTest {
         event.recycle()
     }
 
+    /** Samsung's private actions come as generic events. SPenActionsInComposeTest follows them all the way from the window. */
+    private fun sendSPen(event: MotionEvent) {
+        view.dispatchGenericMotionEvent(event)
+        event.recycle()
+    }
+
     private fun drawLine(fromX: Float, toX: Float, y: Float, toolType: Int = MotionEvent.TOOL_TYPE_FINGER) {
         val down = clock
         val vy = toViewY(y)
@@ -919,6 +925,48 @@ class CanvasInputTest {
         assertNotNull(session.state.value.selection)
     }
 
+    /** Whether the lasso's outline is on screen, found by drawing the view that shows it. */
+    private fun outlineShows(): Boolean {
+        val out = Bitmap.createBitmap(VIEW_W, VIEW_H, Bitmap.Config.ARGB_8888)
+        view.getChildAt(1).draw(Canvas(out))
+        val pixels = IntArray(VIEW_W * VIEW_H)
+        out.getPixels(pixels, 0, VIEW_W, 0, 0, VIEW_W, VIEW_H)
+        return pixels.any { Color.alpha(it) != 0 }
+    }
+
+    /** A stroke that never ended would have the session ignore this. */
+    private fun assertSessionIsFree() {
+        val frames = session.state.value.project.frames.size
+        session.addFrame()
+        idle()
+        assertEquals("the session took a new edit", frames + 1, session.state.value.project.frames.size)
+    }
+
+    private val restingHand get() = toView(700f) to toViewY(400f)
+
+    /** An event with the pen at a point on the canvas and a hand resting elsewhere. The pen landed first, so it comes first. */
+    private fun penBesideHand(action: Int, x: Float, y: Float, down: Long, buttons: Int = 0, actionIndex: Int = 0): MotionEvent = touch(
+        action,
+        toView(x) to toViewY(y),
+        restingHand,
+        toolType = MotionEvent.TOOL_TYPE_STYLUS,
+        otherToolType = MotionEvent.TOOL_TYPE_FINGER,
+        downTime = down,
+        actionIndex = actionIndex,
+        buttonState = buttons,
+    )
+
+    /** What is left once the pen has lifted and the hand has not: the hand alone, and then the hand lifting. */
+    private fun handLiftsLast(down: Long) {
+        val hand = MotionEvent.TOOL_TYPE_FINGER
+        clock += 8
+        send(touch(MotionEvent.ACTION_MOVE, toView(650f) to toViewY(350f), toolType = hand, downTime = down, firstPointerId = 1))
+        clock += 8
+        send(touch(MotionEvent.ACTION_UP, toView(650f) to toViewY(350f), toolType = hand, downTime = down, firstPointerId = 1))
+        clock += 2000
+        idle()
+    }
+
     @Test
     fun `holding the stylus button while touching erases, whichever way the device reports it`() {
         val buttons = listOf(MotionEvent.BUTTON_STYLUS_PRIMARY, MotionEvent.BUTTON_STYLUS_SECONDARY, MotionEvent.BUTTON_SECONDARY)
@@ -1119,59 +1167,261 @@ class CanvasInputTest {
         assertFalse(session.state.value.canUndo)
     }
 
-    @Test
-    fun `a hand resting beside the pen does not stop the button working`() {
+    /** The pen is down and under way with the chosen tool when the hand lands, and only then is the button pressed. */
+    private fun eraseWithHandLandingFirst(chosen: CanvasTool) {
         drawLine(300f, 500f, 200f)
+        tool = chosen
         val down = penDown(100f, 200f)
         penMove(100f, 200f, 200f, down)
-        val palm = toView(700f) to toViewY(400f)
-        val stylus = MotionEvent.TOOL_TYPE_STYLUS
-        val finger = MotionEvent.TOOL_TYPE_FINGER
         clock += 8
-        send(
-            touch(
-                MotionEvent.ACTION_POINTER_DOWN,
-                toView(200f) to toViewY(200f),
-                palm,
-                toolType = stylus,
-                otherToolType = finger,
-                downTime = down,
-                actionIndex = 1,
-            ),
-        )
+        send(penBesideHand(MotionEvent.ACTION_POINTER_DOWN, 200f, 200f, down, actionIndex = 1))
         var x = 200f
         while (x < 400f) {
             x += 5f
             clock += 8
-            send(
-                touch(
-                    MotionEvent.ACTION_MOVE,
-                    toView(x) to toViewY(200f),
-                    palm,
-                    toolType = stylus,
-                    otherToolType = finger,
-                    downTime = down,
-                    buttonState = BUTTON,
-                ),
-            )
+            send(penBesideHand(MotionEvent.ACTION_MOVE, x, 200f, down, BUTTON))
         }
         clock += 8
-        send(
-            touch(
-                MotionEvent.ACTION_POINTER_UP,
-                toView(400f) to toViewY(200f),
-                palm,
-                toolType = stylus,
-                otherToolType = finger,
-                downTime = down,
-                actionIndex = 1,
-                buttonState = BUTTON,
-            ),
-        )
+        send(penBesideHand(MotionEvent.ACTION_POINTER_UP, 400f, 200f, down, BUTTON, actionIndex = 1))
         penUp(400f, 200f, down, BUTTON)
         assertEquals(0, Color.alpha(saved().getPixel(350, 200)))
         assertTrue(inkAt(450, 200))
         assertFalse("the palm must not draw", inkAt(700, 400))
+    }
+
+    @Test
+    fun `a hand resting beside the pen does not stop the button working`() {
+        eraseWithHandLandingFirst(CanvasTool.BRUSH)
+    }
+
+    @Test
+    fun `a hand resting beside the pen does not stop the button working with the lasso tool`() {
+        eraseWithHandLandingFirst(CanvasTool.LASSO)
+        assertNull(session.state.value.selection)
+    }
+
+    @Test
+    fun `a hand resting beside the pen does not stop the button working with the fill tool`() {
+        eraseWithHandLandingFirst(CanvasTool.FILL)
+        assertEquals("nothing was filled", 0, Color.alpha(saved().getPixel(500, 100)))
+    }
+
+    @Test
+    fun `a hand landing during a lasso trace leaves it going, and the pen lifting first still selects`() {
+        drawLine(100f, 300f, 200f)
+        tool = CanvasTool.LASSO
+        val down = penDown(50f, 150f)
+        clock += 8
+        send(pen(MotionEvent.ACTION_MOVE, 350f, 150f, down))
+        clock += 8
+        send(penBesideHand(MotionEvent.ACTION_POINTER_DOWN, 350f, 150f, down, actionIndex = 1))
+        assertTrue("the outline is still there", outlineShows())
+        for (corner in listOf(350f to 250f, 50f to 250f, 50f to 150f)) {
+            clock += 8
+            send(penBesideHand(MotionEvent.ACTION_MOVE, corner.first, corner.second, down))
+        }
+        clock += 8
+        send(penBesideHand(MotionEvent.ACTION_POINTER_UP, 50f, 150f, down, actionIndex = 0))
+        idle()
+        assertNotNull("the whole trace counted", session.state.value.selection)
+        assertFalse("and its outline is done with", outlineShows())
+        handLiftsLast(down)
+        session.commitSelection()
+        idle()
+        assertTrue("the canvas did not move under the pen", inkAt(200, 200))
+    }
+
+    @Test
+    fun `a hand lifting during a lasso trace leaves it going`() {
+        drawLine(100f, 300f, 200f)
+        tool = CanvasTool.LASSO
+        val down = penDown(50f, 150f)
+        clock += 8
+        send(pen(MotionEvent.ACTION_MOVE, 350f, 150f, down))
+        clock += 8
+        send(penBesideHand(MotionEvent.ACTION_POINTER_DOWN, 350f, 150f, down, actionIndex = 1))
+        clock += 8
+        send(penBesideHand(MotionEvent.ACTION_POINTER_UP, 350f, 150f, down, actionIndex = 1))
+        for (corner in listOf(350f to 250f, 50f to 250f)) {
+            clock += 8
+            send(pen(MotionEvent.ACTION_MOVE, corner.first, corner.second, down))
+        }
+        penUp(50f, 150f, down)
+        assertNotNull(session.state.value.selection)
+    }
+
+    @Test
+    fun `a pen tapping with the fill tool beside a resting hand fills, even lifting first and not being the first pointer`() {
+        // Pen and hand on either side of a line, so the fill shows which of them it started from.
+        drawLine(0f, 800f, 250f)
+        tool = CanvasTool.FILL
+        val at = toView(500f) to toViewY(100f)
+        val stylus = MotionEvent.TOOL_TYPE_STYLUS
+        val hand = MotionEvent.TOOL_TYPE_FINGER
+        val down = clock
+        send(touch(MotionEvent.ACTION_DOWN, at, toolType = stylus, downTime = down, firstPointerId = 1))
+        clock += 8
+        send(
+            touch(
+                MotionEvent.ACTION_POINTER_DOWN,
+                restingHand,
+                at,
+                toolType = hand,
+                otherToolType = stylus,
+                downTime = down,
+                actionIndex = 0,
+            ),
+        )
+        clock += 8
+        send(
+            touch(
+                MotionEvent.ACTION_POINTER_UP,
+                restingHand,
+                at,
+                toolType = hand,
+                otherToolType = stylus,
+                downTime = down,
+                actionIndex = 1,
+            ),
+        )
+        clock += 8
+        send(touch(MotionEvent.ACTION_UP, restingHand, toolType = hand, downTime = down))
+        clock += 2000
+        idle()
+        val image = saved()
+        assertEquals(Color.RED, image.getPixel(500, 100))
+        assertEquals("nothing on the hand's side", 0, Color.alpha(image.getPixel(700, 400)))
+    }
+
+    @Test
+    fun `a pen dragged with the fill tool beside a resting hand does not fill, wherever the hand is`() {
+        tool = CanvasTool.FILL
+        // The hand is right where the pen landed, so looking at the wrong pointer would make this look like a tap.
+        val landed = toView(500f) to toViewY(100f)
+        val lifted = toView(100f) to toViewY(400f)
+        val stylus = MotionEvent.TOOL_TYPE_STYLUS
+        val hand = MotionEvent.TOOL_TYPE_FINGER
+        val down = clock
+        send(touch(MotionEvent.ACTION_DOWN, landed, toolType = stylus, downTime = down, firstPointerId = 1))
+        clock += 8
+        send(
+            touch(
+                MotionEvent.ACTION_POINTER_DOWN,
+                landed,
+                landed,
+                toolType = hand,
+                otherToolType = stylus,
+                downTime = down,
+                actionIndex = 0,
+            ),
+        )
+        clock += 8
+        send(touch(MotionEvent.ACTION_MOVE, landed, lifted, toolType = hand, otherToolType = stylus, downTime = down))
+        clock += 8
+        send(
+            touch(MotionEvent.ACTION_POINTER_UP, landed, lifted, toolType = hand, otherToolType = stylus, downTime = down, actionIndex = 1),
+        )
+        clock += 8
+        send(touch(MotionEvent.ACTION_UP, landed, toolType = hand, downTime = down))
+        clock += 2000
+        idle()
+        assertEquals("nothing was filled", 0, Color.alpha(saved().getPixel(500, 100)))
+    }
+
+    @Test
+    fun `a pen refused on a locked layer stays refused beside a resting hand, and does not move the canvas`() {
+        val layer = session.state.value.layerId
+        session.setLayerLocked(layer, true)
+        idle()
+        val down = penDown(100f, 200f)
+        clock += 8
+        send(penBesideHand(MotionEvent.ACTION_POINTER_DOWN, 100f, 200f, down, actionIndex = 1))
+        clock += 8
+        send(penBesideHand(MotionEvent.ACTION_MOVE, 300f, 250f, down))
+        clock += 8
+        send(penBesideHand(MotionEvent.ACTION_POINTER_UP, 300f, 250f, down, actionIndex = 0))
+        handLiftsLast(down)
+        assertEquals("told once", 1, blockedCount)
+        session.setLayerLocked(layer, false)
+        idle()
+        drawLine(100f, 300f, 200f)
+        assertTrue("a stroke still lands under the pen", inkAt(200, 200))
+    }
+
+    @Test
+    fun `a pen dragging a selection keeps it beside a resting hand, and the pen lifting first lets it go`() {
+        drawLine(100f, 300f, 200f)
+        lassoAround(50f, 150f, 350f, 250f)
+        val down = penDown(200f, 200f)
+        clock += 16
+        send(pen(MotionEvent.ACTION_MOVE, 220f, 220f, down))
+        clock += 16
+        send(penBesideHand(MotionEvent.ACTION_POINTER_DOWN, 220f, 220f, down, actionIndex = 1))
+        clock += 16
+        send(penBesideHand(MotionEvent.ACTION_MOVE, 300f, 350f, down))
+        clock += 16
+        send(penBesideHand(MotionEvent.ACTION_POINTER_UP, 300f, 350f, down, actionIndex = 0))
+        handLiftsLast(down)
+        assertNotNull("still lifted", session.state.value.selection)
+        session.commitSelection()
+        idle()
+        assertTrue("it went all the way to where the pen lifted", inkAt(300, 350))
+        assertFalse(inkAt(200, 200))
+    }
+
+    @Test
+    fun `a finger dragging a selection stops where it was when a second finger lands, and the two move the canvas`() {
+        drawLine(100f, 300f, 200f)
+        lassoAround(50f, 150f, 350f, 250f)
+        tool = CanvasTool.BRUSH
+        val down = clock
+        val moved = toView(220f) to toViewY(220f)
+        send(touch(MotionEvent.ACTION_DOWN, toView(200f) to toViewY(200f), downTime = down))
+        clock += 16
+        send(touch(MotionEvent.ACTION_MOVE, moved, downTime = down))
+        clock += 16
+        val second = moved.first + 100f to moved.second
+        send(touch(MotionEvent.ACTION_POINTER_DOWN, moved, second, downTime = down, actionIndex = 1))
+        clock += 200
+        val movedOn = moved.first + 100f to moved.second
+        send(touch(MotionEvent.ACTION_MOVE, movedOn, second.first + 100f to second.second, downTime = down))
+        send(touch(MotionEvent.ACTION_POINTER_UP, movedOn, second.first + 100f to second.second, downTime = down, actionIndex = 1))
+        send(touch(MotionEvent.ACTION_UP, movedOn, downTime = down))
+        clock += 2000
+        idle()
+        session.commitSelection()
+        idle()
+        assertTrue("the drag stopped at the second finger", inkAt(220, 220))
+        assertFalse(inkAt(220, 200))
+    }
+
+    /** Two fingers slide 100 pixels to the right, so a dot at the same spot on the screen lands that much further left on the canvas. */
+    private fun assertFingersMoveTheCanvas(chosen: CanvasTool) {
+        tool = chosen
+        val down = clock
+        send(touch(MotionEvent.ACTION_DOWN, 300f to 300f, downTime = down))
+        clock += 30
+        send(touch(MotionEvent.ACTION_POINTER_DOWN, 300f to 300f, 400f to 300f, downTime = down, actionIndex = 1))
+        clock += 200
+        send(touch(MotionEvent.ACTION_MOVE, 400f to 300f, 500f to 300f, downTime = down))
+        send(touch(MotionEvent.ACTION_POINTER_UP, 400f to 300f, 500f to 300f, downTime = down, actionIndex = 1))
+        send(touch(MotionEvent.ACTION_UP, 400f to 300f, downTime = down))
+        clock += 2000
+        idle()
+        tool = CanvasTool.BRUSH
+        tap(200f, 200f)
+        assertTrue(inkAt((200f - 100f / zoom).toInt(), 200))
+        assertFalse(inkAt(200, 200))
+    }
+
+    @Test
+    fun `two fingers still move the canvas with the lasso tool`() {
+        assertFingersMoveTheCanvas(CanvasTool.LASSO)
+    }
+
+    @Test
+    fun `two fingers still move the canvas with the fill tool`() {
+        assertFingersMoveTheCanvas(CanvasTool.FILL)
     }
 
     @Test
@@ -1448,19 +1698,36 @@ class CanvasInputTest {
         tool = CanvasTool.LASSO
         val down = penDown(50f, 150f)
         penMove(50f, 195f, 150f, down)
+        assertTrue("the outline is up", outlineShows())
         clock += 8
         send(pen(MotionEvent.ACTION_MOVE, 200f, 200f, down, BUTTON))
+        assertFalse("and goes as soon as the button does", outlineShows())
         penMove(200f, 250f, 200f, down, BUTTON)
         // Enough movement afterwards for a new outline, if one were started by mistake.
         clock += 8
         send(pen(MotionEvent.ACTION_MOVE, 250f, 350f, down))
         clock += 8
         send(pen(MotionEvent.ACTION_MOVE, 50f, 350f, down))
+        assertFalse(outlineShows())
         penUp(50f, 150f, down)
         assertNull(session.state.value.selection)
         assertFalse(inkAt(225, 200))
         assertTrue("nothing was lifted", inkAt(120, 200))
+        assertTrue("erasing began where the pen had got to, not in a straight line from where it landed", inkAt(170, 200))
         assertFalse("and nothing drawn", inkAt(150, 350))
+    }
+
+    @Test
+    fun `with the fill tool, pressing the button after moving erases from where the pen has got to, not from where it landed`() {
+        drawLine(100f, 300f, 200f)
+        tool = CanvasTool.FILL
+        val down = penDown(50f, 150f)
+        penMove(50f, 195f, 150f, down)
+        clock += 8
+        send(pen(MotionEvent.ACTION_MOVE, 200f, 200f, down, BUTTON))
+        penUp(200f, 200f, down, BUTTON)
+        assertFalse(inkAt(200, 200))
+        assertTrue(inkAt(170, 200))
     }
 
     @Test
@@ -1529,11 +1796,11 @@ class CanvasInputTest {
     fun `Samsung's own actions for a pen with its button held erase like any other`() {
         drawLine(100f, 500f, 200f)
         val down = clock
-        send(pen(SPEN_ACTION_DOWN, 180f, 200f, down))
+        sendSPen(pen(SPEN_ACTION_DOWN, 180f, 200f, down))
         clock += 8
-        send(pen(SPEN_ACTION_MOVE, 220f, 200f, down))
+        sendSPen(pen(SPEN_ACTION_MOVE, 220f, 200f, down))
         clock += 8
-        send(pen(SPEN_ACTION_UP, 220f, 200f, down))
+        sendSPen(pen(SPEN_ACTION_UP, 220f, 200f, down))
         clock += 2000
         idle()
         assertFalse(inkAt(200, 200))
@@ -1549,18 +1816,15 @@ class CanvasInputTest {
         while (x < 400f) {
             x += 5f
             clock += 8
-            send(pen(SPEN_ACTION_MOVE, x, 200f, down))
+            sendSPen(pen(SPEN_ACTION_MOVE, x, 200f, down))
         }
         clock += 8
-        send(pen(SPEN_ACTION_UP, 400f, 200f, down))
+        sendSPen(pen(SPEN_ACTION_UP, 400f, 200f, down))
         clock += 2000
         idle()
         assertTrue(inkAt(150, 200))
         assertFalse(inkAt(350, 200))
-        val frames = session.state.value.project.frames.size
-        session.addFrame()
-        idle()
-        assertEquals("a stroke that never ended would have the session ignore this", frames + 1, session.state.value.project.frames.size)
+        assertSessionIsFree()
     }
 
     @Test
@@ -1569,15 +1833,15 @@ class CanvasInputTest {
         val down = penDown(100f, 200f)
         penMove(100f, 200f, 200f, down)
         clock += 8
-        send(pen(SPEN_ACTION_DOWN, 205f, 200f, down))
+        sendSPen(pen(SPEN_ACTION_DOWN, 205f, 200f, down))
         var x = 205f
         while (x < 400f) {
             x += 5f
             clock += 8
-            send(pen(SPEN_ACTION_MOVE, x, 200f, down))
+            sendSPen(pen(SPEN_ACTION_MOVE, x, 200f, down))
         }
         clock += 8
-        send(pen(SPEN_ACTION_UP, 400f, 200f, down))
+        sendSPen(pen(SPEN_ACTION_UP, 400f, 200f, down))
         clock += 2000
         idle()
         assertTrue("an open stroke overwritten by a new one would lose this", inkAt(150, 200))
@@ -1596,7 +1860,7 @@ class CanvasInputTest {
         clock += 8
         send(touch(MotionEvent.ACTION_POINTER_DOWN, at, palm, toolType = stylus, otherToolType = finger, downTime = down, actionIndex = 1))
         clock += 8
-        send(touch(SPEN_ACTION_UP, at, palm, toolType = stylus, otherToolType = finger, downTime = down, actionIndex = 1))
+        sendSPen(touch(SPEN_ACTION_UP, at, palm, toolType = stylus, otherToolType = finger, downTime = down, actionIndex = 1))
         penMove(200f, 400f, 200f, down, BUTTON)
         penUp(400f, 200f, down, BUTTON)
         val image = saved()
@@ -1605,14 +1869,27 @@ class CanvasInputTest {
     }
 
     @Test
-    fun `Samsung's own action being taken back leaves nothing`() {
+    fun `Samsung's own action being taken back leaves nothing, and frees the session`() {
         val down = clock
-        send(pen(SPEN_ACTION_DOWN, 180f, 200f, down))
+        sendSPen(pen(SPEN_ACTION_DOWN, 180f, 200f, down))
         clock += 8
-        send(pen(SPEN_ACTION_MOVE, 220f, 200f, down))
-        send(pen(SPEN_ACTION_CANCEL, 220f, 200f, down))
+        sendSPen(pen(SPEN_ACTION_MOVE, 220f, 200f, down))
+        sendSPen(pen(SPEN_ACTION_CANCEL, 220f, 200f, down))
         idle()
         assertFalse(session.state.value.canUndo)
+        assertSessionIsFree()
+    }
+
+    @Test
+    fun `any other generic event is left alone, and does not count as touching the canvas`() {
+        val scroll =
+            MotionEvent.obtain(clock, clock, MotionEvent.ACTION_SCROLL, toView(200f), toViewY(200f), 0).apply {
+                source = InputDevice.SOURCE_MOUSE
+            }
+        assertFalse("not ours, so whoever is above can use it", view.dispatchGenericMotionEvent(scroll))
+        scroll.recycle()
+        idle()
+        assertTrue(snapshot().cels.isEmpty())
     }
 
     private companion object {

@@ -291,16 +291,25 @@ So the join is accurate to one event and not to one sample, which at worst is a 
 - **A selection:** a normal stroke cannot start on a selection's handles or inside it, so the pen drags it, and the button changes nothing during that drag. Touching outside puts the selection down and erases.
 - **A locked or hidden layer:** the usual message, once per touch.
 - **Playback:** a touch only stops playback, with or without the button. A stroke under way when playback starts is dropped, as any other is.
-- **Two or more fingers:** a pinch keeps going, and a hand resting beside a pen does not stop the button working.
+- **Two or more fingers:** a pinch keeps going.
+- **A hand landing beside the pen:** a pen never turns into a gesture, whatever it is doing, because the other touch is a resting hand. So ink, erasing, a lasso trace, a fill, a selection's drag or a refused touch all carry on, the button
+  still works, and the canvas does not move. They end when the pen lifts, even if the hand stays down. This is only about a hand that lands after the pen: see below.
 
 **Samsung's private actions.** Actions 211 to 214 are not documented by Android or Samsung. Chromium's `SPenSupport` maps them to down, up, move and cancel, with a note that the values came from Samsung, and Uno Platform's code ties them to the pen's button being held. We map them too, because a view that
-ignored them would not start at all with the button held, and would never hear the pen lift if it was pressed mid-stroke. We do not know whether current phones still send them, and this is a safety net, not the main path, which is `buttonState`. No standard action uses these numbers, so nothing else can reach it.
+ignored them would do nothing with the button held, and would never hear the pen lift if it was pressed mid-stroke, which holds the stroke open and stops every edit after it. We do not know whether current phones still send them, and this is a safety net, not the main path, which is `buttonState`. No standard action uses these numbers, so nothing else can reach it.
 We differ in two ways. A down during a touch carries that touch on, and a down or up with another pointer present means that pointer, because a second plain down over an open stroke would leave it unfinished and hold back every stroke after it on the low-latency path.
+
+They are heard in `onGenericMotionEvent` and not in `onTouchEvent`, because of what stands between the window and the canvas. Compose's `AndroidView` passes only the usual actions on as touches and everything else as generic motion events, so these never reach `onTouchEvent` in the app whatever the framework does. `SPenActionsInComposeTest` sends them in at the window's decor view, through the real view groups and Compose, because sending them straight to the canvas hides all of this. What then happens depends on the framework:
+
+- *One that treats them as stock Android does.* `MotionEvent.isTouchEvent` says no, so they go down the generic path from the window. Landing with the button held and pressing it mid-stroke both work.
+- *One changed to count them as touches, with its view groups left alone.* Pressing mid-stroke works, because the touch already has its path to the canvas. Landing with the button held does nothing, because a view group only looks for a child to give a touch to on a real down, so the window's first view group keeps all of it. There is no mark and nothing stuck.
+  Translating these actions before the view groups see them would need the activity to look at every touch in the app, which is too much for something nobody has seen on a current phone.
 
 **What this does not cover.**
 
 - It has been tested on the JVM with synthetic events only, and never on a real pen. The software path ran under Robolectric's Android 14, not on Android 8 or 9, and the low-latency path ran as far as the library with no real surface. The button timing, the look of
-  the join on the front buffer, and what a real S Pen reports are all still to be checked on a device.
+  the join on the front buffer, and what a real S Pen reports are all still to be checked on a device. So is the path Samsung's private actions take, since Samsung's framework may differ from both cases above.
+- A hand that is already on the screen is the first touch, and is treated as a finger: with a brush it draws. A pen landing beside it counts as a second finger, and so does one landing again after lifting while the hand stayed down, so the button does nothing until the hand lifts. Telling a palm from a finger is full palm rejection, which the specification leaves to Phase 3.
 - Air Command belongs to the system and an app cannot stop it, so pressing during a hover may still open it.
 - The button only erases. There is no setting to give it another job, and no sign on screen that it is held.
 - On the software path, erasing shows no prediction, the same as the eraser always has there.

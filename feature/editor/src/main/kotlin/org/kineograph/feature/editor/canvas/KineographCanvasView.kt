@@ -420,17 +420,24 @@ internal class KineographCanvasView(
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        val standardAction = standardActionOfSPen(event.actionMasked, event.pointerCount, mode != Mode.IDLE)
-        sPenActionHeld = standardAction != null
-        if (standardAction == null) {
-            handleTouch(event)
-        } else {
-            // A copy, so that everything from here on, the predictor included, only ever sees the usual actions.
-            val standard = MotionEvent.obtain(event)
-            standard.action = standardAction or (event.action and MotionEvent.ACTION_POINTER_INDEX_MASK)
-            handleTouch(standard)
-            standard.recycle()
-        }
+        handleTouch(event)
+        return true
+    }
+
+    /**
+     * Samsung's private pen actions arrive here and never as touches, because the AndroidView hosting this view only passes the usual
+     * actions on as touches. Stock Android does not count them as touches in the first place.
+     */
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        val standardAction =
+            standardActionOfSPen(event.actionMasked, event.pointerCount, mode != Mode.IDLE) ?: return super.onGenericMotionEvent(event)
+        // A copy, so that everything from here on, the predictor included, only ever sees the usual actions.
+        val standard = MotionEvent.obtain(event)
+        standard.action = standardAction or (event.action and MotionEvent.ACTION_POINTER_INDEX_MASK)
+        sPenActionHeld = true
+        handleTouch(standard)
+        sPenActionHeld = false
+        standard.recycle()
         return true
     }
 
@@ -478,7 +485,8 @@ internal class KineographCanvasView(
         }
     }
 
-    private fun movedPastTap(event: MotionEvent): Boolean = hypot(event.x - downX, event.y - downY) > tapSlop * 2f
+    private fun movedPastTap(event: MotionEvent, pointerIndex: Int = 0): Boolean =
+        hypot(event.getX(pointerIndex) - downX, event.getY(pointerIndex) - downY) > tapSlop * 2f
 
     private fun onDown(event: MotionEvent) {
         requestUnbufferedDispatch(event)
@@ -670,10 +678,10 @@ internal class KineographCanvasView(
 
     private fun onPointerDown(event: MotionEvent) {
         val elapsed = event.eventTime - downTimeMs
+        // A stylus never turns into a gesture, whatever it is doing: the other touch is a resting hand, and the stylus carries on.
+        val isFinger = event.getToolType(event.findPointerIndex(activePointerId).coerceAtLeast(0)) == MotionEvent.TOOL_TYPE_FINGER
         when (mode) {
             Mode.STROKE -> {
-                // A stylus never turns into a gesture: the other touch is a resting hand.
-                val isFinger = event.getToolType(event.findPointerIndex(activePointerId).coerceAtLeast(0)) == MotionEvent.TOOL_TYPE_FINGER
                 if (isFinger && secondFingerStartsGesture(elapsed, strokeTravel, GESTURE_WINDOW_MS, GESTURE_MAX_TRAVEL_DP * density)) {
                     renderer?.cancelWet()
                     stroke = null
@@ -683,8 +691,10 @@ internal class KineographCanvasView(
             }
 
             Mode.LASSO, Mode.FILL_TAP, Mode.IGNORED -> {
-                overlay.clear()
-                beginGesture(event)
+                if (isFinger) {
+                    overlay.clear()
+                    beginGesture(event)
+                }
             }
 
             Mode.GESTURE -> {
@@ -694,16 +704,18 @@ internal class KineographCanvasView(
             }
 
             Mode.SELECTION_DRAG -> {
-                session.setSelectionTransform(selectionTransform ?: return)
-                selectionHandle = null
-                beginGesture(event)
+                if (isFinger) {
+                    session.setSelectionTransform(selectionTransform ?: return)
+                    selectionHandle = null
+                    beginGesture(event)
+                }
             }
 
             Mode.IDLE -> {
                 beginGesture(event)
             }
 
-            // As in a stroke, a stylus never turns into a gesture.
+            // Only a stylus gets to this mode.
             Mode.PEN_WAITING -> {
                 Unit
             }
@@ -905,14 +917,8 @@ internal class KineographCanvasView(
 
     private fun onPointerUp(event: MotionEvent) {
         if (mode != Mode.GESTURE) {
-            // In a stroke, the drawing finger lifting while another stays down still ends the stroke.
-            if (event.getPointerId(event.actionIndex) == activePointerId) {
-                if (mode == Mode.STROKE) {
-                    finishStroke(event, event.actionIndex)
-                } else if (mode == Mode.PEN_WAITING) {
-                    mode = Mode.IDLE
-                }
-            }
+            // Whatever the touch was doing ends when its own finger or pen lifts, even with another still down.
+            if (event.getPointerId(event.actionIndex) == activePointerId) finishTouch(event, event.actionIndex)
             return
         }
         anchorGesture(event, event.actionIndex)
@@ -920,16 +926,20 @@ internal class KineographCanvasView(
     }
 
     private fun onUp(event: MotionEvent) {
+        finishTouch(event, 0)
+        activePointerId = MotionEvent.INVALID_POINTER_ID
+    }
+
+    private fun finishTouch(event: MotionEvent, pointerIndex: Int) {
         when (mode) {
-            Mode.STROKE -> finishStroke(event, 0)
+            Mode.STROKE -> finishStroke(event, pointerIndex)
             Mode.LASSO -> finishLasso()
-            Mode.FILL_TAP -> finishFill(event)
+            Mode.FILL_TAP -> finishFill(event, pointerIndex)
             Mode.SELECTION_DRAG -> selectionHandle = null
             Mode.GESTURE -> finishGesture(event)
             Mode.PEN_WAITING, Mode.IGNORED, Mode.IDLE -> Unit
         }
         mode = Mode.IDLE
-        activePointerId = MotionEvent.INVALID_POINTER_ID
     }
 
     private fun finishStroke(event: MotionEvent, pointerIndex: Int) {
@@ -985,15 +995,15 @@ internal class KineographCanvasView(
         session.liftSelection(canvasPoints)
     }
 
-    private fun finishFill(event: MotionEvent) {
-        if (movedPastTap(event)) return
+    private fun finishFill(event: MotionEvent, pointerIndex: Int) {
+        if (movedPastTap(event, pointerIndex)) return
         val state = session.state.value
         if (!state.canDrawOnActiveLayer) {
             listener.onLayerNotDrawable()
             return
         }
         val config = toolConfig()
-        toCanvas(event.x, event.y)
+        toCanvas(event.getX(pointerIndex), event.getY(pointerIndex))
         session.fill(
             coordinates[0].toInt(),
             coordinates[1].toInt(),

@@ -23,6 +23,7 @@ The bouncing ball works from start to finish.
 
 ### Fixed
 
+- A hand landing beside the pen no longer ends a lasso trace, a fill or the drag of a selection and moves the canvas instead. The pen carries on, and its button still erases
 - An export is no longer lost when the app is swiped away or killed. Opening the project shows it again, running or finished,
   and a notification says when it has ended; tapping that or the progress notification goes to the project. If another project
   is open and its changes cannot be saved, the tap asks first, the same as Back

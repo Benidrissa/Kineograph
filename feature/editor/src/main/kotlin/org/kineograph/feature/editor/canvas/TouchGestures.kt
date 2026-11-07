@@ -77,7 +77,8 @@ internal fun penAsksToErase(toolType: Int, buttonState: Int): Boolean =
 
 /**
  * The usual action for one of the private ones Samsung has used for an S Pen with its button held, or null for any other action.
- * Without this, a pen that lands with the button held would never start, and one pressed mid-stroke would never hear that it lifted.
+ * Without this, a pen pressed mid-stroke would never hear that it lifted, which holds the stroke open and stops every edit after it,
+ * and a pen that lands with the button held would do nothing, on any device that sends them.
  *
  * These have no pointer-down or pointer-up of their own, so another pointer being there decides which of those is meant. A down during
  * a touch has to carry that touch on: starting over would leave the open stroke unfinished, and the low-latency path would then hold
