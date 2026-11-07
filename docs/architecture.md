@@ -11,7 +11,7 @@ well on 2–3 GB phones, and code that can be tested. This page explains how tho
 :feature:editor      Canvas view, renderers, tool bar, frame strip, sheets, playback, export UI
 :feature:settings    Settings, About
 :core:ui             Theme, original icon set, shared components, colour picker
-:core:media          GIF encoder, H.264 encoder, export pipeline, background worker, gallery writer
+:core:media          GIF encoder, H.264 encoder, export pipeline, background worker, gallery writer, SVG reader
 :core:data           Room index, cel file store, manifest, autosave, sample project, preferences
 :core:engine         Brush engine, flood fill, selection, history, compositor, drawing session
 :core:model          Project data classes, timeline maths, structural edits (pure Kotlin, no Android)
@@ -110,3 +110,27 @@ live session, and flattens one frame at a time, so memory use does not grow with
 
 Nothing is ever drawn over the artwork. `FrameFlattener` is the only path to a finished frame, shared by thumbnails, ghosts,
 playback and export, so they cannot disagree about what a frame looks like.
+
+## SVG reading
+
+`org.kineograph.media.svg` reads SVG and draws it with `android.graphics`. Android has no SVG renderer, and the available
+libraries cannot animate, so this is our own code. It knows nothing about the UI: the same code will display SVG returned by
+an AI model.
+
+```
+bytes  ->  XmlReader  ->  tree of SvgElement  ->  SvgModelBuilder  ->  SvgDocument  ->  SvgRenderer  ->  Canvas
+                                                  stylesheets, cascade,              one instance per frame
+                                                  animation timing
+```
+
+- **Parsing happens once.** The cascade turns every attribute and CSS declaration into a typed `SvgValue`. Animation uses those
+  same values, so a length or a colour is only ever read in one way.
+- **Drawing a frame keeps no state.** `SvgDocument.render` is a function of the document and the time. Frames can be drawn in any
+  order, which is what makes importing an animation into frames safe. Timing is solved in advance, while parsing: `SmilTimeline`
+  works out every interval of every SMIL element, including those that depend on each other, and drawing only looks them up.
+- **Animations stack per property.** Each element holds tracks by property name. A frame starts from the value the cascade gave
+  and applies the tracks in priority order: SMIL by start time, then CSS animations. `!important` beats all of them.
+- **Limits come from the device.** `SvgLimits.forDevice` sizes everything from the heap. Hitting one adds a warning and keeps what
+  was read, except for input too large to hold at all, which is refused with a reason the UI can translate.
+- **Nothing here reaches outside the file.** There is no code that could run a script or open a URL. What was skipped is reported
+  in `SvgDocument.warnings`, as enum values, so that the screen showing them can pick a translated sentence.

@@ -79,3 +79,36 @@ public history.
 
 French strings, canvas resizing, background changes, ping-pong and play-once were built ahead of schedule because the
 model already supported them and each was small. Anything shown in the UI works; nothing is a placeholder.
+
+## Our own SVG renderer
+
+Android has no SVG renderer, `VectorDrawable` covers a small part of the format, and the open source libraries do not animate,
+which is the point of importing animated SVG. A renderer also has to be small and free of dependencies to fit this app, so it
+is ours, in `org.kineograph.media.svg`, on top of `android.util.Xml` and `android.graphics`.
+
+## SVG behaviour that follows browsers rather than the text of the specification
+
+People write SVG by looking at it in a browser, so that is what an import has to reproduce.
+
+- **Pattern content sits on the tile's corner**, so a pattern's `x` and `y` move the picture along with the tiles. A strict reading
+  of the specification would leave the content where it is and only move the window onto it.
+- **CSS animations beat SMIL**, and `!important` beats both.
+- **Namespaces are forgiving.** `xlink:href` without a declared prefix works, and so does a file with no namespace at all. The parser's
+  namespace processing is off and the reader does it instead, because the parser would refuse these files.
+- **A file cut short is refused**, even though the parser lets it pass. Showing part of a picture as if it were the whole would
+  mislead more than an error does.
+
+## SVG details that keep pictures the same on every phone
+
+- Text is shaped at a fixed size and its outlines scaled, because fonts round glyph positions to pixels at small sizes, and an animated
+  `font-size` would jitter. Colour emoji have no outline and are the one exception.
+- Before API 31 Android cannot move a radial gradient's focal point, so those gradients are computed per pixel into a small image.
+- Android blends gradient colours after multiplying by alpha and SVG blends them before, so extra stops computed the SVG way pin
+  gradients that change colour and alpha together to the right curve.
+- Bounding boxes are computed from the curves, because `Path.computeBounds` only reports the control points.
+
+## A loop's suggested length
+
+A looping SVG suggests the least common multiple of its cycles, up to `SvgLimits.maxSeamlessLoopSeconds` (60 s), and after that its longest
+cycle, which will not quite be seamless. Cycles count as equal within 2 ms, so that `.333s` lines up with `1s`. A delay or an intro means
+the picture only starts repeating later, and `SvgAnimationInfo.loopStartSeconds` says when: a seamless loop samples from there.
