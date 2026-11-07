@@ -16,6 +16,7 @@ import org.kineograph.engine.session.CelStore
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Semaphore
@@ -104,9 +105,9 @@ public class CelFileStore(
     }
 
     private fun readFromDisk(file: String): ByteArray? {
-        val target = resolve(file) ?: return null
         val bytes =
             try {
+                val target = resolve(file) ?: return null
                 target.readBytes()
             } catch (_: IOException) {
                 return null
@@ -124,6 +125,17 @@ public class CelFileStore(
 
     /** Whether an image is available, in memory or on disk. */
     public fun exists(file: String): Boolean = pending.containsKey(file) || resolve(file)?.isFile == true
+
+    override fun isGone(file: String): Boolean {
+        if (pending.containsKey(file) || cache.get(file) != null) return false
+        return try {
+            val target = resolve(file) ?: return true
+            // Unlike a failed exists check, this only says yes when the system really reported no such file.
+            Files.notExists(target.toPath())
+        } catch (_: IOException) {
+            false
+        }
+    }
 
     /** Waits for every queued write. Retries earlier failures once, and throws if any image still is not on disk. */
     @Throws(IOException::class)

@@ -76,6 +76,8 @@ internal enum class EditorMessage {
     DRAWING_NOT_LOADED,
     UNDO_STEPS_LOST,
     SETTING_NOT_SAVED,
+    LAYER_NOT_SHOWN,
+    CANVAS_DOES_NOT_FIT,
 }
 
 /** An export in progress or just finished, for the export dialog. */
@@ -115,7 +117,7 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
 
     private var exportId: UUID? = null
     private var exportWatcher: Job? = null
-    private var discardOnClose = false
+    private var discarded = false
 
     internal var playback: PlaybackController? = null
         private set
@@ -157,6 +159,8 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
                         SessionEvent.CelNotLoaded -> EditorMessage.DRAWING_NOT_LOADED
                         SessionEvent.LayerNotEditable -> EditorMessage.LAYER_LOCKED
                         SessionEvent.UndoStepsLost -> EditorMessage.UNDO_STEPS_LOST
+                        SessionEvent.LayerNotShown -> EditorMessage.LAYER_NOT_SHOWN
+                        SessionEvent.CanvasDoesNotFit -> EditorMessage.CANVAS_DOES_NOT_FIT
                     },
                 )
             }
@@ -204,8 +208,10 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
      * Saves when the app goes to the background, waiting a moment for it, because the system may kill a stopped app
      * at any time. The wait has a limit, and the save carries on regardless. It runs on the app's scope and needs nothing
      * from the main thread, so blocking that thread here cannot hold it up, and it returns at once if nothing changed.
+     * After a discard there is nothing to wait for, even though leaving the screen brings it through here.
      */
     internal fun saveBeforeBackground() {
+        if (discarded) return
         val state = ready ?: return
         val save = dependencies.appScope.launch { state.autosaver.saveNow(commitSelection = true) }
         runBlocking { withTimeoutOrNull(STOP_SAVE_WAIT_MS) { save.join() } }
@@ -222,17 +228,17 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
 
     /**
      * Back goes through here, so the screen only closes once everything has reached the disk. If it cannot, the user
-     * stays in the editor and is asked, because what could not be saved exists nowhere but in memory.
+     * stays in the editor and is asked, because what could not be saved exists nowhere but in memory. Once the user has
+     * discarded, that answer stands, so there is nothing left to save or ask.
      */
     internal fun requestLeave(onLeft: () -> Unit) {
         val state = ready
-        if (state == null) {
+        if (state == null || discarded) {
             onLeft()
             return
         }
         if (_leaving.value) return
         _leaving.value = true
-        discardOnClose = false
         viewModelScope.launch {
             val saved = state.autosaver.saveNow(commitSelection = true)
             _leaving.value = false
@@ -247,7 +253,8 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
     /** The user chose to give up what could not be saved. The last save on disk is what the project goes back to. */
     internal fun discardAndLeave(onLeft: () -> Unit) {
         _unsavedOnLeave.value = false
-        discardOnClose = true
+        discarded = true
+        ready?.autosaver?.abandon()
         onLeft()
     }
 
@@ -360,7 +367,7 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
             val job =
                 dependencies.appScope.launch {
                     try {
-                        if (discardOnClose) state.autosaver.abandon() else state.autosaver.finish()
+                        state.autosaver.finish()
                     } finally {
                         state.session.close()
                         state.store.close()

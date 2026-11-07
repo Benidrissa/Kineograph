@@ -6,10 +6,12 @@ import android.os.Looper
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewModelScope
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -31,6 +33,7 @@ import org.kineograph.model.Background
 import org.kineograph.model.PaperKind
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 
 /** A full disk or a broken index must only ever cost the user that one action, with a message saying so. */
@@ -74,8 +77,8 @@ class GalleryViewModelTest {
         override fun observeTotalSize(): Flow<Long> = flowOf(0L)
     }
 
-    private fun viewModelWith(dao: ProjectDao): GalleryViewModel {
-        val repository = ProjectRepository(dao, ProjectFiles(temp.newFolder(), temp.newFolder()), 1024L * 1024)
+    private fun viewModelWith(dao: ProjectDao, files: ProjectFiles = ProjectFiles(temp.newFolder(), temp.newFolder())): GalleryViewModel {
+        val repository = ProjectRepository(dao, files, 1024L * 1024)
         val factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
@@ -134,13 +137,27 @@ class GalleryViewModelTest {
 
     @Test
     fun `deleting still works when the index cannot write, because that is how space comes back`() {
-        val viewModel = listenTo(viewModelWith(FullDao()))
+        val files = ProjectFiles(temp.newFolder(), temp.newFolder())
+        val project = files.projectDirectory("p")
+        File(project, "cels").mkdirs()
+        File(project, "cels/drawing.png").writeText("Taking up space")
+        val viewModel = listenTo(viewModelWith(FullDao(), files))
+        val running = viewModel.viewModelScope.coroutineContext[Job] ?: error("no job")
+        val alreadyRunning = running.children.count()
+
         viewModel.deletePermanently("p")
-        repeat(QUIET_ROUNDS) {
+        val deadline = System.currentTimeMillis() + WAIT_MS
+        while (running.children.count() > alreadyRunning) {
+            check(System.currentTimeMillis() < deadline) { "The delete never finished" }
             shadowOf(Looper.getMainLooper()).idle()
             Thread.sleep(5)
         }
-        assertEquals(emptyList<GalleryMessage>(), received.toList())
+        assertFalse("the files must go", project.exists())
+
+        // Messages arrive in order, so anything the delete had to say would come before this one.
+        viewModel.notify(GalleryMessage.STARTUP_PROBLEM)
+        waitForMessages(1)
+        assertEquals(listOf(GalleryMessage.STARTUP_PROBLEM), received.toList())
     }
 
     @Test
@@ -164,6 +181,5 @@ class GalleryViewModelTest {
 
     private companion object {
         const val WAIT_MS = 10_000L
-        const val QUIET_ROUNDS = 40
     }
 }

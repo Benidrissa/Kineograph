@@ -16,6 +16,13 @@ public interface CelStore {
     /** Decodes an image, optionally reduced by a power-of-two [sampleSize]. Returns null if it cannot be read. */
     public fun read(file: String, sampleSize: Int = 1): Bitmap?
 
+    /**
+     * Whether an image has definitely gone for good. A null from [read] cannot say that by itself, because a read error or
+     * running out of memory while decoding gives null too. This is false when the image is there and also when that cannot
+     * be determined, so a drawing is never written off just because storage was briefly out of reach.
+     */
+    public fun isGone(file: String): Boolean
+
     /** Suspends until every queued [write] has reached the disk. */
     public suspend fun awaitWrites()
 

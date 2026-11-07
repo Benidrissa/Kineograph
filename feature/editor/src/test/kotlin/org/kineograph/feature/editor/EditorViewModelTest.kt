@@ -3,17 +3,32 @@ package org.kineograph.feature.editor
 import android.content.Context
 import android.graphics.Color
 import android.os.Looper
+import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.Density
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.compose.dropUnlessResumed
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.work.Configuration
@@ -240,6 +255,67 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `discarding in the real app saves nothing on its way off the screen`() {
+        val project = create()
+        val before = manifestOf(project.id).readText()
+        val viewModel = viewModelFor(project.id)
+        val ready = viewModel.awaitReady()
+        // The same navigation as the app. Going back drives the screen through ON_STOP while it is still composed.
+        compose.setContent {
+            KineographTheme(darkTheme = false) {
+                val nav = rememberNavController()
+                NavHost(nav, startDestination = "gallery") {
+                    composable("gallery") { Text("Gallery") }
+                    composable("editor") {
+                        EditorRoute(viewModel, wideLayout = false, onBack = dropUnlessResumed { nav.popBackStack() })
+                    }
+                }
+                LaunchedEffect(Unit) { nav.navigate("editor") }
+            }
+        }
+        compose.waitUntil(WAIT_MS) { compose.onAllNodesWithTag("canvas_host").fetchSemanticsNodes().isNotEmpty() }
+
+        stroke(ready.session)
+        fillDisk(project.id)
+        compose.onNodeWithContentDescription("Back").performClick()
+        waitUntil("the save to fail") { viewModel.unsavedOnLeave.value }
+        // By now the failure has passed: space was freed, so anything that still tries to save would succeed.
+        freeDisk(project.id)
+        compose.waitUntil(WAIT_MS) { compose.onAllNodesWithText("Discard changes").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Discard changes").performClick()
+        compose.waitUntil(WAIT_MS) { compose.onAllNodesWithTag("canvas_host").fetchSemanticsNodes().isEmpty() }
+        assertEquals("nothing may be written on the way out", before, manifestOf(project.id).readText())
+
+        store.clear()
+        waitUntil("the editor to close") { runBlocking { repository.open(project.id) }?.also { it.store.close() } != null }
+        assertEquals("the save must not happen when it closes either", before, manifestOf(project.id).readText())
+    }
+
+    @Test
+    fun `after discarding, going to the background or going back does not bring saving back`() {
+        val project = create()
+        val before = manifestOf(project.id).readText()
+        val viewModel = viewModelFor(project.id)
+        val ready = viewModel.awaitReady()
+        stroke(ready.session)
+        fillDisk(project.id)
+        viewModel.requestLeave { }
+        waitUntil("the save to fail") { viewModel.unsavedOnLeave.value }
+        freeDisk(project.id)
+
+        viewModel.discardAndLeave { }
+        viewModel.saveBeforeBackground()
+        assertEquals(before, manifestOf(project.id).readText())
+        var leftAgain = false
+        viewModel.requestLeave { leftAgain = true }
+        assertTrue("the answer stands, so there is nothing to wait for or ask", leftAgain)
+        assertFalse(viewModel.unsavedOnLeave.value)
+        viewModel.retryFailedSave()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(before, manifestOf(project.id).readText())
+    }
+
+    @Test
     fun `going to the background has the changes on disk by the time the main thread carries on`() {
         val project = create()
         val viewModel = viewModelFor(project.id)
@@ -306,6 +382,58 @@ class EditorViewModelTest {
         failing = true
         compose.waitForIdle()
         compose.onNodeWithText("Not saved").assertIsDisplayed()
+    }
+
+    /** Lays out the top bar at a font size, and checks that the warning has all the room it needs. */
+    private fun assertNotSavedIsReadable(fontScale: Float) {
+        val project = create()
+        val state = viewModelFor(project.id)
+            .awaitReady()
+            .session.state.value
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale)) {
+                KineographTheme(darkTheme = false) {
+                    EditorTopBar(state, {}, {}, {}, {}, {}, {}, saveFailed = true)
+                }
+            }
+        }
+        compose.waitForIdle()
+        val node = compose.onNodeWithTag("not_saved").fetchSemanticsNode()
+        val layouts = ArrayList<TextLayoutResult>()
+        node.config
+            .getOrNull(SemanticsActions.GetTextLayoutResult)
+            ?.action
+            ?.invoke(layouts)
+        val layout = layouts.single()
+        assertFalse("cut off: ${node.size}", layout.didOverflowHeight)
+        for (line in 0 until layout.lineCount) {
+            assertTrue("line $line runs past ${node.size.width} px", layout.getLineRight(line) <= node.size.width)
+        }
+        val density = context.resources.displayMetrics.density
+        // The style's 16 sp line height.
+        assertTrue("only ${node.size.height} px tall", node.size.height >= 16 * fontScale * density)
+        assertEquals("the whole text is laid out", layout.layoutInput.text.length, layout.getLineEnd(layout.lineCount - 1))
+        val words = layout.layoutInput.text
+            .split(' ')
+            .size
+        assertTrue("more lines than words means a word was broken up: ${layout.lineCount}", layout.lineCount <= words)
+    }
+
+    @Test
+    fun `the not saved warning is not cut off at twice the font size`() {
+        assertNotSavedIsReadable(fontScale = 2f)
+    }
+
+    @Test
+    @Config(qualifiers = "+fr")
+    fun `the longer French warning is not cut off at twice the font size either`() {
+        assertNotSavedIsReadable(fontScale = 2f)
+    }
+
+    @Test
+    @Config(qualifiers = "+fr")
+    fun `the French warning still fits between the buttons just past the normal font size`() {
+        assertNotSavedIsReadable(fontScale = 1.15f)
     }
 
     @Test

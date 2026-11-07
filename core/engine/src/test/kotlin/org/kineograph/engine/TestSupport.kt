@@ -18,6 +18,8 @@ class FakeCelStore : CelStore {
 
     override fun read(file: String, sampleSize: Int): Bitmap? = images[file]
 
+    override fun isGone(file: String): Boolean = !images.containsKey(file)
+
     override suspend fun awaitWrites() = Unit
 
     override fun trimMemory() = Unit
@@ -34,7 +36,21 @@ class FlakyCelStore(private val inner: FakeCelStore = FakeCelStore()) : CelStore
     /** How many more calls to [write] run out of memory. */
     val writesOutOfMemory = AtomicInteger()
 
+    /** Files that run out of memory every time they are read, while everything else reads normally. */
+    val filesOutOfMemory: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /** Files that are still there but read as nothing every time, as when a decode cannot get the memory it needs. */
+    val filesReturningNull: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /** How many times this was asked to free memory. */
+    val trims = AtomicInteger()
+
     val images: Map<String, Bitmap> get() = inner.images
+
+    /** Removes a file for good, as when it has really gone from the disk. */
+    fun lose(file: String) {
+        inner.images.remove(file)
+    }
 
     override fun write(image: Bitmap): String {
         if (writesOutOfMemory.getAndUpdate { maxOf(0, it - 1) } > 0) throw OutOfMemoryError("Test")
@@ -44,10 +60,17 @@ class FlakyCelStore(private val inner: FakeCelStore = FakeCelStore()) : CelStore
     override fun read(file: String, sampleSize: Int): Bitmap? {
         if (readsOutOfMemory.getAndUpdate { maxOf(0, it - 1) } > 0) throw OutOfMemoryError("Test")
         if (readsReturningNull.getAndUpdate { maxOf(0, it - 1) } > 0) return null
+        if (file in filesOutOfMemory) throw OutOfMemoryError("Test")
+        if (file in filesReturningNull) return null
         return inner.read(file, sampleSize)
     }
 
+    override fun isGone(file: String): Boolean = inner.isGone(file)
+
     override suspend fun awaitWrites() = inner.awaitWrites()
 
-    override fun trimMemory() = inner.trimMemory()
+    override fun trimMemory() {
+        trims.incrementAndGet()
+        inner.trimMemory()
+    }
 }

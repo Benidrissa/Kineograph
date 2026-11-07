@@ -51,5 +51,6 @@ dependencies {
     testImplementation(libs.androidx.test.ext.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.compose.ui.test.junit4)
+    testImplementation(libs.androidx.navigation.compose)
     debugImplementation(libs.compose.ui.test.manifest)
 }

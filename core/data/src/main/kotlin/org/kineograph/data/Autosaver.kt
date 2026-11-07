@@ -39,6 +39,9 @@ public class Autosaver(
     private var thumbnailFiles: Set<String>? = null
     private var watcher: Job? = null
 
+    @Volatile
+    private var abandoned = false
+
     private val _saveFailed = MutableStateFlow(false)
 
     /** True when the most recent save did not reach the disk. */
@@ -64,11 +67,11 @@ public class Autosaver(
      * Saves immediately if anything changed, and returns whether everything is now on disk. Safe to call from any
      * coroutine; it finishes even if the caller is cancelled. The work holds a lock across suspensions, so it runs on a
      * background dispatcher: the lock's holder must never need the main thread to make progress, or a caller waiting on
-     * that thread could deadlock.
+     * that thread could deadlock. After [abandon] this saves nothing and returns false.
      */
     public suspend fun saveNow(commitSelection: Boolean = false): Boolean =
         withContext(Dispatchers.Default + NonCancellable) {
-            mutex.withLock { saveIfChanged(commitSelection) }
+            mutex.withLock { if (abandoned) false else saveIfChanged(commitSelection) }
         }
 
     private suspend fun saveIfChanged(commitSelection: Boolean): Boolean {
@@ -125,7 +128,8 @@ public class Autosaver(
 
     /**
      * Saves one last time and stops watching. Call before closing the session. Files are only tidied up when that save
-     * worked: after a failure the session no longer refers to the last good state, and nothing is worth risking it.
+     * worked: after a failure the session no longer refers to the last good state, and nothing is worth risking it. A save
+     * already under way finishes first, so it cannot reach a closed session, even after [abandon].
      */
     public suspend fun finish() {
         watcher?.cancel()
@@ -143,11 +147,14 @@ public class Autosaver(
         }
     }
 
-    /** Stops without saving, for when the user chose to discard what could not be saved. Call before closing the session. */
-    public suspend fun abandon() {
+    /**
+     * Stops all saving for good, for when the user chose to discard what could not be saved. This has to work at once, not
+     * when the session closes: the screen lives on for a moment as it leaves, going through ON_STOP on the way, the timer
+     * may still be running, and by then the disk may have room for exactly what the user said to throw away.
+     */
+    public fun abandon() {
+        abandoned = true
         watcher?.cancel()
-        // Lets a save already under way finish, so it does not reach a closed session.
-        mutex.withLock { }
     }
 
     private companion object {

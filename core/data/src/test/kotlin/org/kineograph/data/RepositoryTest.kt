@@ -172,6 +172,52 @@ class RepositoryTest {
     }
 
     @Test
+    fun `only a file that has really gone counts as gone`() {
+        val project = create()
+        val directory = files.projectDirectory(project.id)
+        val store = CelFileStore(directory, 1024 * 1024)
+        assertTrue("it was never there", store.isGone("cels/missing.webp"))
+        assertTrue("this could never be read", store.isGone("../manifest.json"))
+
+        val name = store.write(Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888))
+        assertFalse("still on its way to the disk", store.isGone(name))
+        runBlocking { store.awaitWrites() }
+        assertFalse(store.isGone(name))
+        store.close()
+
+        val fresh = CelFileStore(directory, 1024 * 1024)
+        assertFalse("on disk, not in memory", fresh.isGone(name))
+        File(directory, name).delete()
+        assertTrue(fresh.isGone(name))
+        fresh.close()
+    }
+
+    @Test
+    fun `a read that fails with the file still there does not count as gone`() {
+        val project = create()
+        val directory = files.projectDirectory(project.id)
+        val store = CelFileStore(directory, 1024 * 1024)
+        // Reading a directory fails with an error, which is as close as this gets to a passing disk problem.
+        File(directory, "cels/unreadable.webp").mkdirs()
+        assertNull(store.read("cels/unreadable.webp"))
+        assertFalse(store.isGone("cels/unreadable.webp"))
+        store.close()
+    }
+
+    @Test
+    fun `not being able to tell whether a file is there does not count as gone`() {
+        val project = create()
+        val directory = files.projectDirectory(project.id)
+        val store = CelFileStore(directory, 1024 * 1024)
+        // A plain file where the directory should be makes the system answer with an error rather than "no such file".
+        File(directory, "cels").deleteRecursively()
+        File(directory, "cels").writeText("not a directory")
+        assertNull(store.read("cels/any.webp"))
+        assertFalse(store.isGone("cels/any.webp"))
+        store.close()
+    }
+
+    @Test
     fun `corrupt image files read as null rather than crashing`() {
         val project = create()
         val directory = File(files.projectDirectory(project.id), "cels").apply { mkdirs() }
@@ -566,6 +612,26 @@ class RepositoryTest {
         }
         editor.close()
         assertEquals(Color.BLACK, inkAt(project.id, 60, 30))
+        assertEquals(0, inkAt(project.id, 60, 70))
+    }
+
+    @Test
+    fun `after abandoning nothing can save, however it is asked and even with room on the disk`() {
+        val project = create()
+        val editor = Editor(project)
+        editor.stroke(y = 30f)
+        assertTrue(runBlocking { editor.autosaver.saveNow() })
+        val manifest = File(files.projectDirectory(project.id), "manifest.json")
+        val before = manifest.readText()
+        editor.stroke(y = 70f)
+        runBlocking { editor.session.awaitIdle() }
+        editor.autosaver.abandon()
+        now += 5000
+        assertFalse(runBlocking { editor.autosaver.saveNow() })
+        assertFalse(runBlocking { editor.autosaver.saveNow(commitSelection = true) })
+        runBlocking { editor.autosaver.finish() }
+        assertEquals(before, manifest.readText())
+        editor.close()
         assertEquals(0, inkAt(project.id, 60, 70))
     }
 

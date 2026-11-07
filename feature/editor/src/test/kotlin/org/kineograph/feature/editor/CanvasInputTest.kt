@@ -624,6 +624,42 @@ class CanvasInputTest {
     }
 
     @Test
+    fun `a stroke under way when playback starts is dropped, and the editor does not wait for it`() {
+        val down = clock
+        send(touch(MotionEvent.ACTION_DOWN, toView(100f) to toViewY(100f), downTime = down))
+        clock += 8
+        send(touch(MotionEvent.ACTION_MOVE, toView(200f) to toViewY(100f), downTime = down))
+        idle()
+        view.isPlaying = true
+        clock += 8
+        send(touch(MotionEvent.ACTION_UP, toView(200f) to toViewY(100f), downTime = down))
+        idle()
+        assertEquals("the drawing finger lifting is not a tap on the playback", 0, playbackTaps)
+
+        val first = session.state.value.frameId
+        session.addFrame()
+        idle()
+        assertEquals("a stroke that never ended would have the session ignore this", 2, session.state.value.project.frames.size)
+        session.selectFrame(first)
+        idle()
+        assertEquals(first, session.state.value.frameId)
+        assertTrue("the stroke was called off, not saved", snapshot().cels.isEmpty())
+    }
+
+    @Test
+    fun `a stroke called off by playback does not stop the next touch from working`() {
+        val down = clock
+        send(touch(MotionEvent.ACTION_DOWN, toView(100f) to toViewY(100f), downTime = down))
+        idle()
+        view.isPlaying = true
+        tap(200f, 200f)
+        assertEquals(1, playbackTaps)
+        view.isPlaying = false
+        drawLine(100f, 300f, 100f)
+        assertTrue(inkAt(200, 100))
+    }
+
+    @Test
     fun `strokes on separate frames stay separate`() {
         drawLine(100f, 300f, 100f)
         session.addFrame()

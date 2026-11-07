@@ -86,11 +86,18 @@ thread always sees a consistent set of layers.
   the user is told. Pixels stay marked as unsaved until the project holds their new file, so the next attempt starts over.
   A surface whose load failed counts as holding nothing: it is neither shown nor saved, and edits are refused until a load
   works, so no stroke can land on the wrong drawing. Opening a canvas retries without the margin. If it still does not fit,
-  the user can try again or choose a smaller canvas.
+  the user can try again or choose a smaller canvas. A canvas resized beyond what memory holds keeps its old surface,
+  refuses edits, and says to undo the resize or choose a smaller size.
+- **A failed read is not a missing file.** A decode can also run out of memory by returning null, so `readCel` treats a
+  null from a file that is still there like `OutOfMemoryError`. Only `CelStore.isGone` says a file has really gone, and it
+  says no when it cannot tell. Saving a cel that lies partly past the surface needs the old file, so if that cannot be read
+  the save fails and the old cel stays. A layer other than the active one that cannot be read only drops out of the view,
+  with a message, and tapping the frame tries again.
 
 ## Saving
 
-Autosave runs about a second after the last change, and when the app goes to the background.
+Autosave runs about a second after the last change, and when the app goes to the background. When the user discards what
+could not be saved, `Autosaver.abandon` stops all saving at once, because the screen still goes through `ON_STOP` as it leaves.
 
 1. Dirty pixels are cropped and written to new, atomically created cel files.
 2. A new manifest is written and flushed to disk.

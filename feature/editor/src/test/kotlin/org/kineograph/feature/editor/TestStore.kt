@@ -18,6 +18,8 @@ internal class TestStore : CelStore {
 
     override fun read(file: String, sampleSize: Int): Bitmap? = images[file]
 
+    override fun isGone(file: String): Boolean = !images.containsKey(file)
+
     override suspend fun awaitWrites() = Unit
 
     override fun trimMemory() = Unit

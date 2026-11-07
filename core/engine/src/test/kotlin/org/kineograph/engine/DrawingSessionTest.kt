@@ -6,6 +6,7 @@ import android.graphics.Color
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -1102,13 +1103,17 @@ class DrawingSessionTest {
 
     private lateinit var flaky: FlakyCelStore
 
-    /** A session whose store runs out of memory on request, with a drawing on its first frame and an empty second frame. */
-    private fun flakySessionWithTwoFrames(): Pair<String, String> {
+    private fun startOverWithFlakyStore() {
         session.close()
         flaky = FlakyCelStore()
         val project = newProject("Test", 200, 100, 12, Background.Transparent, "Layer 1", now = 0)
         session = DrawingSession(project, flaky, MemoryBudget.forMemoryClass(256, isLowRam = false), temp.newFolder())
         await()
+    }
+
+    /** A session whose store runs out of memory on request, with a drawing on its first frame and an empty second frame. */
+    private fun flakySessionWithTwoFrames(): Pair<String, String> {
+        startOverWithFlakyStore()
         val first = state.frameId
         stroke(y = 30f)
         session.addFrame()
@@ -1210,6 +1215,34 @@ class DrawingSessionTest {
     }
 
     @Test
+    fun `a read that comes back empty is handled like running out of memory`() {
+        val (_, second) = flakySessionWithTwoFrames()
+        val trims = flaky.trims.get()
+        flaky.readsReturningNull.set(1)
+        session.selectFrame(second)
+        await()
+        assertNotNull("it was tried again", session.scene?.active)
+        assertTrue(isInked(50, 70))
+        assertTrue("memory was freed for it", flaky.trims.get() > trims)
+        assertEventuallySent(SessionEvent.LowMemory)
+    }
+
+    @Test
+    fun `a drawing that has really gone is not blamed on memory`() {
+        val (_, second) = flakySessionWithTwoFrames()
+        flaky.lose(
+            state.project.cels.values
+                .single { it.frameId == second }
+                .file ?: error("no file"),
+        )
+        val trims = flaky.trims.get()
+        session.selectFrame(second)
+        await()
+        assertEquals(trims, flaky.trims.get())
+        assertEquals(listOf<SessionEvent>(SessionEvent.CelNotLoaded), eventsSoFar())
+    }
+
+    @Test
     fun `clearing a cel that cannot be read makes it usable again`() {
         val (_, second) = flakySessionWithTwoFrames()
         flaky.readsReturningNull.set(2)
@@ -1287,28 +1320,166 @@ class DrawingSessionTest {
         assertEquals("the lifted pixels are back in the saved drawing", 255, Color.alpha(saved.getPixel(50, 50)))
     }
 
-    @Test
-    fun `other layers that do not fit in memory only drop out of the view`() {
-        val (_, _) = flakySessionWithTwoFrames()
+    /** Works on the bottom of three layers that each have a drawing, while the one in the middle cannot be read. */
+    private fun assertMiddleLayerOnlyDropsOutOfView(failures: (FlakyCelStore) -> MutableSet<String>) {
+        val (first, second) = flakySessionWithTwoFrames()
+        val cannotBeRead = failures(flaky)
+        val bottom = state.layerId
+        session.addLayer("Middle")
+        await()
+        val middle = state.layerId
+        stroke(y = 50f)
         session.addLayer("Top")
         await()
-        val top = state.layerId
-        val bottom = state.project.layers
-            .first()
-            .id
-        flaky.readsOutOfMemory.set(2)
-        session.selectLayer(top)
+        stroke(y = 80f)
         session.selectLayer(bottom)
         await()
-        session.selectLayer(top)
+        val cels = snapshot().cels
+        session.selectFrame(second)
         await()
-        assertEquals(top, state.layerId)
-        assertTrue(state.project.cels.isNotEmpty())
+        assertEquals("nothing has gone wrong yet", emptyList<SessionEvent>(), eventsSoFar())
+
+        val trims = flaky.trims.get()
+        cannotBeRead += state.project.cel(middle, first)?.file ?: error("no file")
+        session.selectFrame(first)
+        await()
+        assertEquals(first, state.frameId)
+        assertTrue("the active layer is there", isInked(50, 30))
+        assertFalse("the layer that cannot be read is not", isInked(50, 50))
+        assertTrue("the layer after it still gets its turn", isInked(50, 80))
+        assertTrue("memory was freed before giving up", flaky.trims.get() > trims)
+        val events = eventsSoFar()
+        assertTrue("the user is told about it, not just left to notice: $events", SessionEvent.LayerNotShown in events)
+        assertEquals("this costs the view of it, never its drawing", cels, snapshot().cels)
+
+        cannotBeRead.clear()
+        session.selectFrame(first)
+        await()
+        assertTrue("tapping the frame again brings it back", isInked(50, 50))
+        assertTrue(isInked(50, 30))
+        assertTrue(isInked(50, 80))
+        assertEquals("the retry found nothing new to report", emptyList<SessionEvent>(), eventsSoFar())
+    }
+
+    @Test
+    fun `another layer that does not fit in memory only drops out of the view`() {
+        assertMiddleLayerOnlyDropsOutOfView { it.filesOutOfMemory }
+    }
+
+    @Test
+    fun `another layer whose decode comes back empty only drops out of the view`() {
+        assertMiddleLayerOnlyDropsOutOfView { it.filesReturningNull }
     }
 
     private fun assertEventuallySent(expected: SessionEvent) {
         val found = runBlocking { withTimeout(5000) { session.events.first { it == expected } } }
         assertEquals(expected, found)
+    }
+
+    /** Everything said since this was last asked. The session is idle first, so nothing is still on its way. */
+    private fun eventsSoFar(): List<SessionEvent> {
+        await()
+        val seen = ArrayList<SessionEvent>()
+        runBlocking { withTimeoutOrNull(200) { session.events.collect { seen += it } } }
+        return seen
+    }
+
+    // ----- A save that cannot read the old cel must not cost what lies past the edge -----
+
+    /** Art past the edge of the surface, in a cel whose file this returns, and a new stroke waiting to be saved with it. */
+    private fun overhangingCelWithUnsavedStroke(): String {
+        startOverWithFlakyStore()
+        drawThenShrink()
+        val file = state.project.cels.values
+            .single()
+            .file ?: error("no file")
+        stroke(fromX = 40f, toX = 60f, y = 50f)
+        return file
+    }
+
+    private fun assertBothDrawingsSurvive() {
+        snapshot()
+        growBack()
+        assertTrue("the art past the edge must survive", isInked(10, 50))
+        assertTrue("the new stroke must survive", isInked(100, 50))
+    }
+
+    @Test
+    fun `a read that fails once while saving is tried again and keeps what lies outside the surface`() {
+        overhangingCelWithUnsavedStroke()
+        flaky.readsReturningNull.set(1)
+        assertBothDrawingsSurvive()
+        assertEventuallySent(SessionEvent.LowMemory)
+    }
+
+    private fun assertFailedSaveChangesNothing(oldFile: String, cannotBeRead: MutableSet<String>) {
+        cannotBeRead += oldFile
+        val cels = state.project.cels
+        assertThrows(IOException::class.java) { snapshot() }
+        assertEquals("the old cel stays in place", cels, state.project.cels)
+        assertTrue("and out of reach of a sweep", oldFile in runBlocking { session.referencedFiles() })
+        assertTrue("the stroke is still there", isInked(50, 50))
+        cannotBeRead.clear()
+        assertBothDrawingsSurvive()
+    }
+
+    @Test
+    fun `a save that cannot read the old cel fails, and the next one keeps everything`() {
+        val oldFile = overhangingCelWithUnsavedStroke()
+        assertFailedSaveChangesNothing(oldFile, flaky.filesReturningNull)
+    }
+
+    @Test
+    fun `a save that runs out of memory reading the old cel fails, and the next one keeps everything`() {
+        val oldFile = overhangingCelWithUnsavedStroke()
+        assertFailedSaveChangesNothing(oldFile, flaky.filesOutOfMemory)
+    }
+
+    @Test
+    fun `an edit that needs a save it cannot do waits, with the stroke intact`() {
+        val oldFile = overhangingCelWithUnsavedStroke()
+        val frame = state.frameId
+        flaky.filesReturningNull += oldFile
+        session.addFrame()
+        await()
+        assertEquals("the edit must not happen", 1, state.project.frames.size)
+        assertEquals(frame, state.frameId)
+        assertTrue(isInked(50, 50))
+        assertEventuallySent(SessionEvent.LowMemory)
+        flaky.filesReturningNull.clear()
+        session.addFrame()
+        await()
+        assertEquals(2, state.project.frames.size)
+        session.selectFrame(frame)
+        await()
+        growBack()
+        assertTrue(isInked(10, 50))
+        assertTrue(isInked(100, 50))
+    }
+
+    @Test
+    fun `a failed save that put down a selection leaves no selection on screen`() {
+        val oldFile = overhangingCelWithUnsavedStroke()
+        session.liftSelection(box)
+        await()
+        assertNotNull(state.selection)
+        flaky.filesReturningNull += oldFile
+        assertThrows(IOException::class.java) { runBlocking { session.snapshot(commitSelection = true) } }
+        assertNull(state.selection)
+        assertNull(session.scene?.floating)
+    }
+
+    @Test
+    fun `a cel file that has really gone has nothing to keep, so the surface alone is saved`() {
+        val oldFile = overhangingCelWithUnsavedStroke()
+        flaky.lose(oldFile)
+        val trims = flaky.trims.get()
+        val bounds = snapshot()
+            .cels.values
+            .single()
+            .bounds ?: error("no bounds")
+        assertTrue("only the new stroke is left: $bounds", bounds.left >= 0)
+        assertEquals("freeing memory would not have brought it back", trims, flaky.trims.get())
     }
 
     // ----- A margin that fell back to nothing -----
@@ -1395,6 +1566,73 @@ class DrawingSessionTest {
         stroke(fromX = 200f, toX = 260f, y = 20f)
         assertTrue("the old art came back, moved with the resize", isInked(150, 100))
         assertTrue(isInked(230, 20))
+    }
+
+    /** A drawing on a canvas that has just been resized to more than memory can hold. */
+    private fun canvasThatDoesNotFit(): () -> Unit {
+        var allocationsAllowed = true
+        marginlessSession { !allocationsAllowed }
+        stroke()
+        allocationsAllowed = false
+        session.resizeCanvas(400, 200)
+        await()
+        return { allocationsAllowed = true }
+    }
+
+    @Test
+    fun `a canvas too large for memory has its own message, not the one for an unreadable drawing`() {
+        canvasThatDoesNotFit()
+        stroke(y = 20f)
+        val events = eventsSoFar()
+        assertTrue("$events", SessionEvent.CanvasDoesNotFit in events)
+        assertFalse("clearing is no way out of this, so it must not be suggested: $events", SessionEvent.CelNotLoaded in events)
+        assertFalse("work being safe does not say why drawing is refused: $events", SessionEvent.LowMemory in events)
+    }
+
+    @Test
+    fun `clearing a canvas too large for memory still says what is wrong`() {
+        canvasThatDoesNotFit()
+        eventsSoFar()
+        session.clearActiveCel()
+        await()
+        stroke(y = 20f)
+        val events = eventsSoFar()
+        assertTrue("$events", events.isNotEmpty() && events.all { it == SessionEvent.CanvasDoesNotFit })
+        assertTrue(state.project.cels.isEmpty())
+    }
+
+    @Test
+    fun `undoing a resize that did not fit brings the canvas and the drawing back`() {
+        canvasThatDoesNotFit()
+        session.undo()
+        await()
+        assertEquals(200, state.project.width)
+        assertTrue(isInked(50, 50))
+        stroke(y = 20f)
+        assertTrue(isInked(50, 20))
+    }
+
+    @Test
+    fun `choosing a smaller size after one that did not fit works`() {
+        canvasThatDoesNotFit()
+        session.resizeCanvas(200, 100)
+        await()
+        assertEquals(200, state.project.width)
+        assertTrue(isInked(50, 50))
+        stroke(y = 20f)
+        assertTrue(isInked(50, 20))
+    }
+
+    @Test
+    fun `falling back to no margin still warns, because memory did run out`() {
+        var allocationsAllowed = true
+        marginlessSession { !allocationsAllowed }
+        allocationsAllowed = false
+        session.resizeCanvas(150, 100) // Fits without a margin, but not with one.
+        await()
+        assertEquals(listOf<SessionEvent>(SessionEvent.LowMemory), eventsSoFar())
+        stroke(fromX = 20f, toX = 60f, y = 25f)
+        assertTrue(isInked(40, 25))
     }
 
     // ----- Not enough memory to open at all -----

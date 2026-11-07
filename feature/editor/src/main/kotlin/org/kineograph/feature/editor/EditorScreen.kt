@@ -346,4 +346,6 @@ private fun EditorMessage.textRes(): Int =
         EditorMessage.DRAWING_NOT_LOADED -> R.string.message_drawing_not_loaded
         EditorMessage.UNDO_STEPS_LOST -> R.string.message_undo_steps_lost
         EditorMessage.SETTING_NOT_SAVED -> R.string.message_setting_not_saved
+        EditorMessage.LAYER_NOT_SHOWN -> R.string.message_layer_not_shown
+        EditorMessage.CANVAS_DOES_NOT_FIT -> R.string.message_canvas_does_not_fit
     }

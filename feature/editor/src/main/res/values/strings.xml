@@ -29,6 +29,8 @@
     <string name="message_drawing_not_loaded">This drawing could not be loaded, so it can\'t be edited for now. Close other apps and tap its frame again, or clear it to start afresh.</string>
     <string name="message_undo_steps_lost">The system removed some older undo steps to free up storage, so you can\'t go back any further. Your drawing is unchanged.</string>
     <string name="message_setting_not_saved">Could not save this setting. Your storage may be full.</string>
+    <string name="message_layer_not_shown">A layer on this frame could not be loaded, so it is hidden for now, but it has not been changed. Close other apps and tap the frame again.</string>
+    <string name="message_canvas_does_not_fit">There isn\'t enough memory for a canvas this size, so you can\'t draw on it for now. Your drawings are safe. Undo the resize, or choose a smaller size in Project settings.</string>
     <string name="message_recovered">The last save was damaged, so the previous version was restored.</string>
     <string name="message_missing_drawings">Some drawings could not be found and were left out.</string>
     <string name="tool_brush">Brush</string>

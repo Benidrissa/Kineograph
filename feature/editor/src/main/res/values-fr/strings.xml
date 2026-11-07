@@ -29,6 +29,8 @@
     <string name="message_drawing_not_loaded">Ce dessin n’a pas pu être chargé et ne peut donc pas être modifié pour l’instant. Fermez d’autres applications et touchez de nouveau son image, ou effacez-le pour repartir de zéro.</string>
     <string name="message_undo_steps_lost">Le système a supprimé d’anciennes étapes d’annulation pour libérer du stockage : vous ne pouvez pas revenir plus loin. Votre dessin n’a pas changé.</string>
     <string name="message_setting_not_saved">Impossible d’enregistrer ce réglage. Votre stockage est peut-être plein.</string>
+    <string name="message_layer_not_shown">Un calque de cette image n’a pas pu être chargé et reste masqué pour l’instant, mais il n’a pas été modifié. Fermez d’autres applications et touchez de nouveau l’image.</string>
+    <string name="message_canvas_does_not_fit">Pas assez de mémoire pour un canevas de cette taille : vous ne pouvez pas y dessiner pour l’instant. Vos dessins sont en sécurité. Annulez le redimensionnement ou choisissez une taille plus petite dans les paramètres du projet.</string>
     <string name="message_recovered">La dernière sauvegarde était endommagée, la version précédente a donc été restaurée.</string>
     <string name="message_missing_drawings">Certains dessins sont introuvables et ont été ignorés.</string>
     <string name="tool_brush">Pinceau</string>

@@ -88,6 +88,9 @@ import kotlin.math.roundToInt
 
 internal fun CanvasTool.hasOptions(): Boolean = this != CanvasTool.LASSO
 
+/** Above the 1.15 that Android offers just past normal, and below its next step of 1.3. */
+private const val LARGE_FONT_SCALE = 1.2f
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun EditorTopBar(
@@ -101,32 +104,39 @@ internal fun EditorTopBar(
     saveFailed: Boolean = false,
 ) {
     val onion = state.project.settings.onionSkin
-    Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        KgIconButton(KgIcons.Back, stringResource(R.string.action_back), onBack)
-        Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
-            Text(
-                state.project.name,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            // A snackbar goes away, but this stays true for as long as the failure lasts, however many saves fail.
-            if (saveFailed) {
+    // At large font sizes the space between the buttons is narrower than a single long word, so the warning gets its own line.
+    val warningHasOwnLine = LocalDensity.current.fontScale > LARGE_FONT_SCALE
+    Column(Modifier.fillMaxWidth()) {
+        // Only a minimum height, because large fonts need more, and the canvas can spare it.
+        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            KgIconButton(KgIcons.Back, stringResource(R.string.action_back), onBack)
+            Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
                 Text(
-                    stringResource(R.string.editor_not_saved),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
+                    state.project.name,
+                    style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.testTag("not_saved"),
                 )
+                if (saveFailed && !warningHasOwnLine) NotSavedWarning()
             }
+            OnionButton(onion.enabled, onToggleOnion, onOnionSettings)
+            KgIconButton(KgIcons.Grid, stringResource(R.string.editor_grid), onToggleGrid, selected = state.project.settings.grid.enabled)
+            KgIconButton(KgIcons.Settings, stringResource(R.string.editor_project_settings), onProjectSettings)
+            KgIconButton(KgIcons.Export, stringResource(R.string.editor_export), onExport, modifier = Modifier.testTag("export_button"))
         }
-        OnionButton(onion.enabled, onToggleOnion, onOnionSettings)
-        KgIconButton(KgIcons.Grid, stringResource(R.string.editor_grid), onToggleGrid, selected = state.project.settings.grid.enabled)
-        KgIconButton(KgIcons.Settings, stringResource(R.string.editor_project_settings), onProjectSettings)
-        KgIconButton(KgIcons.Export, stringResource(R.string.editor_export), onExport, modifier = Modifier.testTag("export_button"))
+        if (saveFailed && warningHasOwnLine) NotSavedWarning(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
     }
+}
+
+/** A snackbar goes away, but this stays true for as long as the failure lasts, however many saves fail. */
+@Composable
+private fun NotSavedWarning(modifier: Modifier = Modifier) {
+    Text(
+        stringResource(R.string.editor_not_saved),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.error,
+        modifier = modifier.testTag("not_saved"),
+    )
 }
 
 /** Tap toggles the onion skin and a long press opens its settings. TalkBack gets the second one as a named action. */

@@ -27,8 +27,15 @@ The bouncing ball works from start to finish.
 - Running out of memory no longer crashes the app or loses strokes, and a drawing that cannot be loaded is no longer
   overwritten by the next stroke
 - A canvas too large for memory now offers to try again or use a smaller size, instead of showing a dead canvas
+- Resizing the canvas beyond what memory can hold now says to undo the resize or choose a smaller size, instead of suggesting
+  you clear your drawing
+- A layer that cannot be loaded now says so instead of quietly vanishing, and tapping the frame brings it back
 - Moving a layer's opacity slider no longer risks losing the stroke you just drew
-- Editing a drawing after shrinking the canvas no longer crops what lies past the edge
+- Editing a drawing after shrinking the canvas no longer crops what lies past the edge, even if the old drawing could not be
+  read at that moment
+- Discard changes now really discards, even if saving would have worked by then
+- "Not saved" stays readable at large font sizes
+- Tapping Play while drawing with another finger no longer leaves the editor ignoring frame and layer changes
 - An interrupted Duplicate can no longer overwrite the original project
 - An interrupted first launch no longer loses the sample project
 - Clear now respects hidden and locked layers, and layers of different visibility can no longer be merged

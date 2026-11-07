@@ -99,6 +99,12 @@ public sealed interface SessionEvent {
 
     /** A step saved to the cache directory has gone, so undo or redo cannot go back any further. */
     public data object UndoStepsLost : SessionEvent
+
+    /** A layer other than the active one could not be read, so it is missing from the view. Its drawing has not changed. */
+    public data object LayerNotShown : SessionEvent
+
+    /** The canvas is too large for memory at its new size, so nothing can be drawn until it is made to fit. */
+    public data object CanvasDoesNotFit : SessionEvent
 }
 
 /**
@@ -195,6 +201,9 @@ public class DrawingSession(
     private var loadedKey: CelKey? = null
     private var loadedFile: String? = null
     private var activeDirty = false
+
+    /** A visible layer on this frame could not be read when the view was last built, so going to the frame again tries again. */
+    private var layerLeftOut = false
 
     /** Everything inked on the surface is inside this rectangle, in surface coordinates. It may be loose. */
     private var contentBounds = IntRect.EMPTY
@@ -730,11 +739,11 @@ public class DrawingSession(
 
     // ----- Position -----
 
-    /** Goes to a frame. Tapping the current frame again retries if its drawing could not be loaded. Ignored during a stroke. */
+    /** Goes to a frame. Tapping the current frame again retries if any of its drawings could not be loaded. Ignored during a stroke. */
     public fun selectFrame(id: String) {
         post {
             if (stroke != null || project.frameIndex(id) < 0) return@post
-            if (id == frameId && isSurfaceLoaded()) return@post
+            if (id == frameId && isFullyLoaded()) return@post
             commitFloatingInternal()
             moveCursor(id, layerId)
             publishScene()
@@ -746,7 +755,7 @@ public class DrawingSession(
     public fun selectLayer(id: String) {
         post {
             if (stroke != null || project.layer(id) == null) return@post
-            if (id == layerId && isSurfaceLoaded()) return@post
+            if (id == layerId && isFullyLoaded()) return@post
             commitFloatingInternal()
             moveCursor(frameId, id)
             publishScene()
@@ -755,7 +764,7 @@ public class DrawingSession(
     }
 
     private fun moveCursor(newFrameId: String, newLayerId: String) {
-        if (newFrameId == frameId && newLayerId == layerId && isSurfaceLoaded()) return
+        if (newFrameId == frameId && newLayerId == layerId && isFullyLoaded()) return
         flushActive()
         frameId = newFrameId
         layerId = newLayerId
@@ -765,6 +774,8 @@ public class DrawingSession(
     }
 
     private fun isSurfaceLoaded(): Boolean = surface != null && loadedKey == CelKey(layerId, frameId)
+
+    private fun isFullyLoaded(): Boolean = isSurfaceLoaded() && !layerLeftOut
 
     /**
      * Every edit of the surface asks this first. If an earlier load failed it tries again. If it returns false, the edit
@@ -1046,7 +1057,7 @@ public class DrawingSession(
         val file = cel?.file ?: return
         val bounds = cel.bounds ?: return
         // A merged cel replaces this one, so carrying on without it would throw the drawing away.
-        val image = store.read(file) ?: throw UnreadableCel()
+        val image = readCel(file) ?: throw UnreadableCel()
         val paint = Paint().apply { alpha = (opacity.coerceIn(0f, 1f) * 255f + 0.5f).toInt() }
         canvas.drawBitmap(image, bounds.left.toFloat(), bounds.top.toFloat(), paint)
     }
@@ -1094,7 +1105,7 @@ public class DrawingSession(
      * Reallocates the surfaces after the canvas changes size. Returns whether it tried. The check uses the margin the
      * surface really has, which is smaller than the budget's after a low-memory open. Callers have already saved the
      * surface's pixels. If memory is short, the old surface stays but counts as holding nothing, so edits are refused
-     * until an allocation succeeds.
+     * until an allocation succeeds. Every caller goes on to [loadSurface], which tells the user.
      */
     private fun matchSurfacesToCanvas(): Boolean {
         if (surface == null || surfaceFitsCanvas()) return false
@@ -1106,9 +1117,7 @@ public class DrawingSession(
         revealGeneration = -1
         loadedKey = null
         loadedFile = null
-        if (!allocateSurfaces(project.width, project.height)) {
-            _events.trySend(SessionEvent.LowMemory)
-        }
+        allocateSurfaces(project.width, project.height)
         return true
     }
 
@@ -1181,8 +1190,8 @@ public class DrawingSession(
      * Writes pending pixels to the store and returns the project as it now stands. While the lasso holds
      * lifted pixels the surface is incomplete, so they stay unsaved unless [commitSelection] is set.
      *
-     * Throws an [IOException] when memory runs out, with the pixels still marked as unsaved, so callers treat it like
-     * any other failed save and the next attempt starts over.
+     * Throws an [IOException] when memory runs out or an earlier drawing the save has to keep cannot be read, with the
+     * pixels still marked as unsaved, so callers treat it like any other failed save and the next attempt starts over.
      */
     @Throws(IOException::class)
     public suspend fun snapshot(commitSelection: Boolean = false): Project =
@@ -1197,7 +1206,11 @@ public class DrawingSession(
                 project
             } catch (e: OutOfMemoryError) {
                 trimAfterOutOfMemory()
+                publishAfterFailure()
                 throw IOException("Ran out of memory while saving", e)
+            } catch (e: UnreadableCel) {
+                publishAfterFailure()
+                throw IOException("An earlier drawing could not be read while saving", e)
             }
         }
 
@@ -1283,22 +1296,36 @@ public class DrawingSession(
 
     private fun readBackgroundImage(): Bitmap? = (project.background as? Background.Image)?.let { readCel(it.file) }
 
-    /** Decodes a cel, freeing memory and trying once more if it does not fit. Returns null if it cannot be read. */
-    private fun readCel(file: String): Bitmap? =
-        try {
-            store.read(file)
-        } catch (_: OutOfMemoryError) {
-            trimAfterOutOfMemory()
+    /**
+     * Decodes a cel, freeing memory and trying once more if it does not fit. Returns null if it cannot be read. Running out
+     * of memory may not throw at all, because a decode that cannot get native memory can simply return null. So a file
+     * that is still there but gives nothing back is treated the same way: nothing else can tell the two apart, and on the
+     * phones this app is for, memory is the likeliest reason.
+     */
+    private fun readCel(file: String): Bitmap? {
+        val image =
             try {
                 store.read(file)
             } catch (_: OutOfMemoryError) {
                 null
             }
+        if (image != null || store.isGone(file)) return image
+        trimAfterOutOfMemory()
+        return try {
+            store.read(file)
+        } catch (_: OutOfMemoryError) {
+            null
         }
+    }
 
-    /** Allocates the surface and stroke buffer. Falls back to no margin if the full size does not fit. */
+    /**
+     * Allocates the surface and stroke buffer. Falls back to no margin if the full size does not fit. A complete failure
+     * is left for the caller to explain, because a general warning that the user's work is safe would not tell them why
+     * they cannot draw.
+     */
     private fun allocateSurfaces(width: Int, height: Int): Boolean {
         val attempts = intArrayOf(budget.overscanFor(width, height), 0)
+        var ranOut = false
         for (margin in attempts) {
             try {
                 val fullWidth = width + margin * 2
@@ -1317,9 +1344,11 @@ public class DrawingSession(
                 surfaceCanvas = Canvas(newSurface)
                 strokeBuffer = newBuffer
                 strokeCanvas = Canvas(newBuffer)
+                if (ranOut) warnLowMemory()
                 return true
             } catch (_: OutOfMemoryError) {
-                trimAfterOutOfMemory()
+                ranOut = true
+                freeMemory()
             } catch (_: IllegalArgumentException) {
                 // Too large for a bitmap at all, though perhaps not without the margin.
             }
@@ -1335,6 +1364,7 @@ public class DrawingSession(
             loadSurface(key, activeCel)
         }
         val wanted = HashSet<String>()
+        var leftOut = false
         for (layer in project.layers) {
             if (layer.id == layerId || !layer.visible) continue
             val cel = project.cels[CelKey(layer.id, frameId)] ?: continue
@@ -1349,10 +1379,14 @@ public class DrawingSession(
                     liveCels[layer.id] = LiveCel(image, bounds.left, bounds.top, file)
                 } else {
                     liveCels.remove(layer.id)
+                    leftOut = true
                 }
             }
         }
         liveCels.keys.retainAll(wanted)
+        layerLeftOut = leftOut
+        // Otherwise a visible layer would just vanish from the canvas, with nothing to say why or what to do about it.
+        if (leftOut) _events.trySend(SessionEvent.LayerNotShown)
     }
 
     /**
@@ -1360,14 +1394,23 @@ public class DrawingSession(
      * an empty cel: the surface then counts as holding nothing, so a later stroke cannot replace a drawing that was
      * only temporarily out of reach. Clearing the cel, or a load that works later, ends that state. The user is told at
      * once, because all they would otherwise see is an empty frame.
+     *
+     * A surface of the wrong size is a different problem with a different way out: clearing the cel cannot help, but
+     * undoing the resize or choosing a smaller size can. So it is checked first, and has its own message.
      */
     private fun loadSurface(key: CelKey, cel: Cel?) {
         val target = surface ?: return
         val canvas = surfaceCanvas ?: return
+        if (!surfaceFitsCanvas()) {
+            loadedKey = null
+            loadedFile = null
+            _events.trySend(SessionEvent.CanvasDoesNotFit)
+            return
+        }
         val file = cel?.file
         val celBounds = cel?.bounds
         val image = if (file != null && celBounds != null) readCel(file) else null
-        if (!surfaceFitsCanvas() || (file != null && celBounds != null && image == null)) {
+        if (file != null && celBounds != null && image == null) {
             loadedKey = null
             loadedFile = null
             _events.trySend(SessionEvent.CelNotLoaded)
@@ -1387,8 +1430,8 @@ public class DrawingSession(
 
     /**
      * Saves the surface's pixels if they changed. An empty result removes the cel, so empty cels are never stored. The
-     * pixels stay marked as unsaved until the project has taken the new cel, so running out of memory on the way
-     * loses nothing: the next attempt simply starts over.
+     * pixels stay marked as unsaved until the project has taken the new cel, so running out of memory or failing to read
+     * the old cel on the way loses nothing: the next attempt simply starts over.
      */
     private fun flushActive() {
         if (!activeDirty) return
@@ -1432,12 +1475,18 @@ public class DrawingSession(
     /**
      * Keeps what a cel holds beyond the surface when saving an edit, because shrinking a canvas promises nothing is
      * deleted. The surface is the truth inside its own area, so that is cleared first and erased pixels stay erased.
-     * Returns null if nothing is left at all. A cel file that has really gone has nothing to keep, so the surface alone is saved.
+     * Returns null if nothing is left at all. A cel file that has really gone has nothing to keep, so the surface alone is
+     * saved. One that only failed to read still holds the art past the edge, so saving a crop would delete it for good.
+     * Throwing stops the save instead, leaving the old cel in place and the pixels marked as unsaved.
      */
     private fun composeWithOverhang(previous: Cel, tight: IntRect, target: Bitmap): CelPixels? {
         val file = previous.file ?: return cropOf(target, tight)
         val old = previous.bounds ?: return cropOf(target, tight)
-        val image = store.read(file) ?: return cropOf(target, tight)
+        val image = readCel(file)
+        if (image == null) {
+            if (store.isGone(file)) return cropOf(target, tight)
+            throw UnreadableCel()
+        }
         val window = surfaceRect().translated(-overscan, -overscan)
         val area = old.union(tight.translated(-overscan, -overscan))
         val merged = Bitmap.createBitmap(area.width, area.height, Bitmap.Config.ARGB_8888)
@@ -1656,16 +1705,24 @@ public class DrawingSession(
         revealImage = image
     }
 
-    /** Gives back what it can. This runs because memory has already run out, so it must not fail itself. */
     private fun trimAfterOutOfMemory() {
+        freeMemory()
+        warnLowMemory()
+    }
+
+    /** Gives back what it can. This runs because memory has already run out, so it must not fail itself. */
+    private fun freeMemory() {
         try {
             ghostCache.clear()
             tips.clear()
             store.trimMemory()
             history.spillAll()
         } catch (_: OutOfMemoryError) {
-            // Spilling allocates too. Whatever it managed to free stands, and the user still hears about it below.
+            // Spilling allocates too. Whatever it managed to free stands, and the user still hears about it.
         }
+    }
+
+    private fun warnLowMemory() {
         // A canvas that does not fit while opening has its own screen, so this would only be old news once that is over.
         try {
             if (ready) _events.trySend(SessionEvent.LowMemory)
@@ -1674,10 +1731,17 @@ public class DrawingSession(
         }
     }
 
-    /**
-     * Queues work on the engine thread. Running out of memory shrinks the caches rather than crashing the app. The
-     * interrupted command may have got part of the way, so the screen is brought up to date with where things stand.
-     */
+    /** A command that stopped early may have got part of the way, so the screen is brought up to date with where things stand. */
+    private fun publishAfterFailure() {
+        try {
+            publishScene()
+            publishState()
+        } catch (_: OutOfMemoryError) {
+            // The next successful command publishes everything anyway.
+        }
+    }
+
+    /** Queues work on the engine thread. Running out of memory shrinks the caches rather than crashing the app. */
     private fun post(block: () -> Unit) {
         if (executor.isShutdown) return
         try {
@@ -1687,12 +1751,11 @@ public class DrawingSession(
                     block()
                 } catch (_: OutOfMemoryError) {
                     trimAfterOutOfMemory()
-                    try {
-                        publishScene()
-                        publishState()
-                    } catch (_: OutOfMemoryError) {
-                        // The next successful command publishes everything anyway.
-                    }
+                    publishAfterFailure()
+                } catch (_: UnreadableCel) {
+                    // A save this command needed could not finish, and readCel has already warned. As with running out
+                    // of memory, the command stops and the pixels stay unsaved for the next attempt.
+                    publishAfterFailure()
                 }
             }
         } catch (_: RejectedExecutionException) {

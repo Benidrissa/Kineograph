@@ -108,8 +108,21 @@ internal class KineographCanvasView(
     private var gestureStartCentroidY = 0f
     private var gestureStartSpan = 0f
 
-    /** True while playback is running, when touches only serve to stop it. */
+    /**
+     * True while playback is running, when touches only serve to stop it. From then on a touch under way would never get
+     * its ending, and a stroke that never ends leaves the session ignoring everything else, so it is called off here.
+     */
     internal var isPlaying: Boolean = false
+        set(value) {
+            field = value
+            if (value) {
+                onCancel()
+                tappingPlayback = false
+            }
+        }
+
+    /** Only a touch that began during playback is a tap on it. A finger that was already drawing is just lifting. */
+    private var tappingPlayback = false
 
     init {
         addView(surfaceView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -199,7 +212,10 @@ internal class KineographCanvasView(
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (isPlaying) {
-            if (event.actionMasked == MotionEvent.ACTION_UP) listener.onPlaybackTapped()
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> tappingPlayback = true
+                MotionEvent.ACTION_UP -> if (tappingPlayback) listener.onPlaybackTapped()
+            }
             return true
         }
         predictor?.record(event)
