@@ -1,6 +1,7 @@
 package org.kineograph.feature.editor
 
 import android.graphics.Bitmap
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -33,6 +34,8 @@ import org.robolectric.annotation.GraphicsMode
 import java.io.ByteArrayInputStream
 import java.io.FileNotFoundException
 import java.io.InputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 private const val ANIMATED =
     """<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="20" height="20" fill="red">
@@ -57,6 +60,10 @@ class SvgImportControllerTest {
     private var holds = 0
     private var releases = 0
 
+    @Volatile
+    private var roomMadeBeforeHold: Boolean? = null
+    private var roomMade = CompletableDeferred(Unit)
+
     @Before
     fun setUp() {
         val project = newProject("Test", 200, 100, 12, Background.Transparent, "Layer 1", now = 0)
@@ -66,6 +73,10 @@ class SvgImportControllerTest {
             SvgImportController(
                 scope = scope,
                 importer = importer,
+                makeRoom = {
+                    roomMadeBeforeHold = holds == 0
+                    roomMade.await()
+                },
                 holdFiles = { holds++ },
                 releaseFiles = { releases++ },
                 onMessage = { synchronized(messages) { messages += it } },
@@ -172,6 +183,53 @@ class SvgImportControllerTest {
         assertEquals(24, project.frames.size)
         waitForReleases(1)
         assertEquals(1, holds)
+    }
+
+    @Test
+    fun `room is made first, while nothing holds it back from what a killed import left`() {
+        read(STATIC)
+        controller.start()
+        waitFor { it == SvgImportState.Idle }
+        assertEquals(true, roomMadeBeforeHold)
+        assertEquals(1, holds)
+    }
+
+    @Test
+    fun `a Cancel while room is being made goes back to the sheet with nothing held`() {
+        val ready = read(STATIC)
+        roomMade = CompletableDeferred()
+        controller.start()
+        waitFor { it is SvgImportState.Running }
+        val deadline = System.currentTimeMillis() + TIMEOUT_MILLIS
+        while (roomMadeBeforeHold == null && System.currentTimeMillis() < deadline) Thread.sleep(5)
+        controller.cancel()
+        assertEquals(ready.copy(problem = null), waitFor { it is SvgImportState.Ready })
+        assertEquals(0, holds)
+        assertEquals(0, releases)
+    }
+
+    @Test
+    fun `reading stops when it is cancelled, instead of carrying on with nobody waiting`() {
+        val values = List(100_000) { "1" }.joinToString(",")
+        val rects = "<rect/>".repeat(20_000)
+        // Many seconds of work, once it gets going.
+        val long = """<svg xmlns="http://www.w3.org/2000/svg"><style>svg{--w:1}rect{width:min(var(--w),$values)}</style>$rects</svg>"""
+        val opened = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        controller.read({ "long.svg" }, {
+            opened.countDown()
+            object : ByteArrayInputStream(long.toByteArray()) {
+                override fun close() {
+                    super.close()
+                    finished.countDown()
+                }
+            }
+        })
+        assertTrue(opened.await(TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        Thread.sleep(100)
+        controller.cancel()
+        assertEquals(SvgImportState.Idle, controller.state.value)
+        assertTrue("it is still reading", finished.await(5, TimeUnit.SECONDS))
     }
 
     @Test

@@ -67,6 +67,13 @@ class ColorSheetTest {
     private fun swatch(argb: Int) = compose.onNodeWithContentDescription("#%06X".format(argb and 0xFFFFFF))
 
     @Test
+    fun `the opacity slider can be touched over 48 dp`() {
+        show()
+        val size = compose.onNode(hasContentDescription("Opacity")).fetchSemanticsNode().size
+        assertTrue("$size", size.height >= with(compose.density) { 48.dp.roundToPx() })
+    }
+
+    @Test
     fun `a swatch changes the colour and leaves the opacity alone`() {
         tools = ToolState(brushId = BrushPresets.MARKER.id)
         val before = tools.activeOpacity

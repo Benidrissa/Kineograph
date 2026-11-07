@@ -336,6 +336,7 @@ internal class SvgRenderer(
             is DashValue -> value.items.size
             is PathValue -> value.data.args.size
             is TransformValue -> value.ops.sumOf { if (it is TransformOp.Blend) it.from.size + it.to.size else 1 }
+            is ClipShapeValue -> value.shape.segments
             else -> 0
         }
 
@@ -605,7 +606,8 @@ internal class SvgRenderer(
         val clipText = view.keyword("clip-path")
         val clipId = clipText?.let(::urlReference)
         val shape =
-            (view["clip-path"] as? ClipShapeValue)?.shape ?: if (clipText != null && clipId == null) model.basicShape(clipText) else null
+            (view["clip-path"] as? ClipShapeValue)?.shape
+                ?: if (clipText != null && clipId == null) model.resources.basicShapes.read(clipText, frame) else null
         val maskElement = view
             .keyword("mask")
             ?.let(::urlReference)

@@ -24,8 +24,8 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Saves an open project about a second after the last change, and whenever [saveNow] is called, such as when
- * the app goes to the background. Images that a full disk will not take first clear out files that nothing refers to and
- * try again. A save that still fails keeps everything in memory, reports it through [saveFailed], and is tried again after
+ * the app goes to the background. A save that a full disk will not take first clears out files that nothing refers to and
+ * tries again. A save that still fails keeps everything in memory, reports it through [saveFailed], and is tried again after
  * the next change. What is only in memory cannot outlive the process, so the editor has to tell the user while that is so.
  *
  * @param listCelFiles what a sweep looks through. Only a test has any reason to change this.
@@ -75,14 +75,12 @@ public class Autosaver(
      * background dispatcher: the lock's holder must never need the main thread to make progress, or a caller waiting on
      * that thread could deadlock. After [abandon] this saves nothing and returns false.
      */
-    public suspend fun saveNow(commitSelection: Boolean = false): Boolean = save(commitSelection, leaving = false)
-
-    private suspend fun save(commitSelection: Boolean, leaving: Boolean): Boolean =
+    public suspend fun saveNow(commitSelection: Boolean = false): Boolean =
         withContext(Dispatchers.Default + NonCancellable) {
-            mutex.withLock { if (abandoned) false else saveIfChanged(commitSelection, leaving) }
+            mutex.withLock { if (abandoned) false else saveIfChanged(commitSelection) }
         }
 
-    private suspend fun saveIfChanged(commitSelection: Boolean, leaving: Boolean): Boolean {
+    private suspend fun saveIfChanged(commitSelection: Boolean): Boolean {
         // A stroke that has only just ended may still be in the session's queue, and must count as a change.
         session.awaitIdle()
         val state = session.state.value
@@ -91,8 +89,7 @@ public class Autosaver(
         val project =
             try {
                 val snapshot = session.snapshot(commitSelection)
-                awaitImagesMakingRoom(leaving)
-                repository.save(snapshot, store)
+                saveMakingRoom(snapshot)
                 snapshot
             } catch (_: IOException) {
                 _saveFailed.value = true
@@ -109,20 +106,18 @@ public class Autosaver(
     }
 
     /**
-     * Gets the images onto the disk, clearing out what nothing refers to if they will not fit. Files like that may be what filled the disk, and a
-     * save is what normally leads to them being swept. This is the only failure that sweeps. Images are where the space goes, so a sweep is likely to
-     * help them, whereas a manifest or an index that cannot be written once its images fitted points to something else being wrong, and then the
-     * files stay exactly as they are. What any manifest refers to is safe either way, as [ProjectRepository.sweep] sees to that. Only when leaving can
-     * replaced backgrounds go too: until then one may still be on its way into the session.
+     * Gets the images and then the manifest onto the disk, clearing out what nothing refers to if they will not fit. Files like that may be what
+     * filled the disk, and a save is what normally leads to them being swept. The manifest of a long project can be far larger than a small
+     * drawing, so it can be the one that does not fit. Whatever else made the save fail, a sweep cannot make it worse: what any manifest refers to
+     * is safe, as [ProjectRepository.sweep] sees to that, and so is what is about to be written.
      */
     @Throws(IOException::class)
-    private suspend fun awaitImagesMakingRoom(leaving: Boolean) {
+    private suspend fun saveMakingRoom(snapshot: Project) {
         try {
-            store.awaitWrites()
+            repository.save(snapshot, store)
         } catch (e: IOException) {
-            if (!sweep()) throw e
-            if (leaving) repository.sweepBackgrounds(projectId, session.referencedFiles())
-            store.awaitWrites()
+            if (!sweep(snapshot, backgrounds = true)) throw e
+            repository.save(snapshot, store)
         }
     }
 
@@ -147,9 +142,9 @@ public class Autosaver(
     }
 
     /**
-     * Stops image files from being swept until [releaseSweeps]. An import writes many files that nothing refers to until its very end, and a
-     * sweep in the meantime would take them for garbage. A sweep already under way looks again once it has listed its files, so whatever it
-     * could have found of these, it leaves alone.
+     * Stops image files and background pictures from being swept until [releaseSweeps]. Something on its way into the project, such as an import,
+     * writes files that nothing refers to until its very end, and a sweep in the meantime would take them for garbage. A sweep already under way
+     * looks again once it has listed its files, so whatever it could have found of these, it leaves alone.
      */
     public fun holdSweeps() {
         sweepHolds.incrementAndGet()
@@ -160,36 +155,53 @@ public class Autosaver(
         sweepHolds.decrementAndGet()
     }
 
-    /** Deletes image files that nothing refers to any more. False if a hold stopped it, which leaves everything where it was. */
-    private suspend fun sweep(): Boolean {
-        if (sweepHolds.get() > 0) return false
-        val candidates = listCelFiles()
-        // A hold that began during the listing may have a file in it already. One that begins after this cannot.
-        if (sweepHolds.get() > 0) return false
-        val keep = session.referencedFiles()
-        repository.sweep(projectId, store, candidates, keep)
-        return true
+    /**
+     * Clears out what nothing refers to, for when something is about to need the room while it holds sweeps off. A process that died in the middle of something
+     * leaves files behind, and nothing else sweeps until the next save does. Not managing to only means there is no more room than before.
+     */
+    public suspend fun makeRoom() {
+        withContext(Dispatchers.Default + NonCancellable) {
+            mutex.withLock {
+                if (!abandoned) sweepIfPossible()
+            }
+        }
     }
 
     /**
-     * Saves one last time and stops watching. Call before closing the session. Files are only tidied up when that save
-     * worked: after a failure the session no longer refers to the last good state, and nothing is worth risking it. A save
-     * already under way finishes first, so it cannot reach a closed session, even after [abandon].
+     * Deletes files that nothing refers to any more, keeping as well what [saving] is about to tell the disk it needs. The session may have moved on from that by now. False if a
+     * hold stopped it, which leaves everything where it was. A background picture only goes when asked, as finding them takes a look through another directory.
+     */
+    private suspend fun sweep(saving: Project? = null, backgrounds: Boolean = false): Boolean {
+        if (sweepHolds.get() > 0) return false
+        val cels = listCelFiles()
+        val pictures = if (backgrounds) repository.backgroundFiles(projectId) else emptySet()
+        // A hold that began during the listing may have a file in it already. One that begins after this cannot.
+        if (sweepHolds.get() > 0) return false
+        val keep =
+            session.referencedFiles() + saving?.referencedFiles().orEmpty() + setOfNotNull((saving?.background as? Background.Image)?.file)
+        repository.sweep(projectId, store, cels, keep)
+        if (backgrounds) repository.sweepBackgrounds(projectId, pictures, keep)
+        return true
+    }
+
+    private suspend fun sweepIfPossible() {
+        try {
+            sweep(backgrounds = true)
+        } catch (_: IOException) {
+            // Leftover files cost a little space and are swept next time.
+        } catch (_: OutOfMemoryError) {
+            session.trimMemory()
+        }
+    }
+
+    /**
+     * Saves one last time and stops watching. Call before closing the session. Files are tidied up when that save worked, and one that failed
+     * has only just tried. A save already under way finishes first, so it cannot reach a closed session, even after [abandon].
      */
     public suspend fun finish() {
         watcher?.cancel()
-        if (!save(commitSelection = true, leaving = true)) return
-        withContext(Dispatchers.Default + NonCancellable) {
-            mutex.withLock {
-                try {
-                    if (sweep()) repository.sweepBackgrounds(projectId, session.referencedFiles())
-                } catch (_: IOException) {
-                    // Leftover files cost a little space and are swept next time.
-                } catch (_: OutOfMemoryError) {
-                    session.trimMemory()
-                }
-            }
-        }
+        if (!saveNow(commitSelection = true)) return
+        makeRoom()
     }
 
     /**

@@ -145,16 +145,17 @@ Room is only an index for fast gallery listing. The manifests are the truth, and
 the index from them.
 
 A sweep deletes cel files nothing needs any more. It keeps whatever the session, its undo history or any manifest on disk
-refers to, deletes nothing if a manifest cannot be read, and stays away altogether during `Autosaver.holdSweeps`, which is how
-an import keeps the files it has written but not yet added. It runs after a good save, and also when a save's images will not
-fit on the disk, since leftovers may be what is in the way. A manifest or index that cannot be written never sets one off:
-images are where the space goes, so that points to something else being wrong. Background pictures under `media/` follow the
-same rules through `ProjectRepository.sweepBackgrounds`, but only as a project closes, since one chosen in project settings
-may be on its way into the session until then.
+refers to, as well as what the save under way is about to name, deletes nothing if a manifest cannot be read, and stays away
+altogether during `Autosaver.holdSweeps`, which is how something on its way into the project keeps the files it has written but
+not yet added. It runs after a good save, and also when a save will not fit on the disk, whether its images or its manifest,
+since leftovers may be what is in the way. Then background pictures under `media/` go by the same rules, through
+`ProjectRepository.sweepBackgrounds`, and they go as a project closes. An import makes room the same way before it starts, as
+its hold would keep it from clearing out what a killed import left behind.
 
 A save that fails, usually on a full disk, leaves the last good revision on disk and the newer work in memory. Memory cannot
 outlive the process, so the editor shows "Not saved" for as long as that lasts. Back saves first and, if that fails, asks the
-user instead of leaving. Trying again happens after the next change and whenever the app returns to the foreground.
+user instead of leaving. Trying again happens after the next change, whenever the app returns to the foreground, and when an
+import has finished and given back whatever it held.
 
 A duplicate is put together in `projects-staging/` with a manifest of its own, and appears in `projects/` in one rename, so
 a process death can never leave something there that looks like a project or claims to be another one.
@@ -242,12 +243,15 @@ Bringing a file into a project has three parts, and each knows as little as it c
   the ticks already on the timeline. A slot held for several ticks can only show one drawing, so it gets the moment it starts at and the
   animation stays in time with the rest of the project. `ImportEdits.ticksToSample` says which ticks will be seen, so that no others are drawn.
 - **Bitmaps do not grow with the length of an animation.** Two canvas-sized bitmaps are reused for all of it, one to draw on and one to compare
-  with, using a native comparison, and the store's queue limits what waits to reach the disk. Every eighth stored picture also waits for the disk, which
-  is how a full disk ends the import early rather than leaving every picture queued in memory. The Java heap does grow, by a little for each frame, so `maxImportFrames` holds that to a
-  share of what the device has.
+  with, using a native comparison, and the store's queue limits what waits to reach the disk, by number and by how much memory they take. Every eighth stored picture also waits for the
+  disk, which is how a full disk ends the import early rather than leaving every picture queued in memory. The sheet warns beforehand if what is free would not cover all that. The Java heap
+  does grow, by a little for each frame, and it is an autosave's manifest that needs the most of it, so `roomForImportedFrames` holds a project to what can still be saved on this device.
 - **The sweep has to be kept off.** Files of an import under way are not in the project yet, so a sweep would delete them. `Autosaver.holdSweeps`
   stops sweeps until the import is settled. What an import wrote and did not use is given up at once with `CelStore.discard`, because that space may be needed now, and because a
-  write that keeps failing would make every later save fail as well.
+  write that keeps failing would make every later save fail as well. That takes a file operation for each frame, so it never runs on the caller's thread, and it holds even for a write
+  someone else is retrying at the time.
+- **A lifted selection stays lifted until the last step.** Putting one down is an edit of its own, which a failure cannot take back, so an import works out what it would come to on the
+  side with `DrawingSession.activeCelWithSelectionDown`, and `applyEdit` tries what could fail before it lets go.
 - **The preview cannot slow the sheet down.** It draws on a background thread into a few reused bitmaps, far smaller than the canvas where the canvas is
   large, and a change of choices abandons whatever was being drawn. It stops while the app is not on screen, and draws only into a bitmap that is not being shown. It plays exactly the
   moments that an import would sample, holding still where a held slot would.

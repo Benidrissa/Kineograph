@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -50,6 +51,7 @@ import org.kineograph.model.MAX_FPS
 import org.kineograph.model.MIN_FPS
 import org.kineograph.ui.rememberReduceMotion
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -171,7 +173,7 @@ internal fun ProjectPreview(
             val halfHeight = radius * pose[2]
             val bottom = floorY - pose[0] * travel
             drawOval(
-                BALL_COLOR,
+                ballColorOn(background),
                 Offset(topLeft.x + shape.width / 2f - halfWidth, bottom - halfHeight * 2f),
                 Size(
                     halfWidth * 2f,
@@ -181,6 +183,27 @@ internal fun ProjectPreview(
         }
         drawRect(outline, topLeft, shape, style = Stroke(1.dp.toPx()))
     }
+}
+
+/**
+ * The ball is what shows the frame rate, so it can never be left the same colour as what is behind it, which is any colour the user picks. It only has to stand out
+ * enough to be seen moving, so anything but a background close to its own colour leaves it alone. Against a picture there is no one colour to compare with.
+ */
+internal fun ballColorOn(background: BackgroundChoice): Color {
+    val behind = (background as? BackgroundChoice.SolidChoice)?.let { Color(it.argb) } ?: return BALL_COLOR
+    return if (contrast(BALL_COLOR, behind) >= BALL_MIN_CONTRAST) {
+        BALL_COLOR
+    } else if (contrast(Color.White, behind) >= contrast(Color.Black, behind)) {
+        Color.White
+    } else {
+        Color.Black
+    }
+}
+
+private fun contrast(a: Color, b: Color): Float {
+    val lighter = max(a.luminance(), b.luminance())
+    val darker = min(a.luminance(), b.luminance())
+    return (lighter + 0.05f) / (darker + 0.05f)
 }
 
 /** Twelve drawings of one bounce: height above the floor, horizontal stretch, vertical stretch. */
@@ -201,6 +224,7 @@ private val BOUNCE =
     )
 private const val IMPACT_STEP = 5
 private val BALL_COLOR = Color(0xFFE4572E)
+private const val BALL_MIN_CONTRAST = 1.5f
 private const val BALL_FRACTION = 0.1f
 private const val FLOOR_FRACTION = 0.92f
 private const val BALL_HEADROOM = 2.4f

@@ -27,7 +27,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RangeSlider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -65,7 +64,7 @@ import org.kineograph.model.MAX_FPS
 import org.kineograph.model.MIN_FPS
 import org.kineograph.model.Project
 import org.kineograph.ui.KgIcons
-import org.kineograph.ui.kgSliderColors
+import org.kineograph.ui.KgRangeSlider
 import java.io.File
 import kotlin.math.max
 import kotlin.math.min
@@ -327,11 +326,10 @@ internal fun ExportOptions(project: Project, onExport: (ExportConfig) -> Unit) {
             style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.testTag("export_range"),
         )
-        RangeSlider(
+        KgRangeSlider(
             value = range,
             onValueChange = { range = it },
             valueRange = 0f..lastFrame.toFloat(),
-            colors = kgSliderColors(),
             steps = rangeSliderSteps(lastFrame),
             modifier = Modifier.testTag("export_range_slider"),
         )

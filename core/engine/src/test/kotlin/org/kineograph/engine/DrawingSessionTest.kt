@@ -2288,30 +2288,25 @@ class DrawingSessionTest {
 
     @Test
     fun `a surface that cannot read what comes next loses nothing of what it had`() {
-        val first = state.frameId
-        session.addFrame()
-        await()
-        val second = state.project.frames
-            .last()
-            .id
-        session.selectFrame(second)
-        stroke(y = 20f)
-        await()
+        val (first, second) = flakySessionWithTwoFrames()
         val layer = state.layerId
-        store.failNextReadWithOutOfMemory = true
-        // Going back to a frame with a drawing, so that there is something to read. It fails, and the screen stays where it was.
+        session.selectFrame(second)
+        await()
+        val file = state.project.cel(layer, first)?.file ?: error("no drawing on the first frame")
+        flaky.filesOutOfMemory += file
+        // There is a drawing here, and it will not read, so the screen must not go on as though the frame were empty.
         session.selectFrame(first)
         await()
-        val readableFirst = runCatching { store.read("nothing") }
-        assertTrue(readableFirst.isSuccess || readableFirst.isFailure)
         stroke(y = 70f)
         await()
         val project = runBlocking { session.snapshot() }
-        val cel = project.cel(layer, second) ?: error("the drawing has gone")
-        val image = store.images[cel.file] ?: error("no image")
-        val bounds = cel.bounds ?: error("no bounds")
         // Erasing first would have saved the new stroke alone over the drawing.
-        assertEquals(black, image.getPixel(50 - bounds.left, 20 - bounds.top))
+        assertEquals(file, project.cel(layer, first)?.file)
+        flaky.filesOutOfMemory.clear()
+        session.selectFrame(first)
+        await()
+        assertTrue("the drawing is still there", isInked(50, 30))
+        assertFalse("the stroke that was refused is not", isInked(50, 70))
     }
 
     @Test
@@ -2361,6 +2356,106 @@ class DrawingSessionTest {
         assertTrue("got $outcome", outcome is OutOfMemoryError)
         assertEquals(first, state.project.background)
         assertNotNull(session.scene?.backgroundImage)
+    }
+
+    @Test
+    fun `undoing an imported background does not bring back the one a setting has replaced since`() {
+        val (imported, chosen) = twoPictures()
+        session.setBackground(Background.Color(Color.BLUE))
+        await()
+        runBlocking { session.applyBackground(imported) }
+        session.setBackground(chosen)
+        await()
+        session.undo()
+        await()
+        assertEquals("settings stay outside undo", chosen, state.project.background)
+        assertFalse(state.canUndo)
+        session.redo()
+        await()
+        assertEquals(chosen, state.project.background)
+        assertTrue("the picture in use is still something to keep", runBlocking { session.referencedFiles() }.contains(chosen.file))
+        assertFalse("and the one replaced is not", runBlocking { session.referencedFiles() }.contains(imported.file))
+    }
+
+    @Test
+    fun `a setting also ends a step that could have been redone`() {
+        val (imported, chosen) = twoPictures()
+        session.setBackground(Background.Color(Color.BLUE))
+        await()
+        runBlocking { session.applyBackground(imported) }
+        session.undo()
+        await()
+        assertTrue(state.canRedo)
+        session.setBackground(chosen)
+        await()
+        session.redo()
+        await()
+        assertEquals(chosen, state.project.background)
+    }
+
+    @Test
+    fun `undo steps of other kinds outlive a background setting`() {
+        stroke()
+        await()
+        session.addFrame()
+        await()
+        val withFrames = state.project.frames.size
+        session.setBackground(Background.Color(Color.GREEN))
+        await()
+        session.undo()
+        await()
+        assertEquals(withFrames - 1, state.project.frames.size)
+        assertEquals(Background.Color(Color.GREEN), state.project.background)
+    }
+
+    // ----- What a lifted selection would come to -----
+
+    @Test
+    fun `nothing lifted, nothing to say`() {
+        stroke()
+        await()
+        assertNull(runBlocking { session.activeCelWithSelectionDown() })
+    }
+
+    @Test
+    fun `a selection that was not moved comes to the layer as it was, and stays lifted`() {
+        stroke()
+        await()
+        val before = runBlocking { session.snapshot() }
+        session.liftSelection(floatArrayOf(10f, 30f, 60f, 30f, 60f, 70f, 10f, 70f))
+        await()
+        val lifted = state.selection
+        val picture = runBlocking { session.activeCelWithSelectionDown() } ?: error("something is lifted")
+        val bounds = picture.bounds ?: error("no bounds")
+        val image = picture.image ?: error("no image")
+        assertEquals(black, image.getPixel(30 - bounds.left, 50 - bounds.top))
+        assertEquals(black, image.getPixel(75 - bounds.left, 50 - bounds.top))
+        assertEquals(lifted, state.selection)
+        assertNotNull(session.scene?.floating)
+        assertEquals(before, state.project)
+    }
+
+    @Test
+    fun `a selection that was moved comes to where it now is, with nothing undone or redone`() {
+        stroke()
+        await()
+        stroke(y = 20f)
+        await()
+        session.undo()
+        await()
+        assertTrue(state.canRedo)
+        session.liftSelection(floatArrayOf(10f, 30f, 60f, 30f, 60f, 70f, 10f, 70f))
+        await()
+        session.setSelectionTransform((state.selection ?: error("none")).copy(translateX = 100f))
+        await()
+        val lifted = state.selection
+        val picture = runBlocking { session.activeCelWithSelectionDown() } ?: error("something is lifted")
+        val bounds = picture.bounds ?: error("no bounds")
+        val image = picture.image ?: error("no image")
+        assertEquals(black, image.getPixel(130 - bounds.left, 50 - bounds.top))
+        assertTrue("the place it came from is empty now, so the picture starts past it", bounds.left > 30)
+        assertEquals(lifted, state.selection)
+        assertTrue(state.canRedo)
     }
 
     private fun smallImage(): Bitmap = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }

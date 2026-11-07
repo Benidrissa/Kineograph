@@ -1,8 +1,11 @@
 package org.kineograph.ui
 
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -40,6 +43,26 @@ class ThemeContrastTest {
         controls.forEach { (what, pair) ->
             assertTrue("$name $what is only ${contrast(pair.first, pair.second)}:1", contrast(pair.first, pair.second) >= control)
         }
+    }
+
+    private fun checkSliderTrack(name: String, scheme: ColorScheme) {
+        val behind =
+            listOf(
+                "the screen" to scheme.surface,
+                "a sheet" to scheme.surfaceContainerLow,
+                "a dialog" to scheme.surfaceContainerHigh,
+                "the quick sliders' panel" to scheme.surfaceColorAtElevation(3.dp),
+            )
+        behind.forEach { (what, colour) ->
+            val ratio = contrast(scheme.onSurface.copy(alpha = TRACK_ALPHA).compositeOver(colour), colour)
+            assertTrue("$name slider track on $what is only $ratio:1", ratio >= control)
+        }
+    }
+
+    @Test
+    fun `the unfilled part of a slider stands out in both themes, wherever a slider sits`() {
+        checkSliderTrack("light", LightColors)
+        checkSliderTrack("dark", DarkColors)
     }
 
     @Test

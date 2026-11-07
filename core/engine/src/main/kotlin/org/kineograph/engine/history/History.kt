@@ -154,6 +154,12 @@ public class History(
         redoStack.clear()
     }
 
+    /** Forgets the steps that change the background, for when the user has set one outside undo. Going back or forward through them would overwrite it. */
+    public fun discardBackgroundSteps() {
+        undoStack.removeAll { it is BackgroundEntry }
+        redoStack.removeAll { it is BackgroundEntry }
+    }
+
     /** Applies the budgets again; called after background compression has changed the numbers. */
     public fun enforceBudgets() {
         var memory = memoryBytes

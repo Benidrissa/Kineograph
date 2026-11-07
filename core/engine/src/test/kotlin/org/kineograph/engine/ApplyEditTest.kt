@@ -96,6 +96,66 @@ class ApplyEditTest {
         assertEquals(3, state.project.frames.size)
     }
 
+    private fun liftWhatWasDrawn() {
+        stroke()
+        session.liftSelection(floatArrayOf(10f, 30f, 60f, 30f, 60f, 70f, 10f, 70f))
+        await()
+    }
+
+    private fun replacingTheCel(project: Project): Project =
+        ImportEdits.replaceCel(project, state.layerId, state.frameId, PlacedImage(store.write(picture()), IntRect(0, 0, 4, 4)))
+
+    private fun picture(): Bitmap = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+
+    @Test
+    fun `running out of memory on what an edit will show leaves a lifted selection lifted`() {
+        liftWhatWasDrawn()
+        val lifted = state.selection
+        val project = state.project
+        store.failNextReadWithOutOfMemory = true
+        val failure = runCatching { runBlocking { session.applyEdit { replacingTheCel(it) } } }.exceptionOrNull()
+        assertTrue("got $failure", failure is OutOfMemoryError)
+        await()
+        assertEquals(lifted, state.selection)
+        assertNotNull(session.scene?.floating)
+        assertEquals(project, state.project)
+    }
+
+    @Test
+    fun `a moved selection that an edit could not go ahead over has not cost anything that could be redone`() {
+        stroke()
+        session.addLayer("Two")
+        await()
+        session.undo()
+        await()
+        assertTrue(state.canRedo)
+        session.liftSelection(floatArrayOf(10f, 30f, 60f, 30f, 60f, 70f, 10f, 70f))
+        await()
+        session.setSelectionTransform((state.selection ?: error("none")).copy(translateX = 100f))
+        await()
+        val lifted = state.selection
+        store.failNextReadWithOutOfMemory = true
+        assertTrue(runCatching { runBlocking { session.applyEdit { replacingTheCel(it) } } }.exceptionOrNull() is OutOfMemoryError)
+        await()
+        assertEquals(lifted, state.selection)
+        assertTrue(state.canRedo)
+    }
+
+    @Test
+    fun `an edit that works puts a lifted selection down, and sees what that comes to`() {
+        liftWhatWasDrawn()
+        var seen: Project? = null
+        runBlocking {
+            session.applyEdit { project ->
+                seen = project
+                project
+            }
+        }
+        await()
+        assertEquals(null, state.selection)
+        assertNotNull((seen ?: error("the edit never ran")).cel(state.layerId, state.frameId))
+    }
+
     @Test
     fun `pending pixels are saved before the edit sees the project`() {
         stroke()

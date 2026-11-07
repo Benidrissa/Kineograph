@@ -11,6 +11,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.kineograph.media.svg.SvgDocument
@@ -23,9 +24,10 @@ import org.kineograph.media.svgimport.SvgImportPlace
 import org.kineograph.media.svgimport.SvgImportRequest
 import org.kineograph.media.svgimport.SvgImporter
 import org.kineograph.media.svgimport.SvgSampling
-import org.kineograph.media.svgimport.maxImportFrames
+import org.kineograph.media.svgimport.roomForImportedFrames
 import org.kineograph.media.svgimport.sampleStartSeconds
 import org.kineograph.media.svgimport.suggestedSeconds
+import org.kineograph.model.Project
 import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
@@ -76,7 +78,8 @@ internal data class SvgImportChoices(
         durationSeconds(file)?.let { SvgSampling.of(file.document.animation, it, fps, withIntro) }
 
     /** Whether this comes to more frames than the device can keep track of, which holds Import back until the duration is shorter. */
-    fun isTooLong(file: SvgFile, fps: Int): Boolean = asAnimation && (sampling(file, fps)?.tickCount ?: 0) > maxImportFrames()
+    fun isTooLong(file: SvgFile, project: Project): Boolean =
+        asAnimation && (sampling(file, project.fps)?.tickCount ?: 0) > roomForImportedFrames(project)
 
     fun toRequest(file: SvgFile): SvgImportRequest? =
         if (asAnimation) {
@@ -111,6 +114,7 @@ internal sealed interface SvgImportState {
  * Takes one SVG file from being picked to being in the project, or to being given up on, for the screen to show. All the slow work happens away
  * from the main thread.
  *
+ * @param makeRoom called before an import starts, while the sweep can still clear out what is left of one that never got to finish.
  * @param holdFiles called before an import writes anything, and [releaseFiles] once the result is settled. In between, what it writes must be
  *   safe from the sweep.
  * @param onMessage for what has to be said when no sheet is open to say it in.
@@ -118,6 +122,7 @@ internal sealed interface SvgImportState {
 internal class SvgImportController(
     private val scope: CoroutineScope,
     private val importer: SvgImporter,
+    private val makeRoom: suspend () -> Unit,
     private val holdFiles: () -> Unit,
     private val releaseFiles: () -> Unit,
     private val onMessage: (EditorMessage) -> Unit,
@@ -138,7 +143,7 @@ internal class SvgImportController(
         _state.value = SvgImportState.Reading
         job =
             scope.launch {
-                when (val result = withContext(io) { readFile(name, open) }) {
+                when (val result = withContext(io) { readFile(name, open) { !isActive } }) {
                     is ReadResult.Read -> {
                         _state.value = SvgImportState.Ready(result.file, SvgImportChoices.startingFor(result.file))
                     }
@@ -151,11 +156,11 @@ internal class SvgImportController(
             }
     }
 
-    private fun readFile(name: () -> String, open: () -> InputStream?): ReadResult =
+    private fun readFile(name: () -> String, open: () -> InputStream?, cancelled: () -> Boolean): ReadResult =
         try {
             val stream = open() ?: throw IOException("The provider gave no stream")
             val counted = CountingStream(stream)
-            val document = counted.use { SvgParser.parse(it) }
+            val document = counted.use { SvgParser.parse(it, shouldStop = cancelled) }
             ReadResult.Read(SvgFile(document, name(), counted.count))
         } catch (e: SvgParseException) {
             ReadResult.Problem(e.reason.message())
@@ -198,10 +203,10 @@ internal class SvgImportController(
         if (_state.value is SvgImportState.Ready) _state.value = SvgImportState.Idle
     }
 
-    /** Stops whatever is under way. Drawing stops within moments, and the project is left as it was. */
+    /** Stops whatever is under way. Reading and drawing stop within moments, and the project is left as it was. */
     fun cancel() {
         job?.cancel()
-        // Parsing cannot be interrupted, though it has limits of its own. Nothing is waiting for it now, so nobody needs to watch it finish.
+        // Nothing is waiting for it now, so nobody needs to watch it finish.
         if (_state.value == SvgImportState.Reading) _state.value = SvgImportState.Idle
     }
 
@@ -212,24 +217,27 @@ internal class SvgImportController(
         _state.value = SvgImportState.Running(ready.file, ready.choices)
         job =
             scope.launch {
-                holdFiles()
                 try {
-                    val outcome =
-                        importer.import(ready.file.document, request) { done, total ->
-                            _state.update { if (it is SvgImportState.Running) it.copy(done = done, total = total) else it }
+                    makeRoom()
+                    holdFiles()
+                    try {
+                        val outcome =
+                            importer.import(ready.file.document, request) { done, total ->
+                                _state.update { if (it is SvgImportState.Running) it.copy(done = done, total = total) else it }
+                            }
+                        if (outcome == SvgImportOutcome.DONE) {
+                            _state.value = SvgImportState.Idle
+                            val wasCut = SvgWarning.LIMIT_REACHED in ready.file.document.warnings - warningsBefore
+                            if (wasCut) onMessage(EditorMessage.SVG_IMPORTED_INCOMPLETE)
+                        } else {
+                            _state.value = ready.copy(problem = outcome)
                         }
-                    if (outcome == SvgImportOutcome.DONE) {
-                        _state.value = SvgImportState.Idle
-                        val wasCut = SvgWarning.LIMIT_REACHED in ready.file.document.warnings - warningsBefore
-                        if (wasCut) onMessage(EditorMessage.SVG_IMPORTED_INCOMPLETE)
-                    } else {
-                        _state.value = ready.copy(problem = outcome)
+                    } finally {
+                        releaseFiles()
                     }
                 } catch (e: CancellationException) {
                     _state.value = ready.copy(problem = null)
                     throw e
-                } finally {
-                    releaseFiles()
                 }
             }
     }

@@ -193,10 +193,13 @@ private fun DrawScope.drawCover(image: ImageBitmap, topLeft: Offset, area: Size)
     )
 }
 
-/** Loads a small version of a picture for previews, off the main thread. Null until ready, or if it cannot be read. */
+/**
+ * Loads a small version of a picture for previews, off the main thread. Null until ready, or if it cannot be read. [version] is for when what the address leads to has
+ * changed. What was showing stays until the new one is ready.
+ */
 @Composable
-internal fun rememberPictureThumbnail(uri: Uri?, resolver: ContentResolver): State<ImageBitmap?> =
-    produceState<ImageBitmap?>(null, uri) {
+internal fun rememberPictureThumbnail(uri: Uri?, resolver: ContentResolver, version: Int = 0): State<ImageBitmap?> =
+    produceState<ImageBitmap?>(null, uri, version) {
         value = uri?.let { withContext(Dispatchers.IO) { decodeThumbnail(it, resolver) } }
     }
 

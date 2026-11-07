@@ -313,7 +313,7 @@ class RepositoryTest {
         val name = store.write(image())
         runBlocking { store.awaitWrites() }
         assertTrue(store.exists(name))
-        store.discard(listOf(name))
+        runBlocking { store.discard(listOf(name)) }
         assertFalse(store.exists(name))
         assertNull(store.read(name))
         runBlocking { store.awaitWrites() }
@@ -607,7 +607,7 @@ class RepositoryTest {
     }
 
     @Test
-    fun `leaving after a failed save keeps the last good drawing and sweeps nothing`() {
+    fun `leaving after a failed save keeps the last good drawing, whatever else it clears out`() {
         val project = create()
         val editor = Editor(project)
         editor.stroke(y = 30f)
@@ -627,8 +627,8 @@ class RepositoryTest {
         unblockManifestWrites(project.id)
 
         assertTrue(editor.autosaver.saveFailed.value)
-        assertTrue("a failed save must not be followed by a sweep", leftover.isFile)
-        assertTrue(File(files.projectDirectory(project.id), lastGood).isFile)
+        assertFalse("nothing refers to this, and the disk may be full", leftover.isFile)
+        assertTrue("a manifest refers to this", File(files.projectDirectory(project.id), lastGood).isFile)
         val back = reopened(project.id)
         assertEquals(0, back.loaded.missingCels)
         assertEquals(setOf(lastGood), back.loaded.project.referencedFiles())
@@ -1444,7 +1444,7 @@ class RepositoryTest {
         val project = create()
         val picture = runBlocking { repository.saveBackgroundImage(project.id, image()) }
         File(files.projectDirectory(project.id), "manifest.json").writeText("{ damaged")
-        runBlocking { repository.sweepBackgrounds(project.id, emptySet()) }
+        runBlocking { repository.sweepBackgrounds(project.id, repository.backgroundFiles(project.id), emptySet()) }
         assertTrue(File(files.projectDirectory(project.id), picture.file).isFile)
     }
 
@@ -1455,12 +1455,12 @@ class RepositoryTest {
         val directory = files.projectDirectory(project.id)
         File(directory, "manifest.tmp").writeText(ManifestCodec.encode(project.copy(background = picture)))
         File(directory, "manifest.json").delete()
-        runBlocking { repository.sweepBackgrounds(project.id, emptySet()) }
+        runBlocking { repository.sweepBackgrounds(project.id, repository.backgroundFiles(project.id), emptySet()) }
         assertTrue(File(directory, picture.file).isFile)
     }
 
     @Test
-    fun `replaced backgrounds only make room for a save once the project is closing`() {
+    fun `a replaced background makes room for a save, whichever save it is`() {
         val project = create()
         var inTheWay: File? = null
         val store = storeThatNeedsRoom(project) { inTheWay }
@@ -1470,15 +1470,371 @@ class RepositoryTest {
         inTheWay = File(files.projectDirectory(project.id), replaced.file)
         store.write(image())
         session.addFrame()
-        runBlocking {
-            session.awaitIdle()
-            assertFalse("it may be on its way into the session", autosaver.saveNow())
-        }
-        assertTrue(inTheWay?.isFile == true)
-        runBlocking { autosaver.finish() }
+        // This is what Back does, and then the unsaved-changes question would come up over a picture nothing uses.
+        assertTrue(
+            runBlocking {
+                session.awaitIdle()
+                autosaver.saveNow(commitSelection = true)
+            },
+        )
         assertFalse(inTheWay?.isFile == true)
         assertFalse(autosaver.saveFailed.value)
         session.close()
+        store.close()
+    }
+
+    @Test
+    fun `a background on its way into the session is held, and a save that needs its room has to wait`() {
+        val project = create()
+        var inTheWay: File? = null
+        val store = storeThatNeedsRoom(project) { inTheWay }
+        val session = DrawingSession(project, store, MemoryBudget.forMemoryClass(256, false), temp.newFolder())
+        val autosaver = Autosaver(session, repository, store, project.id)
+        autosaver.holdSweeps()
+        val onTheWay = runBlocking { repository.saveBackgroundImage(project.id, image()) }
+        inTheWay = File(files.projectDirectory(project.id), onTheWay.file)
+        store.write(image())
+        session.addFrame()
+        runBlocking {
+            session.awaitIdle()
+            assertFalse(autosaver.saveNow())
+        }
+        assertTrue(inTheWay?.isFile == true)
+        autosaver.releaseSweeps()
+        session.setBackground(onTheWay)
+        runBlocking {
+            session.awaitIdle()
+            assertFalse("the session uses it now, so it is not garbage", autosaver.saveNow())
+        }
+        assertTrue(inTheWay?.isFile == true)
+        session.close()
+        store.close()
+    }
+
+    @Test
+    fun `a sweep to make room keeps what the manifest about to be written names`() {
+        val project = create()
+        val diskFull = java.util.concurrent.atomic
+            .AtomicBoolean(false)
+        val store =
+            CelFileStore(files.projectDirectory(project.id), 1024 * 1024, Dispatchers.IO) { bitmap, _ ->
+                if (diskFull.get()) throw IOException("disk full")
+                val output = java.io.ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+                output.toByteArray()
+            }
+        val session = DrawingSession(project, store, MemoryBudget.forMemoryClass(256, false), temp.newFolder())
+        session.addFrame()
+        runBlocking { session.awaitIdle() }
+        val first = session.state.value.project.frames[0]
+            .id
+        val second = session.state.value.project.frames[1]
+            .id
+        val layer = session.state.value.layerId
+
+        fun stroke(y: Float) {
+            val spec = BrushSpec(id = "test", sizePx = 10f, sizeCurve = PressureCurve.FLAT)
+            val out = StampBuffer()
+            StrokeEngine(spec, 1L).run {
+                begin(20f, y, 1f, 0f, 0f, out)
+                add(80f, y, 1f, 0f, 0f, out)
+                finish(out)
+            }
+            session.beginStroke(spec, Color.BLACK)
+            session.addStamps(out.snapshot())
+            session.endStroke { }
+        }
+        session.selectFrame(first)
+        stroke(30f)
+        session.selectFrame(second)
+        runBlocking {
+            session.awaitIdle()
+            store.awaitWrites()
+        }
+        val named = session.state.value.project
+            .cel(layer, first)
+            ?.file ?: error("no cel")
+        stroke(60f)
+        runBlocking { session.awaitIdle() }
+        var movedOn = false
+        val autosaver =
+            Autosaver(session, repository, store, project.id, listCelFiles = {
+                if (!movedOn) {
+                    movedOn = true
+                    diskFull.set(false)
+                    // In the moment an image takes to fail, the user adds to that drawing, so the session has no more use for the file the save is going to name.
+                    session.selectFrame(first)
+                    stroke(40f)
+                    session.selectFrame(second)
+                    runBlocking { session.awaitIdle() }
+                }
+                store.listFiles()
+            })
+        diskFull.set(true)
+        assertTrue(runBlocking { autosaver.saveNow() })
+        assertTrue(movedOn)
+        assertTrue(File(files.projectDirectory(project.id), named).isFile)
+        session.close()
+        store.close()
+        val reopened = runBlocking { repository.open(project.id) } ?: error("did not open")
+        assertEquals(0, reopened.loaded.missingCels)
+        reopened.store.close()
+    }
+
+    @Test
+    fun `a manifest that does not fit gets room made for it too`() {
+        val project = create()
+        val editor = Editor(project)
+        editor.stroke()
+        val leftover = File(files.projectDirectory(project.id), "cels/left-behind.webp").apply {
+            parentFile?.mkdirs()
+            writeText("x")
+        }
+        // Every image fits, but the manifest does not until something has gone.
+        blockManifestWrites(project.id)
+        val autosaver =
+            Autosaver(editor.session, repository, editor.opened.store, project.id, listCelFiles = {
+                unblockManifestWrites(project.id)
+                editor.opened.store.listFiles()
+            })
+        assertTrue(runBlocking { autosaver.saveNow() })
+        assertFalse(leftover.exists())
+        assertFalse(autosaver.saveFailed.value)
+        editor.close()
+    }
+
+    @Test
+    fun `making room for an import clears what a killed one left, unless it is under way`() {
+        val project = create()
+        val opened = runBlocking { repository.open(project.id) } ?: error("project did not open")
+        val session = DrawingSession(project, opened.store, MemoryBudget.forMemoryClass(256, false), temp.newFolder())
+        val autosaver = Autosaver(session, repository, opened.store, project.id)
+        val cels = File(files.projectDirectory(project.id), "cels").apply { mkdirs() }
+        val leftover = File(cels, "left-behind.webp").apply { writeBytes(ByteArray(16)) }
+        val picture = runBlocking { repository.saveBackgroundImage(project.id, image()) }
+        val pictureFile = File(files.projectDirectory(project.id), picture.file)
+
+        autosaver.holdSweeps()
+        runBlocking { autosaver.makeRoom() }
+        assertTrue(leftover.isFile)
+        assertTrue(pictureFile.isFile)
+        autosaver.releaseSweeps()
+
+        runBlocking { autosaver.makeRoom() }
+        assertFalse(leftover.isFile)
+        assertFalse(pictureFile.isFile)
+        session.close()
+        opened.store.close()
+    }
+
+    // ----- What a store says when its writes fail -----
+
+    /** Fails each write with what [failure] says at the time. */
+    private fun storeThatFails(project: org.kineograph.model.Project, failure: () -> Throwable?): CelFileStore =
+        CelFileStore(files.projectDirectory(project.id), 1024 * 1024, Dispatchers.IO) { bitmap, _ ->
+            failure()?.let { throw it }
+            val output = java.io.ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+            output.toByteArray()
+        }
+
+    @Test
+    fun `running out of memory once says nothing about a full disk later`() {
+        val project = create()
+        var failure: Throwable? = OutOfMemoryError("no room to encode")
+        val store = storeThatFails(project) { failure }
+        store.write(image())
+        assertTrue(runCatching { runBlocking { store.awaitWrites() } }.exceptionOrNull() is OutOfMemoryError)
+        failure = null
+        runBlocking { store.awaitWrites() }
+        store.write(image())
+        failure = IOException("disk full")
+        val error = runCatching { runBlocking { store.awaitWrites() } }.exceptionOrNull()
+        assertTrue("got $error", error is IOException)
+        store.close()
+    }
+
+    @Test
+    fun `a write that ran out of memory and came through in the background leaves no note behind`() {
+        val project = create()
+        var failure: Throwable? = OutOfMemoryError("no room to encode")
+        val store = storeThatFails(project) { failure }
+        store.write(image())
+        // Nobody has asked yet, so nothing has been said about this one, and then a retry gets through it.
+        Thread.sleep(200)
+        failure = null
+        runBlocking { store.awaitWrites() }
+        failure = IOException("disk full")
+        store.write(image())
+        val error = runCatching { runBlocking { store.awaitWrites() } }.exceptionOrNull()
+        assertTrue("got $error", error is IOException)
+        store.close()
+    }
+
+    @Test
+    fun `everyone waiting on a write hears why it failed`() {
+        val project = create()
+        val store = storeThatFails(project) { OutOfMemoryError("no room to encode") }
+        store.write(image())
+        repeat(3) {
+            val error = runCatching { runBlocking { store.awaitWrites() } }.exceptionOrNull()
+            assertTrue("got $error", error is OutOfMemoryError)
+        }
+        store.close()
+    }
+
+    @Test
+    fun `a full disk speaks first when memory ran out as well, as making room is something to try`() {
+        val project = create()
+        val store =
+            CelFileStore(files.projectDirectory(project.id), 1024 * 1024, Dispatchers.IO) { bitmap, _ ->
+                if (bitmap.width == 4) throw OutOfMemoryError("no room to encode")
+                throw IOException("disk full")
+            }
+        store.write(Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888))
+        store.write(Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888))
+        val error = runCatching { runBlocking { store.awaitWrites() } }.exceptionOrNull()
+        assertTrue("got $error", error is IOException)
+        store.close()
+    }
+
+    @Test
+    fun `an image given up on while someone else is retrying it does not come back`() {
+        val project = create()
+        val retrying = java.util.concurrent.CountDownLatch(1)
+        val letGo = java.util.concurrent.CountDownLatch(1)
+        val calls = java.util.concurrent.atomic
+            .AtomicInteger()
+        val full = java.util.concurrent.atomic
+            .AtomicBoolean(true)
+        val store =
+            CelFileStore(files.projectDirectory(project.id), 1024 * 1024, Dispatchers.IO) { bitmap, _ ->
+                if (calls.incrementAndGet() == 3) {
+                    retrying.countDown()
+                    letGo.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                }
+                if (full.get()) throw IOException("disk full")
+                val output = java.io.ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+                output.toByteArray()
+            }
+        val name = store.write(image())
+        assertTrue(runCatching { runBlocking { store.awaitWrites() } }.exceptionOrNull() is IOException)
+        val saving = CoroutineScope(Dispatchers.Default).async { runCatching { store.awaitWrites() } }
+        assertTrue(retrying.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        val givingUp = CoroutineScope(Dispatchers.Default).async { store.discard(listOf(name)) }
+        Thread.sleep(100)
+        letGo.countDown()
+        runBlocking {
+            givingUp.await()
+            saving.await()
+        }
+        assertNull("no save may fail over it", runCatching { runBlocking { store.awaitWrites() } }.exceptionOrNull())
+        assertFalse(store.exists(name))
+        full.set(false)
+        runBlocking { store.awaitWrites() }
+        assertFalse(File(files.projectDirectory(project.id), name).exists())
+        store.close()
+    }
+
+    @Test
+    fun `an image given up on as it reaches the disk is taken back off it`() {
+        val project = create()
+        val writing = java.util.concurrent.CountDownLatch(1)
+        val letGo = java.util.concurrent.CountDownLatch(1)
+        val store =
+            CelFileStore(files.projectDirectory(project.id), 1024 * 1024, Dispatchers.IO) { bitmap, _ ->
+                writing.countDown()
+                letGo.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                val output = java.io.ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+                output.toByteArray()
+            }
+        val name = store.write(image())
+        assertTrue(writing.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        val givingUp = CoroutineScope(Dispatchers.Default).async { store.discard(listOf(name)) }
+        Thread.sleep(100)
+        assertFalse("waiting for that write is what this is doing", givingUp.isCompleted)
+        letGo.countDown()
+        runBlocking { givingUp.await() }
+        assertFalse(File(files.projectDirectory(project.id), name).exists())
+        assertFalse(store.exists(name))
+        runBlocking { store.awaitWrites() }
+        store.close()
+    }
+
+    @Test
+    fun `waiting for writes once the store has closed ends at once and says what was left`() {
+        val project = create()
+        val store = storeThatFails(project) { IOException("disk full") }
+        // More than there are places in the queue, each of which a retry has to wait for one of.
+        repeat(12) { store.write(image()) }
+        assertTrue(runCatching { runBlocking { store.awaitWrites() } }.exceptionOrNull() is IOException)
+        store.close()
+        val outcome =
+            runBlocking {
+                withTimeoutOrNull(5_000) {
+                    CoroutineScope(Dispatchers.IO).async { runCatching { store.awaitWrites() }.exceptionOrNull() }.await()
+                }
+            }
+        assertTrue("got $outcome", outcome is IOException)
+        // A write asked for after that does not get stuck either, and is not mistaken for saved.
+        val late =
+            runBlocking {
+                withTimeoutOrNull(5_000) {
+                    CoroutineScope(Dispatchers.IO)
+                        .async {
+                            repeat(12) { store.write(image()) }
+                            runCatching { store.awaitWrites() }.exceptionOrNull()
+                        }.await()
+                }
+            }
+        assertTrue("got $late", late is IOException)
+    }
+
+    @Test
+    fun `however big the canvas, no more than a set amount of pictures waits for the disk`() {
+        val project = create()
+        val letGo = java.util.concurrent.CountDownLatch(1)
+        val store =
+            CelFileStore(files.projectDirectory(project.id), 1024 * 1024, Dispatchers.IO, maxQueuedBytes = 1024 * 1024) { bitmap, _ ->
+                letGo.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                val output = java.io.ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+                output.toByteArray()
+            }
+        // All that may wait, and the queue would let eight of them in if it counted pictures alone.
+        val picture = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
+        val queued = java.util.concurrent.atomic
+            .AtomicInteger()
+        val writer =
+            Thread {
+                repeat(8) {
+                    store.write(picture)
+                    queued.incrementAndGet()
+                }
+            }.apply { start() }
+        Thread.sleep(500)
+        assertEquals(1, queued.get())
+        letGo.countDown()
+        writer.join(10_000)
+        assertEquals(8, queued.get())
+        runBlocking { store.awaitWrites() }
+        store.close()
+    }
+
+    @Test
+    fun `a picture larger than all that may wait still gets through`() {
+        val project = create()
+        val store =
+            CelFileStore(files.projectDirectory(project.id), 1024 * 1024, Dispatchers.IO, maxQueuedBytes = 1024) { bitmap, _ ->
+                val output = java.io.ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+                output.toByteArray()
+            }
+        val names = List(3) { store.write(Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888)) }
+        runBlocking { store.awaitWrites() }
+        names.forEach { assertTrue(File(files.projectDirectory(project.id), it).isFile) }
         store.close()
     }
 

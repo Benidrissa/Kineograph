@@ -75,10 +75,12 @@ import org.kineograph.media.svgimport.SvgImportPlace
 import org.kineograph.media.svgimport.SvgImportRequest
 import org.kineograph.media.svgimport.SvgImporter
 import org.kineograph.media.svgimport.SvgSampling
+import org.kineograph.media.svgimport.maxImportFrames
 import org.kineograph.model.Background
 import org.kineograph.model.FrameSlot
 import org.kineograph.model.PaperKind
 import org.kineograph.model.Project
+import org.kineograph.model.ProjectEdits
 import org.kineograph.model.newProject
 import org.kineograph.ui.KineographTheme
 import org.robolectric.annotation.Config
@@ -163,6 +165,7 @@ class SvgImportSheetTest {
         reduceMotion: Boolean = true,
         targetProject: Project = project,
         frame: Int = 3,
+        freeMemory: Long = 0L,
     ) {
         var choices by mutableStateOf(start)
         currentChoices = start
@@ -186,6 +189,7 @@ class SvgImportSheetTest {
                             onImport = { imported++ },
                             onDismiss = { dismissed++ },
                             reduceMotion = reduceMotion,
+                            availableMemory = freeMemory,
                         )
                     }
                 }
@@ -288,6 +292,43 @@ class SvgImportSheetTest {
     fun `a normal import gets no such warning`() {
         show(file(ANIMATED))
         compose.onNodeWithTag("svg_import_large").assertDoesNotExist()
+    }
+
+    @Test
+    fun `an import that would not fit in what memory is free says so beforehand`() {
+        val canvas = project.width.toLong() * project.height * 4
+        show(file(ANIMATED), freeMemory = canvas)
+        compose
+            .onNodeWithTag("svg_import_low_memory")
+            .performScrollTo()
+            .assertTextContains("low on free memory", substring = true)
+    }
+
+    @Test
+    fun `an import with room to spare says nothing about memory`() {
+        show(file(ANIMATED), freeMemory = 8L * 1024 * 1024 * 1024)
+        compose.onNodeWithTag("svg_import_low_memory").assertDoesNotExist()
+    }
+
+    @Test
+    fun `what an import holds in memory does not grow with the canvas past a set amount waiting`() {
+        // A small canvas has all its waiting pictures counted in full, and a huge one has what the store lets wait.
+        assertEquals(10L * 100 * 100 * 4, importMemoryBytes(100, 100))
+        assertEquals(3L * 6000 * 4000 * 4 + 64L * 1024 * 1024, importMemoryBytes(6000, 4000))
+        assertFalse(isShortOfMemoryForImport(6000, 4000, 1024L * 1024 * 1024))
+        assertTrue(isShortOfMemoryForImport(6000, 4000, 256L * 1024 * 1024))
+        assertFalse("a phone that does not say is not refused anything", isShortOfMemoryForImport(6000, 4000, 0L))
+    }
+
+    @Test
+    fun `what the project already has counts towards an import being too long`() {
+        val few = SvgImportChoices.startingFor(file(ANIMATED))
+        assertFalse(few.isTooLong(file(ANIMATED), project))
+        val long = few.copy(durationText = (maxImportFrames() / project.fps).toString())
+        assertFalse(long.copy(durationText = ((maxImportFrames() - 100) / project.fps).toString()).isTooLong(file(ANIMATED), project))
+        var bigger = project
+        repeat(200) { bigger = ProjectEdits.addFrameAfter(bigger, null, "frame $it") }
+        assertTrue(long.copy(durationText = ((maxImportFrames() - 100) / project.fps).toString()).isTooLong(file(ANIMATED), bigger))
     }
 
     @Test
@@ -942,6 +983,7 @@ class SvgImportProgressTest {
         SvgImportController(
             scope = CoroutineScope(Dispatchers.Default),
             importer = SvgImporter(session, TestStore(), { error("not used") }),
+            makeRoom = {},
             holdFiles = {},
             releaseFiles = {},
             onMessage = {},

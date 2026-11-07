@@ -14,6 +14,7 @@ internal object WorkCost {
     const val STYLE_RULE_READ: Long = 256L
     const val SELECTOR_STEP: Long = 8L
     const val DECLARATION_APPLIED: Long = 48L
+    const val VALUE_CHAR_READ: Long = 6L
     const val VAR_REPLACED: Long = 64L
     const val KEYFRAME_VALUE: Long = 64L
     const val ANIMATION_ENTRY: Long = 256L
@@ -23,6 +24,12 @@ internal object WorkCost {
     const val ELEMENT_DRAWN: Long = 500L
     const val BOX_MEASURED: Long = 64L
     const val TRACK_EVALUATED: Long = 64L
+
+    /** A clip shape's point has two lengths, each with three sums and something new to hold it, and then the path goes through it again. */
+    const val SHAPE_POINT_MIXED: Long = 40L
+
+    /** Reading a shape's text, a length at a time, and keeping the result takes far longer than going through its characters. */
+    const val SHAPE_CHAR_READ: Long = 4L
     const val SEGMENT: Long = 2L
     const val OUTLINE_SEGMENT: Long = 8L
 
@@ -107,6 +114,8 @@ internal open class WorkMeter(limit: Long, maxSeconds: Double, private val shoul
     }
 
     private fun poll() {
+        // One large payment is as much work as many small ones, and as likely to have filled the heap.
+        pollsUntilHeapCheck -= (-untilPoll / POLL_EVERY).coerceAtMost(POLLS_PER_HEAP_CHECK.toLong()).toInt()
         untilPoll = POLL_EVERY
         // Being interrupted is how WorkManager and plain threads ask for a stop. Coroutines come through shouldStop.
         if (shouldStop != null && (shouldStop.invoke() || Thread.currentThread().isInterrupted)) isCancelled = true
@@ -185,7 +194,8 @@ internal object HeapWatch {
  * The allowance of one parse, which a picture nested inside this one spends from too. Giving each nested picture its own would let a
  * small file multiply its work at every level.
  */
-internal class ParseWork(val limits: SvgLimits) : WorkMeter(limits.maxParseWork, limits.maxParseSeconds, null) {
+internal class ParseWork(val limits: SvgLimits, shouldStop: (() -> Boolean)? = null) :
+    WorkMeter(limits.maxParseWork, limits.maxParseSeconds, shouldStop) {
     var elementsKept: Int = 0
 
     /** Twice the largest file, which leaves room for every byte of a file to also be an embedded picture, as a real file might be. */

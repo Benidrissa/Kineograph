@@ -12,6 +12,12 @@ internal class Keyframe(val offset: Double, val declarations: List<Declaration>)
 
 internal class Stylesheet {
     val rules: ArrayList<StyleRule> = ArrayList()
+
+    /** The text of every selector read, which nesting can make far longer than the file: each rule inside a rule says all of what is around it again. */
+    var selectorChars: Long = 0L
+
+    /** Selectors have filled what memory there is, so whatever else the file has to say counts for nothing. */
+    var isFull: Boolean = false
     val keyframes: HashMap<String, List<Keyframe>> = HashMap()
     private val layers = HashMap<String, Int>()
     private var anonymousLayers = 0
@@ -60,7 +66,7 @@ internal class CssParser(
         while (true) {
             skipSpace()
             // What was read so far stays, and whatever follows counts for nothing more. The caller adds the warning.
-            if (pos >= text.length || work.isStopped) return
+            if (pos >= text.length || work.isStopped || sheet.isFull) return
             if (text[pos] == '@') {
                 parseAtRule()
             } else {
@@ -86,6 +92,7 @@ internal class CssParser(
     }
 
     private fun addRules(selectorText: String, body: String, depth: Int) {
+        if (!hasRoomForSelector(selectorText)) return
         val (ownDeclarations, inner) = splitNestedRules(body)
         val declarations = parseDeclarations(ownDeclarations)
         val selectors = ArrayList<Selector>(1)
@@ -96,11 +103,30 @@ internal class CssParser(
         }
         val layer = layerName?.let(sheet::layerIndex) ?: UNLAYERED
         for (selector in selectors) sheet.rules += StyleRule(selector, declarations, sheet.rules.size, layer)
-        for ((prelude, block) in inner) addNested(selectorText, prelude, block, depth + 1)
+        for ((prelude, block) in inner) {
+            // Each of these starts by saying the whole selector again, which could be the file's full length, for just three characters of it.
+            if (work.isStopped || sheet.isFull) return
+            addNested(selectorText, prelude, block, depth + 1)
+        }
+    }
+
+    /**
+     * Selectors are kept for as long as the file is being read, and a very short rule inside a long one comes to all the objects of that long one again. So this looks at
+     * what they have added up to, which the check on the length of a stylesheet cannot see.
+     */
+    private fun hasRoomForSelector(selectorText: String): Boolean {
+        if (sheet.isFull) return false
+        sheet.selectorChars += selectorText.length
+        if (HeapWatch.hasRoomForText(sheet.selectorChars.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), BYTES_PER_CHAR_OF_RULES)) return true
+        sheet.isFull = true
+        warnings += SvgWarning.LIMIT_REACHED
+        return false
     }
 
     /** A rule inside a rule, which is ordinary CSS these days. `&` stands for the rule it is in, and with no `&` it means somewhere inside that. */
     private fun addNested(parentText: String, prelude: String, block: String, depth: Int) {
+        // A rule of three characters that is refused by the limits below still costs something, and a file can hold millions of them.
+        if (!work.spend(WorkCost.STYLE_RULE_READ + prelude.length)) return
         if (depth >= limits.maxStylesheetNesting) {
             warnings += SvgWarning.LIMIT_REACHED
             return
@@ -122,13 +148,15 @@ internal class CssParser(
             if (applies) addRules(parentText, block, depth)
             return
         }
-        val parent = ":is($parentText)"
+        // Only made once it is known to fit, since it is what the limit below is there to keep from being made again and again.
+        val parent by lazy(LazyThreadSafetyMode.NONE) { ":is($parentText)" }
+        val parentLength = parentText.length + ":is()".length
         val expanded = StringBuilder()
         for (part in splitTopLevel(prelude, ',')) {
             val piece = part.trim()
             val parents = piece.count { it == '&' }
             // Each `&` copies everything above it, so a short file could otherwise ask for more text than there is memory.
-            if (piece.length + maxOf(parents, 1).toLong() * parent.length + expanded.length > MAX_NESTED_SELECTOR_CHARS) {
+            if (piece.length + maxOf(parents, 1).toLong() * parentLength + expanded.length > MAX_NESTED_SELECTOR_CHARS) {
                 warnings += SvgWarning.LIMIT_REACHED
                 return
             }

@@ -5,10 +5,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -22,6 +25,15 @@ import org.robolectric.annotation.GraphicsMode
 class SwitchRowTest {
     @get:Rule
     val compose = createComposeRule()
+
+    @Test
+    fun `the smoothing slider can be touched over 48 dp`() {
+        compose.setContent {
+            KineographTheme(darkTheme = false) { SmoothingRow(50) { } }
+        }
+        val size = compose.onNode(hasContentDescription("Default smoothing")).fetchSemanticsNode().size
+        assertTrue("$size", size.height >= with(compose.density) { 48.dp.roundToPx() })
+    }
 
     @Test
     fun `TalkBack can tell whether a setting is on, and hears it change`() {

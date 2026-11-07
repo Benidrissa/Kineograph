@@ -1439,6 +1439,161 @@ class SvgHostileFileTest {
         document.draw().first.assertPixel(50, 50, RED)
     }
 
+    // ----- From the review of the merged import -----
+
+    private fun polygonText(points: Int): String =
+        buildString {
+            append("polygon(")
+            repeat(points) { index ->
+                if (index > 0) append(',')
+                append("0 0")
+            }
+            append(')')
+        }
+
+    private fun heapInUse(): Long {
+        val runtime = Runtime.getRuntime()
+        repeat(2) { System.gc() }
+        return runtime.totalMemory() - runtime.freeMemory()
+    }
+
+    // Each track kept its own reading of the same long text, at drawing time, for free: 498 of 512 MB, and it never went away.
+    @Test
+    fun `one long animated clip shape on many elements is read once, and each mix of it is paid for`() {
+        val shape = polygonText(200_000)
+        val css = "@keyframes k{from{clip-path:$shape}to{clip-path:$shape}} rect{animation:k 1s infinite linear}"
+        val rects = "<rect width='10' height='10'/>".repeat(300)
+        val before = heapInUse()
+        val document = quickly(120.0) { parse(wrap("<style>$css</style>$rects")) }
+        val (_, complete) = quickly(120.0) { document.draw(time = 0.25) }
+        val held = heapInUse() - before
+        assertFalse("nothing like that much mixing fits in one frame", complete)
+        assertTrue("the picture holds on to ${held / (1024 * 1024)} MB", held < Runtime.getRuntime().maxMemory() / 4)
+        assertEquals(100f, document.width, 0f)
+    }
+
+    @Test
+    fun `mixing a long clip shape costs more the longer it is, on every frame`() {
+        fun costWith(points: Int): Long {
+            val shape = polygonText(points)
+            val css = "@keyframes k{from{clip-path:$shape}to{clip-path:$shape}} rect{animation:k 1s infinite linear}"
+            val document = parse(wrap("<style>$css</style><rect id='r' width='10' height='10'/>"))
+            val tracks = checkNotNull(
+                document.model.byId["r"]
+                    ?.tracks
+                    ?.get("clip-path"),
+            )
+            return tracks.single().evaluationCost
+        }
+        assertTrue(costWith(10_000) >= 10 * costWith(100))
+        assertTrue(costWith(10_000) >= 10_000 * WorkCost.SHAPE_POINT_MIXED)
+    }
+
+    @Test
+    fun `many short animated clip shapes hold no more than one reading of each`() {
+        val shape = polygonText(2_000)
+        val css = "@keyframes k{from{clip-path:$shape}to{clip-path:$shape}} rect{animation:k 1s infinite linear}"
+        val rects = "<rect width='10' height='10'/>".repeat(20_000)
+        val before = heapInUse()
+        val document = quickly(120.0) { SvgParser.parse(wrap("<style>$css</style>$rects"), small) }
+        quickly(60.0) { document.draw(time = 0.25) }
+        val held = heapInUse() - before
+        assertTrue("the picture holds on to ${held / (1024 * 1024)} MB", held < Runtime.getRuntime().maxMemory() / 4)
+        assertEquals(100f, document.width, 0f)
+    }
+
+    @Test
+    fun `a clip shape that is animated still moves`() {
+        val document =
+            parse(
+                wrap(
+                    """<style>@keyframes k{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0)}} rect{animation:k 1s linear}</style>
+                    <rect width="100" height="100" fill="red"/>""",
+                ),
+            )
+        assertEquals(0, android.graphics.Color.alpha(document.draw(time = 0.25).first.getPixel(50, 50)))
+        document.draw(time = 0.75).first.assertPixel(50, 50, RED)
+    }
+
+    // The loop over rules inside a rule never looked to see whether the allowance had run out, and each pass says the whole selector again: 560 seconds and counting.
+    @Test
+    fun `nested rules that say a long selector again and again stop soon`() {
+        val parent = List(21_000) { "a" }.joinToString(",")
+        val css = ":is($parent){" + "b{}".repeat(200_000) + "}"
+        val document = quickly(60.0) { parse(wrap("<style>$css</style>$redLast")) }
+        assertTrue(SvgWarning.LIMIT_REACHED in document.warnings)
+        assertRedLast(document)
+        assertTrue("selectors must not stay in memory", heapInUse() < Runtime.getRuntime().maxMemory() / 2)
+    }
+
+    @Test
+    fun `conditions inside a rule that say a long selector again and again stop soon too`() {
+        val parent = List(21_000) { "a" }.joinToString(",")
+        val css = ":is($parent){" + "@media all{}".repeat(100_000) + "}"
+        val document = quickly(60.0) { parse(wrap("<style>$css</style>$redLast")) }
+        assertTrue(SvgWarning.LIMIT_REACHED in document.warnings)
+        assertRedLast(document)
+    }
+
+    // Past the length limit, each of these made the whole parent again before finding that out, with nothing to pay.
+    @Test
+    fun `nested rules under a selector already past the limit do not cost anything to refuse`() {
+        val parent = List(33_000) { "a" }.joinToString(",")
+        val css = ":is($parent){" + "b{}".repeat(300_000) + "}\n"
+        val document = quickly(30.0) { parse(wrap("<style>$css</style>".repeat(4) + redLast)) }
+        assertTrue(SvgWarning.LIMIT_REACHED in document.warnings)
+        assertRedLast(document)
+    }
+
+    @Test
+    fun `what a stylesheet says before its selectors filled the memory still counts`() {
+        val parent = List(21_000) { "a" }.joinToString(",")
+        val css = "rect{fill:#0000ff}:is($parent){" + "b{}".repeat(200_000) + "}rect{fill:#00ff00}"
+        val document = quickly(60.0) { parse(wrap("<style>$css</style><rect width='100' height='100'/>")) }
+        document.draw().first.assertPixel(50, 50, android.graphics.Color.BLUE)
+    }
+
+    // Each element read the whole path again on its way to the cache, which it could have read from: all 60 seconds, for what the first one found out.
+    @Test
+    fun `a long offset path on many elements is read once`() {
+        val path = "M0 0" + " L1 1".repeat(200_000)
+        val rects = "<rect width='10' height='10'/>".repeat(30_000)
+        quickly(40.0) { parse(wrap("<style>rect{offset-path:path('$path');offset-distance:50%}</style>$rects")) }
+    }
+
+    @Test
+    fun `a long value that is new text on every element stops long before the clock does`() {
+        val long = "min(" + List(100_000) { "1px" }.joinToString(",") + ")"
+        val rects = (1..20_000).joinToString("") { "<rect style='--i:${it}px' height='10'/>" }
+        val document = quickly(50.0) { parse(wrap("<style>rect{--w:var(--i);width:min(var(--w),$long)}</style>$rects")) }
+        assertTrue(SvgWarning.LIMIT_REACHED in document.warnings)
+    }
+
+    // Unlike any other long list, this one could fill the heap before anything looked, and that refused the whole file.
+    @Test
+    fun `a colour matrix with millions of numbers loses only the filter`() {
+        val values = "1 ".repeat(28_000_000)
+        val document =
+            quickly(120.0) {
+                parse(
+                    wrap(
+                        """<filter id="f"><feColorMatrix values="$values"/></filter><rect width="100" height="100" fill="red" filter="url(#f)"/>""",
+                    ),
+                )
+            }
+        document.draw().first.assertPixel(50, 50, RED)
+        assertTrue(SvgWarning.FILTER_IGNORED in document.warnings)
+    }
+
+    @Test
+    fun `reading stops as soon as nobody is waiting for it`() {
+        val parent = List(1_000) { "a" }.joinToString(",")
+        val css = ":is($parent){fill:red}".repeat(2_000)
+        val text = wrap("<style>$css</style>$redLast").toByteArray()
+        // What it has by then is not much, and nobody is going to look at it.
+        quickly(10.0) { SvgParser.parse(java.io.ByteArrayInputStream(text), device, shouldStop = { true }) }
+    }
+
     /** The other side of all of the above. No limit may get in the way of a file that someone really made. */
     @Test
     fun `a very large real drawing is left alone`() {

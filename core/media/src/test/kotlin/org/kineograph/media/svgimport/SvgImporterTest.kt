@@ -9,8 +9,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -23,6 +25,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.kineograph.data.files.CelFileStore
+import org.kineograph.data.manifest.ManifestStore
 import org.kineograph.engine.compositor.FlattenOptions
 import org.kineograph.engine.compositor.FrameFlattener
 import org.kineograph.engine.session.CelStore
@@ -31,17 +34,22 @@ import org.kineograph.engine.session.MemoryBudget
 import org.kineograph.media.svg.SvgDocument
 import org.kineograph.media.svg.SvgParser
 import org.kineograph.model.Background
+import org.kineograph.model.Cel
+import org.kineograph.model.CelKey
 import org.kineograph.model.ImportEdits
 import org.kineograph.model.IntRect
 import org.kineograph.model.PaperKind
 import org.kineograph.model.PlacedImage
 import org.kineograph.model.Project
+import org.kineograph.model.ProjectEdits
+import org.kineograph.model.newId
 import org.kineograph.model.newProject
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 
 /** Everything from a parsed picture to pixels in a session, on real Skia. */
@@ -88,8 +96,12 @@ class SvgImporterTest {
 
         override fun trimMemory() = Unit
 
-        override fun discard(files: Collection<String>) {
+        @Volatile
+        var discardedOn: String? = null
+
+        override suspend fun discard(files: Collection<String>) {
             discarded += files
+            discardedOn = Thread.currentThread().name
         }
     }
 
@@ -841,8 +853,8 @@ class SvgImporterTest {
 
     @Test
     fun `what counts as too many comes from the heap`() {
-        assertEquals(16 * 1024, maxImportFrames(64L * 1024 * 1024))
-        assertEquals(64 * 1024, maxImportFrames(256L * 1024 * 1024))
+        assertEquals(64 * 1024 / 12, maxImportFrames(64L * 1024 * 1024))
+        assertEquals(256 * 1024 / 12, maxImportFrames(256L * 1024 * 1024))
     }
 
     // ----- Cancelling, however late -----
@@ -953,6 +965,207 @@ class SvgImporterTest {
         runBlocking { target.awaitIdle() }
         assertNull(target.state.value.selection)
         assertNull(target.scene?.floating)
+    }
+
+    private fun moveLifted(target: DrawingSession) {
+        target.setSelectionTransform(checkNotNull(target.state.value.selection).copy(translateX = 100f))
+        runBlocking { target.awaitIdle() }
+    }
+
+    private fun liftedWithRedo(target: DrawingSession) {
+        paintActiveLayer(target)
+        target.settle()
+        target.addLayer("Two")
+        target.settle()
+        target.undo()
+        target.settle()
+        assertTrue(target.state.value.canRedo)
+        target.liftSelection(floatArrayOf(10f, 10f, 40f, 10f, 40f, 40f, 10f, 40f))
+        runBlocking { target.awaitIdle() }
+        assertNotNull(target.state.value.selection)
+    }
+
+    @Test
+    fun `a full disk stops an import onto the layer with a lifted selection still lifted, as it says`() {
+        val target = open()
+        liftedWithRedo(target)
+        moveLifted(target)
+        val before = target.state.value
+        store.failDiskAfter = store.writes.get()
+        assertEquals(SvgImportOutcome.OUT_OF_STORAGE, still(target, square(), SvgImportPlace.CURRENT_LAYER, SvgFit.ORIGINAL_SIZE))
+        runBlocking { target.awaitIdle() }
+        assertEquals(before.selection, target.state.value.selection)
+        assertNotNull(target.scene?.floating)
+        assertEquals(before.project, target.state.value.project)
+        assertTrue("what could be redone has not been lost", target.state.value.canRedo)
+    }
+
+    @Test
+    fun `a Cancel while the picture is being saved leaves a lifted selection lifted`() {
+        val target = open()
+        paintActiveLayer(target)
+        target.settle()
+        target.liftSelection(floatArrayOf(10f, 10f, 40f, 10f, 40f, 40f, 10f, 40f))
+        target.settle()
+        val before = target.state.value
+        var cancel: () -> Unit = {}
+        val cancelling =
+            object : CelStore by store {
+                override suspend fun awaitWrites() {
+                    cancel()
+                    store.awaitWrites()
+                }
+            }
+        val importer = importer(target, cancelling)
+        runBlocking {
+            var running: Job? = null
+            cancel = { running?.cancel() }
+            running =
+                CoroutineScope(Dispatchers.Default).launch(start = CoroutineStart.LAZY) {
+                    importer.import(
+                        square(),
+                        SvgImportRequest.SingleImage(0.0, SvgImportPlace.CURRENT_LAYER, SvgFit.ORIGINAL_SIZE, "Picture"),
+                    )
+                }
+            running.start()
+            running.join()
+        }
+        runBlocking { target.awaitIdle() }
+        assertEquals(before.selection, target.state.value.selection)
+        assertEquals(before.project, target.state.value.project)
+    }
+
+    @Test
+    fun `an import onto the layer goes over where a lifted selection has been moved to`() {
+        val target = open()
+        paintActiveLayer(target)
+        target.settle()
+        target.liftSelection(floatArrayOf(10f, 10f, 40f, 10f, 40f, 40f, 10f, 40f))
+        runBlocking { target.awaitIdle() }
+        moveLifted(target)
+        assertEquals(SvgImportOutcome.DONE, still(target, square(), SvgImportPlace.CURRENT_LAYER, SvgFit.ORIGINAL_SIZE))
+        val project = target.settle()
+        assertNull(target.state.value.selection)
+        val cel = project.cel(target.state.value.layerId, target.state.value.frameId) ?: error("no cel")
+        val image = store.images[cel.file] ?: error("no image")
+        val bounds = checkNotNull(cel.bounds)
+        assertEquals("it arrived", Color.BLUE, image.getPixel(125 - bounds.left, 25 - bounds.top))
+        assertEquals("and left", 0, Color.alpha(image.getPixel(25 - bounds.left, 25 - bounds.top)))
+        assertEquals("with the picture over it all", Color.RED, image.getPixel(100 - bounds.left, 50 - bounds.top))
+    }
+
+    @Test
+    fun `an import that fails gives its files back away from the caller's thread`() {
+        val target = open()
+        store.failDiskAfter = 1
+        val caller = Executors.newSingleThreadExecutor { Thread(it, "pretend-main") }.asCoroutineDispatcher()
+        runBlocking(caller) {
+            assertEquals(
+                SvgImportOutcome.OUT_OF_STORAGE,
+                importer(target).import(fixture("import-hops.svg"), SvgImportRequest.Animation(10.0, SvgFit.FIT_INSIDE, "Hops")),
+            )
+        }
+        caller.close()
+        assertFalse("on ${store.discardedOn}", checkNotNull(store.discardedOn).startsWith("pretend-main"))
+    }
+
+    @Test
+    fun `a Cancel gives files back away from the caller's thread, however long that takes`() {
+        val target = open()
+        val caller = Executors.newSingleThreadExecutor { Thread(it, "pretend-main") }.asCoroutineDispatcher()
+        val document = fixture("import-hops.svg")
+        runBlocking {
+            var running: Job? = null
+            running =
+                launch(caller, start = CoroutineStart.LAZY) {
+                    importer(target).import(document, SvgImportRequest.Animation(10.0, SvgFit.FIT_INSIDE, "Hops")) { done, _ ->
+                        if (done == 8) running?.cancel()
+                    }
+                }
+            running.start()
+            running.join()
+        }
+        caller.close()
+        assertTrue(store.discarded.isNotEmpty())
+        assertFalse("on ${store.discardedOn}", checkNotNull(store.discardedOn).startsWith("pretend-main"))
+    }
+
+    @Test
+    fun `leaving during an import does not get anyone stuck, even with more failed writes than the queue holds`() {
+        val project = newProject("Test", 200, 100, 12, Background.Transparent, "Layer 1", now = 0)
+        val files = CelFileStore(temp.newFolder(), 1024 * 1024, Dispatchers.IO) { _, _ -> throw IOException("disk full") }
+        val target = DrawingSession(project, files, MemoryBudget.forMemoryClass(256, isLowRam = false), temp.newFolder()).also {
+            session =
+                it
+        }
+        repeat(12) { files.write(Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888)) }
+        assertTrue(runCatching { runBlocking { files.awaitWrites() } }.exceptionOrNull() is IOException)
+        val document = fixture("import-hops.svg")
+        val caller =
+            Executors
+                .newSingleThreadExecutor { task -> Thread(task, "pretend-main").apply { isDaemon = true } }
+                .asCoroutineDispatcher()
+        var running: Job? = null
+        running =
+            CoroutineScope(caller).launch(start = CoroutineStart.LAZY) {
+                SvgImporter(target, files, { error("not used") }).import(
+                    document,
+                    SvgImportRequest.Animation(10.0, SvgFit.FIT_INSIDE, "Hops"),
+                ) { done, _ ->
+                    if (done == 1) {
+                        // The project closes first, as the app's scope may well get there before the main thread does.
+                        files.close()
+                        running?.cancel()
+                    }
+                }
+            }
+        running.start()
+        val finished =
+            runBlocking {
+                withTimeoutOrNull(20_000) {
+                    running.join()
+                    true
+                }
+            }
+        assertEquals("the caller's thread was left waiting", true, finished)
+        caller.close()
+    }
+
+    @Test
+    fun `a project at the limit can still be saved, with half of the memory used by something else`() {
+        val runtime = Runtime.getRuntime()
+        val heap = runtime.maxMemory()
+        System.gc()
+        val elsewhere = ArrayList<ByteArray>()
+        val chunk = 16 * 1024 * 1024
+        while (runtime.totalMemory() - runtime.freeMemory() + chunk < heap / 2) elsewhere += ByteArray(chunk)
+        val frames = maxImportFrames(heap)
+        val start = newProject("Test", 1280, 720, 12, Background.Transparent, "Layer 1", now = 0)
+        val images = HashMap<Int, PlacedImage>(frames * 2)
+        for (tick in 0 until frames) images[tick] = PlacedImage("cels/${newId()}.webp", IntRect(10, 20, 1000, 700))
+        val project = ImportEdits.addAnimationLayer(start, start.layers.last().id, start.frames.first().id, "Imported", frames, images)
+        images.clear()
+        ManifestStore(temp.newFolder()).write(project)
+        assertTrue(elsewhere.isNotEmpty())
+    }
+
+    @Test
+    fun `what a project already has counts towards how many frames can come in`() {
+        val heap = 128L * 1024 * 1024
+        val start = newProject("Test", 1280, 720, 12, Background.Transparent, "Layer 1", now = 0)
+        assertEquals(maxImportFrames(heap) - 1, roomForImportedFrames(start, heap))
+        var bigger = start
+        repeat(9) { bigger = ProjectEdits.addFrameAfter(bigger, null, "frame $it") }
+        assertEquals(maxImportFrames(heap) - 10, roomForImportedFrames(bigger, heap))
+        // Two layers with a drawing on every frame are more to keep track of than the frames alone.
+        val cels = bigger.frames.flatMap { frame ->
+            listOf("one", "two").map { layer ->
+                CelKey(layer, frame.id) to
+                    Cel(layer, frame.id, "cels/$layer${frame.id}.webp", IntRect(0, 0, 1, 1))
+            }
+        }
+        assertEquals(maxImportFrames(heap) - 20, roomForImportedFrames(bigger.copy(cels = cels.toMap()), heap))
+        assertEquals(0, roomForImportedFrames(bigger, 12L * 1024))
     }
 
     // ----- Failing late -----

@@ -198,6 +198,28 @@ private val BOX_WORDS =
         "view-box" to BasicShape.VIEW_BOX,
     )
 
+/**
+ * Every clip shape of one file, each read once however many elements and animations name it. A rule like `rect{animation:k}` asks for the same text from thousands of
+ * tracks, and one long shape takes a long time to read and a lot of memory to keep. What has been read stays for as long as the picture, so reading is paid for, by whoever
+ * got there first.
+ */
+internal class BasicShapeTable {
+    private val shapes = HashMap<String, BasicShape?>()
+
+    /** The shape this text means, or null if it means none, or if there is no longer the time or the memory for it. */
+    fun read(text: String, work: WorkMeter): BasicShape? {
+        if (shapes.containsKey(text)) return shapes[text]
+        if (!HeapWatch.hasRoomForText(text.length, BYTES_PER_SHAPE_CHAR) || !work.spend(text.length * WorkCost.SHAPE_CHAR_READ)) return null
+        return parseBasicShape(text).also { shapes[text] = it }
+    }
+
+    /** Only asks what is already known, for code that has no allowance to pay from. */
+    fun known(text: String): BasicShape? = shapes[text]
+}
+
+/** A polygon's point can be as short as four characters, and comes to a pair of lengths. */
+private const val BYTES_PER_SHAPE_CHAR = 30
+
 /** Returns null for anything that is not a shape we know, such as `none` or a `url()`. */
 internal fun parseBasicShape(raw: String): BasicShape? {
     var text = raw.trim()

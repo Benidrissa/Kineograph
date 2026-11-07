@@ -20,7 +20,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -116,11 +115,10 @@ public fun ColorPicker(
             val opacityLabel = stringResource(R.string.color_opacity)
             Column {
                 Text("$opacityLabel ${(alpha * 100f / 255f).toInt()}%", style = MaterialTheme.typography.labelLarge)
-                Slider(
+                KgSlider(
                     value = alpha / 255f,
                     // Only the alpha changes. Going through hue and back could shift the colour by a level.
                     onValueChange = { onColorChange((argb and RGB_MASK) or ((it * 255f + 0.5f).toInt() shl 24)) },
-                    colors = kgSliderColors(),
                     modifier = Modifier.semantics { contentDescription = opacityLabel },
                 )
             }

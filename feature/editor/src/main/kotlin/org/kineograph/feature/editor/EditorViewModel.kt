@@ -228,8 +228,13 @@ public class EditorViewModel(
             SvgImportController(
                 scope = viewModelScope,
                 importer = SvgImporter(session, opened.store, { image -> dependencies.repository.saveBackgroundImage(projectId, image) }),
+                makeRoom = autosaver::makeRoom,
                 holdFiles = autosaver::holdSweeps,
-                releaseFiles = autosaver::releaseSweeps,
+                releaseFiles = {
+                    autosaver.releaseSweeps()
+                    // What a failed import gave back may be just what a save was short of, and nothing else would try again until the next change.
+                    retryFailedSave()
+                },
                 onMessage = { _messages.trySend(it) },
             )
         viewModelScope.launch {
@@ -405,8 +410,14 @@ public class EditorViewModel(
         val state = ready ?: return
         val project = state.session.state.value.project
         viewModelScope.launch {
-            val image = dependencies.repository.importBackgroundImage(projectId, uri, resolver, project.width, project.height)
-            if (image != null) state.session.setBackground(image) else notify(EditorMessage.BACKGROUND_NOT_CHANGED)
+            // Until the session has it, nothing refers to the new picture, and a save on a full disk clears out what nothing refers to.
+            state.autosaver.holdSweeps()
+            try {
+                val image = dependencies.repository.importBackgroundImage(projectId, uri, resolver, project.width, project.height)
+                if (image != null) state.session.setBackground(image) else notify(EditorMessage.BACKGROUND_NOT_CHANGED)
+            } finally {
+                state.autosaver.releaseSweeps()
+            }
         }
     }
 

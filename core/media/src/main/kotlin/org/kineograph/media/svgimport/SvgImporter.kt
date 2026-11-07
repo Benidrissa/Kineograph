@@ -167,14 +167,19 @@ public class SvgSampling private constructor(
 }
 
 /**
- * The most frames this device can be asked to import. Each one costs the Java heap a little for as long as the project is open: its place on the
- * timeline, its cel, and its share of a manifest that is encoded again by every autosave. At about two kilobytes each, half of the heap goes first, on
- * [heapBytes] that are the device's own, and a normal phone still gets over an hour of animation at twelve frames per second.
+ * The most frames a project on this device can have and still be saved. Each frame and its drawing cost the Java heap a little for as long as the project is open, and
+ * most of all while every autosave encodes the whole manifest: about five kilobytes at the peak, as measured. Past this, the import itself would go fine and then no save
+ * of that project would ever work again. Half of [heapBytes], which are the device's own, is left for everything else the app holds, and a normal phone still gets half an
+ * hour of animation at twelve frames per second.
  */
 public fun maxImportFrames(heapBytes: Long = Runtime.getRuntime().maxMemory()): Int =
     (heapBytes / HEAP_PER_FRAME).coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
 
-private const val HEAP_PER_FRAME = 4L * 1024
+/** How many more frames can come into [project]. What it already has takes up the same room, one way or another. */
+public fun roomForImportedFrames(project: Project, heapBytes: Long = Runtime.getRuntime().maxMemory()): Int =
+    (maxImportFrames(heapBytes) - max(project.frames.size, project.cels.size)).coerceAtLeast(0)
+
+private const val HEAP_PER_FRAME = 12L * 1024
 
 /**
  * Turns a parsed picture into drawings in the open project. All the drawing happens away from the main thread and the engine thread, and the
@@ -252,20 +257,12 @@ public class SvgImporter(
 
     /**
      * Gives back everything an import wrote. Nothing will refer to it, and the sweep may not come for a long while, or at all on a nearly full disk,
-     * where a save has to succeed before one is due. A write that keeps failing would also make every later save fail along with it.
+     * where a save has to succeed before one is due. A write that keeps failing would also make every later save fail along with it. A Cancel gets here
+     * on the thread of whoever called [import], which may be the main one, and this is a file operation for each frame, so it goes back to [dispatcher].
      */
     private suspend fun giveUp(run: Run) {
         if (run.written.isEmpty()) return
-        withContext(NonCancellable) {
-            try {
-                store.awaitWrites()
-            } catch (_: IOException) {
-                // Whatever failed is what is being given up here.
-            } catch (_: OutOfMemoryError) {
-                // Same as above.
-            }
-            store.discard(run.written)
-        }
+        withContext(dispatcher + NonCancellable) { store.discard(run.written) }
     }
 
     private suspend fun importAnimation(
@@ -281,7 +278,7 @@ public class SvgImporter(
         val sampling = SvgSampling.of(document.animation, request.durationSeconds, project.fps, request.withIntro)
         val tickCount = sampling.tickCount
         // Asked before the ticks are listed, which is the first thing here that takes up room for each one of them.
-        if (tickCount > maxImportFrames()) return SvgImportOutcome.TOO_MANY_FRAMES
+        if (tickCount > roomForImportedFrames(project)) return SvgImportOutcome.TOO_MANY_FRAMES
         val ticks = ImportEdits.ticksToSample(project, frameId, tickCount)
         val destination = destinationOn(project, document, request.fit)
         val images = HashMap<Int, PlacedImage>()
@@ -343,9 +340,15 @@ public class SvgImporter(
                 }
 
                 SvgImportPlace.CURRENT_LAYER -> {
-                    // The picture goes over what the layer really holds, and that includes anything lifted, so that is only put down now.
-                    val latest = session.snapshot(commitSelection = true)
-                    val image = combineWithCel(latest, activeLayerId, frameId, picture, bounds) ?: return SvgImportOutcome.FAILED
+                    // The picture goes over what the layer really holds, and that includes anything lifted. That stays lifted until the last step, as failing or
+                    // cancelling between here and there should not have touched it.
+                    val lifted = session.activeCelWithSelectionDown()
+                    val image =
+                        if (lifted != null) {
+                            combine(lifted.image, lifted.bounds, picture, bounds).also { lifted.image?.recycle() }
+                        } else {
+                            combineWithCel(project, activeLayerId, frameId, picture, bounds) ?: return SvgImportOutcome.FAILED
+                        }
                     run.written += image.file
                     store.awaitWrites()
                     applyAsOneStep(run, null) { current -> ImportEdits.replaceCel(current, activeLayerId, frameId, image) }
@@ -376,9 +379,12 @@ public class SvgImporter(
     private fun combineWithCel(project: Project, layerId: String, frameId: String, picture: Bitmap, bounds: IntRect): PlacedImage? {
         val cel = project.cel(layerId, frameId)
         val file = cel?.file
-        val celBounds = cel?.bounds
-        if (file == null || celBounds == null) return PlacedImage(store.write(crop(picture, bounds)), bounds)
-        val existing = store.read(file) ?: return null
+        val existing = if (file == null) null else store.read(file) ?: return null
+        return combine(existing, cel?.bounds, picture, bounds)
+    }
+
+    private fun combine(existing: Bitmap?, celBounds: IntRect?, picture: Bitmap, bounds: IntRect): PlacedImage {
+        if (existing == null || celBounds == null) return PlacedImage(store.write(crop(picture, bounds)), bounds)
         val union = celBounds.union(bounds)
         val combined = Bitmap.createBitmap(union.width, union.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(combined)

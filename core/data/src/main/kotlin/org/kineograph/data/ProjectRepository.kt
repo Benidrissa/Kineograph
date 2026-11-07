@@ -194,20 +194,26 @@ public class ProjectRepository(
     /** Whether a project cannot be opened only because it came from a newer version of the app. */
     public suspend fun needsNewerApp(id: String): Boolean = withContext(io) { manifestStore(id).needsNewerApp() }
 
+    /** Every background picture on disk, by the name used in manifests. List these before working out what to keep, so that a new one cannot be mistaken for garbage. */
+    public suspend fun backgroundFiles(projectId: String): Set<String> =
+        withContext(io) {
+            File(files.projectDirectory(projectId), MEDIA_DIRECTORY)
+                .listFiles()
+                .orEmpty()
+                .filter { it.isFile && it.name.startsWith(BACKGROUND_PREFIX) }
+                .mapTo(HashSet()) { "$MEDIA_DIRECTORY/${it.name}" }
+        }
+
     /**
-     * Deletes background pictures that nothing refers to, such as one that was replaced, or one saved by an import that was then cancelled. Nothing
+     * Deletes those of [candidates] that nothing refers to, such as a picture that was replaced, or one saved by an import that was then cancelled. Nothing
      * else would, and each can be as large as a whole canvas. Every manifest on disk counts, since any of them could be what the project reopens
      * from, and if one cannot be read nothing is deleted, as it could need anything.
      */
-    public suspend fun sweepBackgrounds(projectId: String, keep: Set<String>) {
+    public suspend fun sweepBackgrounds(projectId: String, candidates: Set<String>, keep: Set<String>) {
         withContext(io) {
             val saved = manifestStore(projectId).backgroundFiles() ?: return@withContext
-            val wanted = keep + saved
-            val media = File(files.projectDirectory(projectId), MEDIA_DIRECTORY)
-            for (file in media.listFiles().orEmpty()) {
-                val name = "$MEDIA_DIRECTORY/${file.name}"
-                if (file.isFile && file.name.startsWith(BACKGROUND_PREFIX) && name !in wanted) file.delete()
-            }
+            val directory = files.projectDirectory(projectId)
+            for (name in candidates - keep - saved) File(directory, name).delete()
         }
     }
 

@@ -376,10 +376,15 @@ internal class CssTrack(
     documentOrder: Int,
     private val timing: CssTiming,
     private val frames: List<CssFrame>,
+    private val shapes: BasicShapeTable,
 ) : Track(property, documentOrder) {
     override val isCss: Boolean get() = true
 
-    override val evaluationCost: Long get() = WorkCost.TRACK_EVALUATED + frames.size
+    /** Mixing two shapes makes a new one with as many points, for every track on every frame. Only shapes of the same length mix, so the longest here is as long as that can get. */
+    private val longestShape: Int =
+        if (property == "clip-path") frames.maxOf { frame -> shapeOf(frame.value)?.segments ?: 0 } else 0
+
+    override val evaluationCost: Long get() = WorkCost.TRACK_EVALUATED + frames.size + longestShape * WorkCost.SHAPE_POINT_MIXED
 
     override fun evaluate(time: Double, underlying: SvgValue?, current: Rgba): SvgValue? {
         val progress = timing.progressAt(time) ?: return null
@@ -398,13 +403,8 @@ internal class CssTrack(
         return ValueMath.interpolate(a, b, eased, current) ?: if (eased < 0.5) a else b
     }
 
-    /** One track only ever meets the few shapes its own frames name, and reading one again for every frame adds up. */
-    private val shapes = HashMap<String, BasicShape?>()
-
-    private fun shapeOf(value: SvgValue?): BasicShape? {
-        val text = (value as? KeywordValue)?.text ?: return null
-        return if (shapes.containsKey(text)) shapes[text] else parseBasicShape(text).also { shapes[text] = it }
-    }
+    /** Whatever a frame or an element says was read while the file was, so this never holds up drawing. */
+    private fun shapeOf(value: SvgValue?): BasicShape? = (value as? KeywordValue)?.let { shapes.known(it.text) }
 
     /** Anything else, such as a `url()` or `none`, has no in-between and flips half way, as it does in browsers. */
     private fun interpolateClip(a: SvgValue?, b: SvgValue?, p: Double): SvgValue? {

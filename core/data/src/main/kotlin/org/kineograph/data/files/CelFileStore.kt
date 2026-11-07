@@ -6,6 +6,7 @@ import android.os.Build
 import android.util.LruCache
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -20,7 +21,6 @@ import java.nio.file.Files
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Semaphore
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Keeps cel images as files in a project's `cels/` directory.
@@ -35,16 +35,29 @@ public class CelFileStore(
     private val projectDirectory: File,
     compressedCacheBytes: Long,
     dispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(MAX_CONCURRENT_WRITES),
+    maxQueuedBytes: Long = MAX_QUEUED_BYTES,
     private val encoder: (Bitmap, String) -> ByteArray = ::encodeCel,
 ) : CelStore {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val pending = ConcurrentHashMap<String, Bitmap>()
     private val jobs = ConcurrentHashMap<String, Job>()
-    private val failed = ConcurrentHashMap<String, Bitmap>()
-    private val ranOutOfMemory = AtomicBoolean(false)
+    private val failed = ConcurrentHashMap<String, FailedWrite>()
+
+    /** Images given up on while still being written, for the write to clear away behind itself when it ends. */
+    private val givenUp = HashSet<String>()
+
+    /** Held for the moment an image passes between [failed], [jobs] and [givenUp], so that giving up on it cannot fall in between them. */
+    private val settling = Any()
+
+    @Volatile
+    private var closed = false
 
     /** Limits queued images, so a huge merge cannot hold hundreds of full-size bitmaps in memory at once. */
     private val queueSlots = Semaphore(MAX_QUEUED_IMAGES)
+
+    /** Eight images are nothing on a small canvas and most of the phone's memory on a huge one, so what they weigh is limited too. They wait in turn, or the largest might never get in. */
+    private val queueKilobytes = (maxQueuedBytes / BYTES_PER_KILOBYTE).coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    private val queueRoom = Semaphore(queueKilobytes, true)
 
     private val cache =
         object : LruCache<String, ByteArray>(compressedCacheBytes.coerceIn(MIN_CACHE_BYTES, Int.MAX_VALUE.toLong()).toInt()) {
@@ -56,34 +69,64 @@ public class CelFileStore(
         val extension = if (canUseWebP) "webp" else "png"
         val name = "$CEL_DIRECTORY/${UUID.randomUUID()}.$extension"
         pending[name] = image
-        queueSlots.acquireUninterruptibly()
+        takeQueueRoom(image)
         enqueue(name, image)
         return name
     }
 
+    /** Waits for room in the queue. Whatever holds it is a write that ends soon, even once the store has closed, so this cannot wait for ever. */
+    private fun takeQueueRoom(image: Bitmap) {
+        queueSlots.acquireUninterruptibly()
+        queueRoom.acquireUninterruptibly(queueWeight(image))
+    }
+
+    private fun giveBackQueueRoom(image: Bitmap) {
+        queueRoom.release(queueWeight(image))
+        queueSlots.release()
+    }
+
+    /** An image larger than the whole queue goes through on its own. */
+    private fun queueWeight(image: Bitmap): Int = (image.allocationByteCount / BYTES_PER_KILOBYTE).toInt().coerceIn(1, queueKilobytes)
+
+    /** A job that is cancelled before it starts never runs its body, so what has to happen whatever comes of it happens on completion. */
     private fun enqueue(name: String, image: Bitmap) {
-        jobs[name] =
-            scope.launch {
-                try {
-                    val encoded = encoder(image, name)
-                    AtomicFile.write(File(projectDirectory, name), encoded)
-                    cache.put(name, encoded)
-                    pending.remove(name)
-                    failed.remove(name)
-                } catch (_: IOException) {
-                    // Most likely the disk is full. The image stays in memory and awaitWrites will report it.
-                    failed[name] = image
-                } catch (_: OutOfMemoryError) {
-                    // Encoding grows a buffer here, and an error nobody catches on this thread would end the whole app. It is a failed write like
-                    // any other: the image is kept and tried again, and giving up what is cached is the best chance of the next try working.
-                    cache.evictAll()
-                    ranOutOfMemory.set(true)
-                    failed[name] = image
-                } finally {
-                    jobs.remove(name)
-                    queueSlots.release()
+        val job = scope.launch(start = CoroutineStart.LAZY) { writeOut(name, image) }
+        jobs[name] = job
+        job.invokeOnCompletion {
+            giveBackQueueRoom(image)
+            // Someone may already be retrying this image, and then it is that write that has the last word.
+            val wasGivenUp =
+                synchronized(settling) {
+                    jobs.remove(name, job)
+                    !jobs.containsKey(name) && givenUp.remove(name)
                 }
-            }
+            if (wasGivenUp) forget(name)
+        }
+        job.start()
+    }
+
+    private fun writeOut(name: String, image: Bitmap) {
+        try {
+            val encoded = encoder(image, name)
+            AtomicFile.write(File(projectDirectory, name), encoded)
+            cache.put(name, encoded)
+            pending.remove(name)
+        } catch (_: IOException) {
+            // Most likely the disk is full. The image stays in memory and awaitWrites will report it.
+            noteFailure(name, image, outOfMemory = false)
+        } catch (_: OutOfMemoryError) {
+            // Encoding grows a buffer here, and an error nobody catches on this thread would end the whole app. It is a failed write like
+            // any other: the image is kept and tried again, and giving up what is cached is the best chance of the next try working.
+            cache.evictAll()
+            noteFailure(name, image, outOfMemory = true)
+        }
+    }
+
+    /** An image nobody wants any more must not make the next save fail. */
+    private fun noteFailure(name: String, image: Bitmap, outOfMemory: Boolean) {
+        synchronized(settling) {
+            if (name !in givenUp) failed[name] = FailedWrite(image, outOfMemory)
+        }
     }
 
     override fun read(file: String, sampleSize: Int): Bitmap? {
@@ -130,19 +173,28 @@ public class CelFileStore(
         }
     }
 
-    /** Waits for every queued write. Retries earlier failures once, and throws if any image still is not on disk. */
+    /**
+     * Waits for every queued write. Retries earlier failures once, and throws if any image still is not on disk. Each failure speaks for itself, so
+     * this tells what is wrong now, whoever else is waiting, and however it went before. A full disk speaks first when both happened, as that is the one
+     * thing the caller can do something about at once. A store that has closed will not write what it still holds, which is a failure like any other.
+     */
     @Throws(IOException::class)
     override suspend fun awaitWrites() {
-        failed.keys.toList().forEach { name ->
-            val image = failed.remove(name) ?: return@forEach
-            queueSlots.acquireUninterruptibly()
-            enqueue(name, image)
+        for ((name, write) in failed.entries.toList()) {
+            takeQueueRoom(write.image)
+            val retrying =
+                synchronized(settling) {
+                    failed.remove(name)?.also { enqueue(name, it.image) } != null
+                }
+            if (!retrying) giveBackQueueRoom(write.image)
         }
         jobs.values.toList().joinAll()
-        if (failed.isNotEmpty()) {
-            if (ranOutOfMemory.getAndSet(false)) throw OutOfMemoryError("${failed.size} images could not be encoded")
-            throw IOException("${failed.size} images could not be saved")
+        val failures = failed.values.toList()
+        if (failures.isNotEmpty()) {
+            if (failures.all { it.outOfMemory }) throw OutOfMemoryError("${failures.size} images could not be encoded")
+            throw IOException("${failures.size} images could not be saved")
         }
+        if (closed && pending.isNotEmpty()) throw IOException("${pending.size} images were left unsaved when the project closed")
     }
 
     override fun trimMemory() {
@@ -170,25 +222,49 @@ public class CelFileStore(
         }
     }
 
-    override fun discard(files: Collection<String>) {
-        ranOutOfMemory.set(false)
+    override suspend fun discard(files: Collection<String>) {
+        val underWay = ArrayList<Job>()
         for (name in files) {
-            failed.remove(name)
-            pending.remove(name)
-            cache.remove(name)
+            synchronized(settling) {
+                jobs[name]?.let { job ->
+                    givenUp += name
+                    underWay += job
+                }
+            }
+            forget(name)
+        }
+        // One still waiting its turn never starts, and one already writing clears up after itself, which is what there is to wait for.
+        underWay.forEach { it.cancel() }
+        underWay.joinAll()
+    }
+
+    private fun forget(name: String) {
+        synchronized(settling) { failed.remove(name) }
+        pending.remove(name)
+        cache.remove(name)
+        try {
             resolve(name)?.delete()
+        } catch (_: IOException) {
+            // The next sweep gets another go at it. Nobody is waiting to hear about this, and an error on this path would end the app.
         }
     }
 
-    /** Stops background work. Call after a final [awaitWrites]. */
+    /** Stops background work. Call after a final [awaitWrites]. Anything else still waiting for this store gets its answer, and no write it asks for later happens. */
     public fun close() {
+        closed = true
         scope.cancel()
     }
+
+    private class FailedWrite(val image: Bitmap, val outOfMemory: Boolean)
 
     private companion object {
         const val CEL_DIRECTORY = "cels"
         const val MAX_CONCURRENT_WRITES = 2
         const val MAX_QUEUED_IMAGES = 8
+
+        /** Takes every image of a full HD canvas, and about two of a 4K one. Two are being written at most, so a longer queue would not get it done sooner. */
+        const val MAX_QUEUED_BYTES = 64L * 1024 * 1024
+        const val BYTES_PER_KILOBYTE = 1024L
         const val MIN_CACHE_BYTES = 4L * 1024 * 1024
 
         /** The WebP format has only 14 bits for each edge. An image past this could never be saved as one. */

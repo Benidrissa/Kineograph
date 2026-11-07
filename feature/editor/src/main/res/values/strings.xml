@@ -213,6 +213,7 @@
         <item quantity="one">%1$s\u00A0s at %2$d fps = %3$d frame</item>
         <item quantity="other">%1$s\u00A0s at %2$d fps = %3$d frames</item>
     </plurals>
+    <string name="svg_import_low_memory_warning">This phone is low on free memory for a canvas this size, so the app may close during the import. Your project is safe if it does. Closing other apps or using a smaller canvas would help.</string>
     <string name="svg_import_large_warning">This is a big import. It may take a while and use about %1$s of storage. You can cancel at any time.</string>
     <string name="svg_import_animation_where">New layer, starting at frame %1$d</string>
     <string name="svg_import_moment">Moment</string>

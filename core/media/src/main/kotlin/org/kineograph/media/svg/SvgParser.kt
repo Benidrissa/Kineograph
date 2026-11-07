@@ -15,8 +15,12 @@ import java.util.zip.GZIPInputStream
  * fetched: this code has no way to do either, and [SvgDocument.warnings] says what was skipped.
  */
 public object SvgParser {
-    /** Reads plain SVG or gzip-compressed `.svgz`, told apart by the file's first bytes rather than its name. */
-    public fun parse(input: InputStream, limits: SvgLimits = SvgLimits.forDevice()): SvgDocument =
+    /**
+     * Reads plain SVG or gzip-compressed `.svgz`, told apart by the file's first bytes rather than its name.
+     *
+     * @param shouldStop asked often. Returning true stops it soon after with what it has, for when nobody is waiting for the answer any more.
+     */
+    public fun parse(input: InputStream, limits: SvgLimits = SvgLimits.forDevice(), shouldStop: (() -> Boolean)? = null): SvgDocument =
         guarded {
             val bytes =
                 try {
@@ -24,7 +28,7 @@ public object SvgParser {
                 } catch (e: IOException) {
                     throw SvgParseException(SvgParseException.Reason.READ_FAILED, "The file could not be read.", e)
                 }
-            parseBytes(bytes, limits, ParseWork(limits))
+            parseBytes(bytes, limits, ParseWork(limits, shouldStop))
         }
 
     public fun parse(bytes: ByteArray, limits: SvgLimits = SvgLimits.forDevice()): SvgDocument =

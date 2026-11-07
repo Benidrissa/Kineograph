@@ -158,12 +158,17 @@ internal fun NewProjectForm(
             if (uri != null) choose(BackgroundChoice.ImageChoice(uri))
         }
     var cameraUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    // Every photo goes in the same file, so a second one looks like no change at all, though the picture in that file is now another.
+    var photosTaken by rememberSaveable { mutableIntStateOf(0) }
     val camera =
         rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
             val uri = cameraUri
-            if (saved && uri != null) choose(BackgroundChoice.ImageChoice(uri))
+            if (saved && uri != null) {
+                choose(BackgroundChoice.ImageChoice(uri))
+                photosTaken++
+            }
         }
-    val picture by rememberPictureThumbnail((background as? BackgroundChoice.ImageChoice)?.uri, context.contentResolver)
+    val picture by rememberPictureThumbnail((background as? BackgroundChoice.ImageChoice)?.uri, context.contentResolver, photosTaken)
 
     Column(
         Modifier

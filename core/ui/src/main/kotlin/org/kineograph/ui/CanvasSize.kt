@@ -67,7 +67,7 @@ public fun rememberCanvasFit(width: Int?, height: Int?): CanvasFit? {
 }
 
 /** What is free now. Bitmaps live outside the Java heap on every Android this app runs on, so the heap's own limit does not come into it. */
-private fun availableMemoryBytes(context: Context): Long {
+public fun availableMemoryBytes(context: Context): Long {
     val manager = context.applicationContext.getSystemService(ActivityManager::class.java) ?: return 0L
     return ActivityManager.MemoryInfo().also(manager::getMemoryInfo).availMem
 }

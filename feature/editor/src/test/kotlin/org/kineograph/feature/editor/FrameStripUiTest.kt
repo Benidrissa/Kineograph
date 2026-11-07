@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -844,6 +845,89 @@ class FrameStripUiTest {
         val opacity = compose.onNodeWithTag("slider_opacity").fetchSemanticsNode().boundsInRoot
         assertTrue("from ${size.top} to ${opacity.bottom}", with(compose.density) { (opacity.bottom - size.top).toDp() } <= 400.dp)
         compose.onNodeWithTag("slider_size").assertAtLeast48Dp()
+    }
+
+    @Test
+    @Config(qualifiers = "w412dp-h915dp-xhdpi")
+    fun `the quick sliders keep their 48 dp however short the canvas gets, with the panel still behind them`() {
+        var height by mutableStateOf(800.dp)
+        compose.setContent {
+            KineographTheme(darkTheme = true) {
+                Box(Modifier.fillMaxWidth().height(height).background(Color.Black)) { QuickSliders(ToolState(), ToolbarSide.LEFT, {}, {}) }
+            }
+        }
+        for (each in listOf(800, 400, 320, 319, 232, 148, 144, 143, 120, 96)) {
+            height = each.dp
+            compose.waitForIdle()
+            val tall = with(compose.density) { each.dp.toPx() }
+            val size = compose
+                .onNodeWithTag("slider_size")
+                .assertAtLeast48Dp()
+                .fetchSemanticsNode()
+                .boundsInRoot
+            val opacity = compose
+                .onNodeWithTag("slider_opacity")
+                .assertAtLeast48Dp()
+                .fetchSemanticsNode()
+                .boundsInRoot
+            assertTrue("$each dp: from ${size.top} to ${opacity.bottom}", size.top >= 0f && opacity.bottom <= tall)
+            // Between the track, in the middle, and the edge of the slider is what the panel shows through, which on a dark theme must not be the dark canvas behind.
+            val picture = compose.onRoot().captureToImage().asAndroidBitmap()
+            val beside = picture.getPixel((size.left + 4).toInt(), ((size.top + size.bottom) / 2).toInt())
+            assertTrue("$each dp: no panel at the sliders", beside != android.graphics.Color.BLACK)
+        }
+    }
+
+    @Test
+    fun `a canvas too short for two sliders leaves them to the options sheet`() {
+        compose.setContent {
+            KineographTheme(darkTheme = true) {
+                Box(Modifier.fillMaxWidth().height(95.dp)) { QuickSliders(ToolState(), ToolbarSide.LEFT, {}, {}) }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("slider_size").assertDoesNotExist()
+        compose.onNodeWithTag("slider_opacity").assertDoesNotExist()
+    }
+
+    private fun showSlidersBetweenTheRealBars(wide: Boolean) {
+        val thumbnails = ThumbnailLoader(store, 4 * 1024 * 1024)
+        compose.setContent {
+            val state by session.state.collectAsState()
+            KineographTheme(darkTheme = true) {
+                EditorRootSurface {
+                    Column(Modifier.fillMaxSize()) {
+                        EditorTopBar(state, {}, {}, {}, {}, {}, {})
+                        Box(Modifier.weight(1f).fillMaxWidth()) { QuickSliders(ToolState(), ToolbarSide.LEFT, {}, {}) }
+                        EditorBottomBar(state, session, thumbnails, wide, {}, {})
+                    }
+                }
+            }
+        }
+        settle()
+    }
+
+    @Test
+    @Config(qualifiers = "w740dp-h360dp-land-xhdpi")
+    fun `on a phone held sideways the quick sliders are easier to use than the panel is to do without`() {
+        showSlidersBetweenTheRealBars(wide = true)
+        val slider = compose
+            .onNodeWithTag("slider_size")
+            .assertAtLeast48Dp()
+            .fetchSemanticsNode()
+            .size.height / compose.density.density
+        compose.onNodeWithTag("slider_opacity").assertAtLeast48Dp()
+        assertTrue("$slider dp, where the layout without a panel had 92", slider >= 92f)
+        compose.onRoot().saveScreenshot("quick_sliders_sideways_dark")
+    }
+
+    @Test
+    @Config(qualifiers = "w533dp-h320dp-land-xhdpi")
+    fun `on the smallest phone held sideways the quick sliders still get their 48 dp`() {
+        showSlidersBetweenTheRealBars(wide = false)
+        compose.onNodeWithTag("slider_size").assertAtLeast48Dp()
+        compose.onNodeWithTag("slider_opacity").assertAtLeast48Dp()
+        compose.onRoot().saveScreenshot("quick_sliders_small_sideways_dark")
     }
 
     // ----- The playback bar -----

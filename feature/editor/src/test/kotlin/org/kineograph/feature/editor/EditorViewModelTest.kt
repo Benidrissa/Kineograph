@@ -90,6 +90,7 @@ import org.kineograph.ui.KineographTheme
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -191,6 +192,32 @@ class EditorViewModelTest {
 
     private fun freeDisk(id: String) {
         File(files.projectDirectory(id), "manifest.tmp").deleteRecursively()
+    }
+
+    @Test
+    fun `a save that failed during an import is tried again once the import has given up`() {
+        val project = create()
+        val viewModel = viewModelFor(project.id)
+        val ready = viewModel.awaitReady()
+        assertTrue(runBlocking { ready.autosaver.saveNow() })
+        val controller = checkNotNull(viewModel.svgImport)
+        val animated =
+            """<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="20" height="20" fill="red">
+            <animate attributeName="x" from="0" to="80" dur="300s" repeatCount="indefinite"/></rect></svg>"""
+        controller.read({ "long.svg" }, { ByteArrayInputStream(animated.toByteArray()) })
+        waitUntil("the file to be read") { controller.state.value is SvgImportState.Ready }
+        controller.change((controller.state.value as SvgImportState.Ready).choices.copy(asAnimation = true, durationText = "200"))
+        controller.start()
+        waitUntil("some frames") { ((controller.state.value as? SvgImportState.Running)?.done ?: 0) > 2 }
+        // While the import holds the sweep off, a save can only fail, and the import's images carry on regardless.
+        stroke(ready.session)
+        runBlocking { ready.session.awaitIdle() }
+        fillDisk(project.id)
+        assertFalse(runBlocking { ready.autosaver.saveNow() })
+        assertTrue(ready.autosaver.saveFailed.value)
+        freeDisk(project.id)
+        controller.cancel()
+        waitUntil("the save to go through") { !ready.autosaver.saveFailed.value }
     }
 
     @Test

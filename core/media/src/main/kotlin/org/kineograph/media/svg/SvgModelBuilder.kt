@@ -25,7 +25,6 @@ internal class SvgModelBuilder(
 
     /** One table per property and origin, keyed by the text. The same declaration stays one string, whose hash is only worked out once. */
     private val parseCache = HashMap<String, HashMap<String, SvgValue?>>()
-    private val shapeCache = HashMap<String, Boolean>()
     private var trackOrder = 0
     private var rootFontSize = DEFAULT_ROOT_FONT_SIZE
     private val mediaContext: MediaContext by lazy(LazyThreadSafetyMode.NONE) { readMediaContext() }
@@ -346,7 +345,7 @@ internal class SvgModelBuilder(
                 }
 
                 // Rays and shapes are not read, which is not the same as the file being wrong.
-                name == "offset-path" && parseProperty(name, value, css = true) == null -> {
+                name == "offset-path" && parsedValue(name, value, css = true) == null -> {
                     warnings += SvgWarning.UNSUPPORTED_FEATURE_IGNORED
                 }
 
@@ -370,7 +369,7 @@ internal class SvgModelBuilder(
             // Looking through a long value is not free, and one stylesheet rule can make every element do it.
             if (!fromCss) work.spend(rawValue.length / LONG_TEXT_CHARS_PER_UNIT)
             // A plain presentation attribute may not use var(), but real files do, and browsers treat it as a declaration.
-            val text = resolveRemIn(name, if ("var(" in rawValue) substitute(rawValue, custom) ?: return else rawValue, rootFontSize)
+            val text = if ("var(" in rawValue) substitute(rawValue, custom) ?: return else rawValue
             if (!HeapWatch.hasRoomForText(text.length, bytesPerChar(def.kind))) {
                 warnings += SvgWarning.LIMIT_REACHED
                 return
@@ -386,10 +385,16 @@ internal class SvgModelBuilder(
         }
     }
 
+    /**
+     * What [text] means for a property, worked out once. Everything about doing that goes after the look in the cache, even looking for `rem`, as one rule can have every
+     * element ask for the same long text. A long text that is new each time is paid for by each one that reads it, and has to wait if the allowance has gone. A short one takes
+     * no time, and may be all that the rest of the picture has left to go on.
+     */
     private fun parsedValue(name: String, text: String, css: Boolean): SvgValue? {
         val cache = parseCache.getOrPut(if (css) name else "attribute:$name") { HashMap() }
         if (cache.containsKey(text)) return cache[text]
-        val value = parseProperty(name, text, css)
+        if (!work.spend(text.length * WorkCost.VALUE_CHAR_READ) && text.length >= LONG_VALUE_CHARS) return null
+        val value = parseProperty(name, resolveRemIn(name, text, rootFontSize), css)
         cache[text] = value
         return value
     }
@@ -426,7 +431,7 @@ internal class SvgModelBuilder(
             "clip-path", "mask" -> {
                 val text = (value as? KeywordValue)?.text.orEmpty()
                 // Only worked out once for each text. One rule can give every element the same shape, and it can be a very long one.
-                val isShape = name == "clip-path" && shapeCache.getOrPut(text) { parseBasicShape(text) != null }
+                val isShape = name == "clip-path" && work.resources.basicShapes.read(text, work) != null
                 if (!isShape && !text.equals("none", ignoreCase = true) && urlReference(text) == null) {
                     warnings +=
                         if (text.startsWith("url(", ignoreCase = true)) {
@@ -485,7 +490,10 @@ internal class SvgModelBuilder(
             position = close + 1
             start = value.indexOf("var(", position)
         }
-        return out.append(value, position, value.length).toString()
+        val result = out.append(value, position, value.length).toString()
+        // This text is new, so everything that goes through it from here goes through all of it: its hash and looking it up again, for every element.
+        work.spend(result.length.toLong())
+        return result
     }
 
     private fun customValue(name: String, custom: CustomProperties, depth: Int): String? {
@@ -620,7 +628,8 @@ internal class SvgModelBuilder(
                 val def = PROPERTIES[declaration.name] ?: continue
                 if (!def.css) continue
                 val text = substitute(declaration.value, state.custom) ?: continue
-                val value = parsedValue(declaration.name, resolveRemIn(declaration.name, text, rootFontSize), css = true) ?: continue
+                val value = parsedValue(declaration.name, text, css = true) ?: continue
+                if (declaration.name == "clip-path" && value is KeywordValue) work.resources.basicShapes.read(value.text, work)
                 // inherit in a keyframe would need the parent at each frame. Reading it as "the underlying value" looks the same.
                 val entry = CssFrame(frame.offset, value.takeUnless { it === InheritValue || it === InitialValue }, easing)
                 val list = perProperty.getOrPut(declaration.name) { ArrayList(4) }
@@ -633,7 +642,7 @@ internal class SvgModelBuilder(
             // A moment the file leaves out is filled in with the value the property has without the animation.
             if (list.first().offset > 0.0) list.add(0, CssFrame(0.0, null, defaultEasing))
             if (list.last().offset < 1.0) list += CssFrame(1.0, null, defaultEasing)
-            element.addTrack(CssTrack(property, trackOrder++, timing, list))
+            element.addTrack(CssTrack(property, trackOrder++, timing, list, work.resources.basicShapes))
         }
     }
 
@@ -730,6 +739,7 @@ internal class SvgModelBuilder(
 
         /** Reading through long text is quick, and a charge per character would swamp everything else. */
         const val LONG_TEXT_CHARS_PER_UNIT = 8L
+        const val LONG_VALUE_CHARS = 4096
         const val BYTES_PER_CHAR_OF_DECLARATIONS = 30
 
         /** Variables in real files hold a colour or a length, and only rarely a path. This is enough for any of those. */

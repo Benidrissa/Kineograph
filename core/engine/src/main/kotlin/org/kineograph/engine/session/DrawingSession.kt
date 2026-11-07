@@ -87,6 +87,9 @@ public data class SessionState(
         get() = project.layer(layerId)?.let { it.visible && !it.locked } ?: false
 }
 
+/** The pixels of a cel and where they go. No image means that the cel would be empty. */
+public class CelPicture(public val image: Bitmap?, public val bounds: IntRect?)
+
 /** Things that happened which the user should hear about. */
 public sealed interface SessionEvent {
     /** Memory ran out. Caches were emptied and the app carried on. */
@@ -528,19 +531,60 @@ public class DrawingSession(
             System.arraycopy(current.before, row * cut.width, before, rowOffset + row * union.width, cut.width)
         }
 
-        val values = FloatArray(9)
-        current.transform.toAffine().toMatrixValues(values)
-        val matrix = Matrix().apply { setValues(values) }
-        val source = current.transform.source
         floating = null
-        val checkpoint = targetCanvas.save()
-        targetCanvas.translate(overscan.toFloat(), overscan.toFloat())
-        targetCanvas.concat(matrix)
-        targetCanvas.drawBitmap(current.bitmap, source.left.toFloat(), source.top.toFloat(), filterPaint)
-        targetCanvas.restoreToCount(checkpoint)
+        drawWhereItNowIs(current, targetCanvas)
 
         contentBounds = contentBounds.union(placed)
         recordPixelEdit(union, before)
+    }
+
+    private fun drawWhereItNowIs(lifted: Floating, canvas: Canvas) {
+        val values = FloatArray(9)
+        lifted.transform.toAffine().toMatrixValues(values)
+        val matrix = Matrix().apply { setValues(values) }
+        val source = lifted.transform.source
+        val checkpoint = canvas.save()
+        canvas.translate(overscan.toFloat(), overscan.toFloat())
+        canvas.concat(matrix)
+        canvas.drawBitmap(lifted.bitmap, source.left.toFloat(), source.top.toFloat(), filterPaint)
+        canvas.restoreToCount(checkpoint)
+    }
+
+    /**
+     * What the layer would hold with [lifted] put down, worked out on the side, so the selection is still lifted afterwards and nothing has changed. The same steps
+     * as really putting it down and then saving, and what can go wrong with those goes wrong here too.
+     */
+    private fun celWithSelectionDown(lifted: Floating): CelPicture? {
+        val target = surface ?: return null
+        val key = loadedKey ?: return null
+        val copy = target.copy(Bitmap.Config.ARGB_8888, true) ?: throw OutOfMemoryError("The surface could not be copied")
+        try {
+            var area = contentBounds
+            if (lifted.transform.isIdentity) {
+                val cut = lifted.cutRect
+                copy.setPixels(lifted.before, 0, cut.width, cut.left, cut.top, cut.width, cut.height)
+            } else {
+                drawWhereItNowIs(lifted, Canvas(copy))
+                area = area.union(
+                    lifted.transform
+                        .bounds()
+                        .translated(overscan, overscan)
+                        .intersect(surfaceRect()),
+                )
+            }
+            val tight = tightBounds(copy, area)
+            val previous = project.cels[key]
+            val pixels = if (previous != null &&
+                overhangsSurface(previous)
+            ) {
+                composeWithOverhang(previous, tight, copy)
+            } else {
+                cropOf(copy, tight)
+            }
+            return CelPicture(pixels?.image, pixels?.bounds)
+        } finally {
+            copy.recycle()
+        }
     }
 
     private fun cancelFloating() {
@@ -1080,8 +1124,9 @@ public class DrawingSession(
      * so [edit] sees the project as it stands. [selectLayerId] becomes the active layer if the result has it.
      *
      * It either happens or it does not. Running out of memory comes back to the caller as itself, and a save of pending pixels that cannot finish as
-     * an [IOException], because whoever made this change has to tell the user whether it happened. Then the project, the surface and both undo
-     * stacks are as they were. Once this returns the edit stands, and the caller can count on that.
+     * an [IOException], because whoever made this change has to tell the user whether it happened. Then the project, the surface, a lifted selection and
+     * both undo stacks are as they were. Once this returns the edit stands, and the caller can count on that. With a selection lifted, [edit] runs twice, to
+     * find out first what it will need, so it must do nothing but work out its result.
      */
     @Throws(IOException::class)
     public suspend fun applyEdit(selectLayerId: String? = null, edit: (Project) -> Project) {
@@ -1103,6 +1148,7 @@ public class DrawingSession(
         // A stroke must land on the frame and layer it started on, and this may be about to change the layer.
         commitStroke()
         settleOpacityPreview()
+        floating?.let { rehearseEdit(it, selectLayerId, edit) }
         commitFloatingAndPublish()
         flushActive()
         val before = project
@@ -1137,6 +1183,22 @@ public class DrawingSession(
         }
         markChanged()
         publishWhereThingsStand()
+    }
+
+    /**
+     * Tries what could still go wrong with an edit while a selection is lifted, and throws the results away. Putting a selection down is a step of its own, which
+     * nothing can take back if the edit then fails, and that failure would have to come with the news that nothing has changed.
+     */
+    private fun rehearseEdit(lifted: Floating, selectLayerId: String?, edit: (Project) -> Project) {
+        celWithSelectionDown(lifted)?.image?.recycle()
+        val after = edit(project)
+        surfacesForEdit(after)?.let {
+            it.surface.recycle()
+            it.strokeBuffer.recycle()
+        }
+        val layer = selectLayerId?.takeIf { after.layer(it) != null } ?: layerId
+        val cel = after.cels[CelKey(layer, frameId)]
+        if (cel?.file != loadedFile) readForEdit(cel)
     }
 
     /** Surfaces for the size an edit leaves the canvas at, or null if that does not differ. An edit that does not fit does not happen. */
@@ -1242,6 +1304,7 @@ public class DrawingSession(
     public fun setBackground(background: Background) {
         post {
             showBackground(background)
+            history.discardBackgroundSteps()
             publishScene()
             publishState()
         }
@@ -1352,6 +1415,25 @@ public class DrawingSession(
             } catch (e: UnreadableCel) {
                 publishWhereThingsStand()
                 throw IOException("An earlier drawing could not be read while saving", e)
+            }
+        }
+
+    /**
+     * What the active layer holds on this frame as it would be with its lifted selection put down, while that stays lifted. Null if nothing is lifted, as [snapshot] then
+     * has the answer. This is for working out a change that may still fail, by which time nothing of the user's may have moved.
+     *
+     * Throws an [IOException] when memory runs out or a drawing cannot be read, as [snapshot] does.
+     */
+    @Throws(IOException::class)
+    public suspend fun activeCelWithSelectionDown(): CelPicture? =
+        withContext(dispatcher) {
+            try {
+                floating?.let(::celWithSelectionDown)
+            } catch (e: OutOfMemoryError) {
+                trimAfterOutOfMemory()
+                throw IOException("Ran out of memory while reading the layer", e)
+            } catch (e: UnreadableCel) {
+                throw IOException("An earlier drawing could not be read", e)
             }
         }
 

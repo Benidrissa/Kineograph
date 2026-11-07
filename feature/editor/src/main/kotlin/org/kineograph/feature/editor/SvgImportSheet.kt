@@ -94,7 +94,7 @@ import org.kineograph.media.svgimport.SvgFit
 import org.kineograph.media.svgimport.SvgImportOutcome
 import org.kineograph.media.svgimport.SvgImportPlace
 import org.kineograph.media.svgimport.SvgSampling
-import org.kineograph.media.svgimport.maxImportFrames
+import org.kineograph.media.svgimport.roomForImportedFrames
 import org.kineograph.media.svgimport.suggestedSeconds
 import org.kineograph.media.svgimport.svgDestination
 import org.kineograph.model.ImportEdits
@@ -104,6 +104,7 @@ import org.kineograph.model.Project
 import org.kineograph.ui.KgIcons
 import org.kineograph.ui.VisualDropdown
 import org.kineograph.ui.VisualOption
+import org.kineograph.ui.availableMemoryBytes
 import org.kineograph.ui.rememberReduceMotion
 import java.math.RoundingMode
 import java.text.NumberFormat
@@ -243,9 +244,10 @@ internal fun SvgImportForm(
     onImport: () -> Unit,
     onDismiss: () -> Unit,
     reduceMotion: Boolean = rememberReduceMotion(),
+    availableMemory: Long = rememberFreeMemory(),
 ) {
     val refused = choices.place == SvgImportPlace.CURRENT_LAYER && !choices.asAnimation && !canDrawOnActiveLayer
-    val tooLong = choices.isTooLong(file, project.fps)
+    val tooLong = choices.isTooLong(file, project)
     val frameId = project.frames.getOrNull(frameNumber - 1)?.id ?: project.frames.first().id
     val motion =
         remember(
@@ -279,7 +281,7 @@ internal fun SvgImportForm(
             if (file.canAnimate) ImportAsDropdown(choices.asAnimation) { onChange(choices.copy(asAnimation = it)) }
             if (choices.asAnimation) {
                 if (file.document.animation.hasIntro) StartFromDropdown(choices.withIntro) { onChange(choices.copy(withIntro = it)) }
-                DurationChoice(file, project, frameId, choices, tooLong, onChange)
+                DurationChoice(file, project, frameId, choices, tooLong, availableMemory, onChange)
                 AnimationPlacement(frameNumber)
             } else {
                 if (file.canAnimate) MomentChoice(file, choices, onChange)
@@ -442,6 +444,7 @@ private fun ColumnScope.DurationChoice(
     frameId: String,
     choices: SvgImportChoices,
     tooLong: Boolean,
+    availableMemory: Long,
     onChange: (SvgImportChoices) -> Unit,
 ) {
     val locale = LocalConfiguration.current.locales[0]
@@ -499,6 +502,9 @@ private fun ColumnScope.DurationChoice(
                 Modifier.testTag("svg_import_large"),
             )
         }
+        if (isShortOfMemoryForImport(project.width, project.height, availableMemory)) {
+            InfoNote(stringResource(R.string.svg_import_low_memory_warning), Modifier.testTag("svg_import_low_memory"))
+        }
     }
 }
 
@@ -519,6 +525,26 @@ private fun InfoNote(text: String, modifier: Modifier = Modifier) {
 private fun rawBytes(frames: Int, width: Int, height: Int): Long = frames.toLong() * width * height * BYTES_PER_PIXEL
 
 internal fun likelyStorageBytes(frames: Int, width: Int, height: Int): Long = rawBytes(frames, width, height) / LIKELY_COMPRESSION
+
+/** What the system says is free as the sheet opens, by which time the canvas itself has been paid for. */
+@Composable
+private fun rememberFreeMemory(): Long {
+    val context = LocalContext.current
+    return remember { availableMemoryBytes(context) }
+}
+
+/**
+ * The pictures an animated import holds outside the Java heap, on top of the canvas itself: the two it compares each frame with, one on its way to the disk, and however many
+ * more the file store lets wait, which CelFileStore keeps to a set amount.
+ */
+internal fun importMemoryBytes(width: Int, height: Int): Long {
+    val canvas = width.toLong() * height * BYTES_PER_PIXEL
+    return canvas * IMPORT_PICTURES_HELD + minOf(canvas * IMPORT_PICTURES_WAITING, IMPORT_WAITING_BYTES)
+}
+
+/** Whether what is free now would not cover an import's pictures. The system may end the app over this, rather than refuse a picture, so it has to be said beforehand. */
+internal fun isShortOfMemoryForImport(width: Int, height: Int, availableBytes: Long): Boolean =
+    availableBytes > 0 && importMemoryBytes(width, height) > availableBytes
 
 /** Big enough to deserve a word of warning, on this phone. Nothing is ever refused because of this. */
 internal fun isLargeImport(frames: Int, width: Int, height: Int, heapBytes: Long = Runtime.getRuntime().maxMemory()): Boolean =
@@ -877,7 +903,13 @@ internal fun previewMotion(
     val sampling = SvgSampling.of(animation, duration, rate, choices.withIntro)
     if (reduceMotion) return PreviewMotion.Still(sampling.secondsAt(sampling.tickCount / 2))
     // Listing them for more than a device can hold would be the one thing here that could run out of memory.
-    val seen = if (sampling.tickCount <= maxImportFrames()) ImportEdits.ticksToSample(project, frameId, sampling.tickCount) else null
+    val seen = if (sampling.tickCount <=
+        roomForImportedFrames(project)
+    ) {
+        ImportEdits.ticksToSample(project, frameId, sampling.tickCount)
+    } else {
+        null
+    }
     return PreviewMotion.Playing(sampling, seen, rate)
 }
 
@@ -1112,3 +1144,6 @@ private const val BYTES_PER_PIXEL = 4L
 private const val LIKELY_COMPRESSION = 8L
 private const val LARGE_FRAME_COUNT = 1000
 private const val LARGE_HEAPS = 8L
+private const val IMPORT_PICTURES_HELD = 3L
+private const val IMPORT_PICTURES_WAITING = 7L
+private const val IMPORT_WAITING_BYTES = 64L * 1024 * 1024

@@ -21,7 +21,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
@@ -49,7 +48,7 @@ import org.kineograph.data.ThemeMode
 import org.kineograph.data.ToolbarSide
 import org.kineograph.ui.KgIconButton
 import org.kineograph.ui.KgIcons
-import org.kineograph.ui.kgSliderColors
+import org.kineograph.ui.KgSlider
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -171,17 +170,16 @@ internal fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> U
 }
 
 @Composable
-private fun SmoothingRow(value: Int, onChange: (Int) -> Unit) {
+internal fun SmoothingRow(value: Int, onChange: (Int) -> Unit) {
     var shown by remember(value) { mutableFloatStateOf(value.toFloat()) }
     val label = stringResource(R.string.settings_default_smoothing)
     Column {
         Text("$label: ${shown.roundToInt()}")
-        Slider(
+        KgSlider(
             value = shown,
             onValueChange = { shown = it },
             onValueChangeFinished = { onChange(shown.roundToInt()) },
             valueRange = 0f..100f,
-            colors = kgSliderColors(),
             modifier = Modifier.semantics { contentDescription = label },
         )
     }

@@ -9,11 +9,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
@@ -25,6 +27,7 @@ import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -37,6 +40,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -55,6 +59,7 @@ import org.kineograph.media.video.EncoderLimits
 import org.kineograph.model.Background
 import org.kineograph.model.FrameSlot
 import org.kineograph.model.Project
+import org.kineograph.model.ProjectEdits
 import org.kineograph.model.newProject
 import org.kineograph.ui.KineographTheme
 import org.robolectric.Shadows.shadowOf
@@ -93,6 +98,35 @@ class ExportOptionsTest {
 
     private fun tap(tag: String) {
         compose.onNodeWithTag(tag).performScrollTo().performClick()
+    }
+
+    @Test
+    fun `each end of the frame range can be touched over 48 dp, at either font size`() {
+        val long = (1..12).fold(newProject("Test", 200, 100, 12, Background.Transparent, "Layer 1", now = 0)) { project, index ->
+            ProjectEdits.addFrameAfter(project, null, "frame $index")
+        }
+        var fontScale by mutableStateOf(1f)
+        compose.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
+                KineographTheme(darkTheme = false) {
+                    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp)) {
+                        ExportOptions(long) { exported = it }
+                    }
+                }
+            }
+        }
+        for (scale in listOf(1f, 2f)) {
+            fontScale = scale
+            compose.waitForIdle()
+            for (end in listOf("Range start", "Range end")) {
+                val size = compose.onNode(hasContentDescription(end), useUnmergedTree = true).fetchSemanticsNode().size
+                val minimum = with(compose.density) { 48.dp.roundToPx() }
+                assertTrue("$end at $scale: $size", size.width >= minimum && size.height >= minimum)
+            }
+        }
+        compose.onNodeWithTag("export_range_slider").performScrollTo()
+        compose.onRoot().saveScreenshot("export_range_slider")
     }
 
     private fun export(): ExportConfig {

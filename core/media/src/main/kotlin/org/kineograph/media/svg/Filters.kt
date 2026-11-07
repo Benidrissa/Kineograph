@@ -168,9 +168,14 @@ private val IDENTITY_MATRIX =
         0.0,
     )
 
+private const val BYTES_PER_CHAR_OF_NUMBERS = 20
+
 /** Five columns by four rows, row by row, with the last column as a fraction: what the specification writes down. Null if the values make no sense. */
 private fun matrixOf(primitive: SvgElement): DoubleArray? {
-    val values = primitive.attrs["values"]?.let(::parseNumberList)
+    // Only twenty numbers can mean anything here, but the file can give millions, and each one is an object until they have been counted.
+    val text = primitive.attrs["values"]
+    if (text != null && !HeapWatch.hasRoomForText(text.length, BYTES_PER_CHAR_OF_NUMBERS)) return null
+    val values = text?.let(::parseNumberList)
     return when (primitive.attrs["type"]?.trim() ?: "matrix") {
         "matrix" -> {
             when {

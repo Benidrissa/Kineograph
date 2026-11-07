@@ -34,8 +34,9 @@ public interface CelStore {
 
     /**
      * Gives up on images that nothing will ever refer to, such as those of an import that ran out of storage. The sweep would get to the files
-     * in time, but the space is needed now, and a write that keeps failing would keep making every later save fail along with it.
-     * Call this only once [awaitWrites] has returned or thrown, so that none of them is still being written.
+     * in time, but the space is needed now, and a write that keeps failing would keep making every later save fail along with it. When this
+     * returns, none of them is in memory, on disk or on its way there, even if someone else was waiting for those writes. It can take as long as
+     * a write, and one delete for each file, so it does not belong on the main thread.
      */
-    public fun discard(files: Collection<String>) {}
+    public suspend fun discard(files: Collection<String>) {}
 }

@@ -214,6 +214,7 @@
         <item quantity="many">%1$s\u00A0s à %2$d i/s = %3$d d’images</item>
         <item quantity="other">%1$s\u00A0s à %2$d i/s = %3$d images</item>
     </plurals>
+    <string name="svg_import_low_memory_warning">Il reste peu de mémoire libre sur ce téléphone pour un canevas de cette taille : l’application pourrait se fermer pendant l’importation. Votre projet n’en souffrirait pas. Fermer d’autres applications ou utiliser un canevas plus petit peut aider.</string>
     <string name="svg_import_large_warning">Cette importation est volumineuse. Elle peut prendre du temps et occuper environ %1$s de stockage. Vous pouvez l’annuler à tout moment.</string>
     <string name="svg_import_animation_where">Nouveau calque, à partir de l’image %1$d</string>
     <string name="svg_import_moment">Moment</string>

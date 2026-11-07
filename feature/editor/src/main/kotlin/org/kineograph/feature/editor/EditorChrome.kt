@@ -16,6 +16,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -318,44 +319,87 @@ private fun ToolButton(
     KgIconButton(icon, label, { onSelect(tool) }, selected = selected, modifier = Modifier.testTag(tag).then(hint))
 }
 
-/** Quick size and opacity sliders on the free edge of the canvas. */
+/**
+ * Quick size and opacity sliders on the free edge of the canvas, on a panel so that they stand out against whatever is on it. The sliders come first: their 48 dp is
+ * not negotiable and the rest of the panel is. So on a short canvas, such as a phone held sideways, its icons and then its margins make way. Below two sliders' height
+ * there is nowhere to put them, and the tool's own options sheet has the same two.
+ */
 @Composable
 internal fun BoxScope.QuickSliders(tools: ToolState, side: ToolbarSide, onSize: (Float) -> Unit, onOpacity: (Float) -> Unit) {
     if (tools.tool != CanvasTool.BRUSH && tools.tool != CanvasTool.ERASER) return
     val sizeLabel = stringResource(R.string.slider_size)
     val opacityLabel = stringResource(R.string.slider_opacity)
-    Surface(
-        shape = RoundedCornerShape(24.dp),
-        tonalElevation = 3.dp,
-        shadowElevation = 3.dp,
-        modifier =
-            Modifier
-                .align(if (side == ToolbarSide.LEFT) Alignment.CenterEnd else Alignment.CenterStart)
-                .padding(6.dp)
-                // In this order: filling the height first would leave nothing for the limit to limit. Above and below them, strokes can start.
-                .heightIn(max = 400.dp)
-                .fillMaxHeight(0.8f),
+    BoxWithConstraints(
+        Modifier
+            .align(if (side == ToolbarSide.LEFT) Alignment.CenterEnd else Alignment.CenterStart)
+            .fillMaxHeight(),
+        contentAlignment = Alignment.Center,
     ) {
-        Column(Modifier.padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(KgIcons.BrushSize, contentDescription = null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            VerticalSlider(
-                value = ToolState.sizeToSlider(tools.activeSize),
-                onValueChange = { onSize(ToolState.sliderToSize(it)) },
-                label = sizeLabel,
-                stateText = stringResource(R.string.slider_size_value, tools.activeSize.roundToInt()),
-                modifier = Modifier.weight(1f).padding(vertical = 6.dp).testTag("slider_size"),
-            )
-            Icon(KgIcons.Opacity, contentDescription = null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            VerticalSlider(
-                value = tools.activeOpacity,
-                onValueChange = onOpacity,
-                label = opacityLabel,
-                stateText = "${(tools.activeOpacity * 100f).roundToInt()}%",
-                modifier = Modifier.weight(1f).padding(vertical = 6.dp).testTag("slider_opacity"),
-            )
+        if (maxHeight < QUICK_SLIDERS_LEAST_HEIGHT) return@BoxWithConstraints
+        val roomy = maxHeight >= QUICK_SLIDERS_ROOMY_HEIGHT
+        val hasMargins = maxHeight >= QUICK_SLIDERS_MARGINS_HEIGHT
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 3.dp,
+            shadowElevation = 3.dp,
+            modifier =
+                Modifier
+                    .padding(horizontal = 6.dp, vertical = if (hasMargins) 6.dp else 0.dp)
+                    // In this order: filling the height first would leave nothing for the limit to limit. Above and below them, strokes can start.
+                    .heightIn(max = 400.dp)
+                    .fillMaxHeight(if (roomy) 0.8f else 1f),
+        ) {
+            Column(
+                Modifier.padding(vertical = if (hasMargins) 10.dp else 0.dp),
+                // With nothing between them they would look like one long slider with two thumbs. The icons do that on a tall canvas.
+                verticalArrangement = Arrangement.spacedBy(
+                    if (roomy) 0.dp else (maxHeight - QUICK_SLIDERS_LEAST_HEIGHT).coerceAtMost(8.dp),
+                ),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                if (roomy) {
+                    Icon(
+                        KgIcons.BrushSize,
+                        contentDescription = null,
+                        Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                VerticalSlider(
+                    value = ToolState.sizeToSlider(tools.activeSize),
+                    onValueChange = { onSize(ToolState.sliderToSize(it)) },
+                    label = sizeLabel,
+                    stateText = stringResource(R.string.slider_size_value, tools.activeSize.roundToInt()),
+                    modifier = Modifier.weight(1f).padding(vertical = if (roomy) 6.dp else 0.dp).testTag("slider_size"),
+                )
+                if (roomy) {
+                    Icon(
+                        KgIcons.Opacity,
+                        contentDescription = null,
+                        Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                VerticalSlider(
+                    value = tools.activeOpacity,
+                    onValueChange = onOpacity,
+                    label = opacityLabel,
+                    stateText = "${(tools.activeOpacity * 100f).roundToInt()}%",
+                    modifier = Modifier.weight(1f).padding(vertical = if (roomy) 6.dp else 0.dp).testTag("slider_opacity"),
+                )
+            }
         }
     }
 }
+
+/** Two sliders of 48 dp. Nothing else is allowed to cost them anything below the next height. */
+private val QUICK_SLIDERS_LEAST_HEIGHT = 96.dp
+
+/** Twelve above and below, twenty inside the panel and eight between them, which leaves each slider a little over 48 dp. */
+private val QUICK_SLIDERS_MARGINS_HEIGHT = 144.dp
+
+/** Where the panel can leave some of the edge free and still show what each slider is for, with each slider about 80 dp. */
+private val QUICK_SLIDERS_ROOMY_HEIGHT = 320.dp
 
 @Composable
 internal fun SelectionBar(onDone: () -> Unit, onCancel: () -> Unit, onDelete: () -> Unit, modifier: Modifier = Modifier) {

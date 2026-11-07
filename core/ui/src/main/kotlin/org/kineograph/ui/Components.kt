@@ -4,19 +4,24 @@ import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RangeSlider
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderColors
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.Composable
@@ -162,6 +167,73 @@ public fun VerticalSlider(
     }
 }
 
+/** A slider that can be touched over at least 48 dp. Left to itself, a slider takes the height of its 44 dp thumb, whatever it is asked for, and that is what can be touched. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+public fun KgSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
+    steps: Int = 0,
+    onValueChangeFinished: (() -> Unit)? = null,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val colors = kgSliderColors()
+    Slider(
+        value = value,
+        onValueChange = onValueChange,
+        valueRange = valueRange,
+        steps = steps,
+        onValueChangeFinished = onValueChangeFinished,
+        colors = colors,
+        interactionSource = interaction,
+        thumb = {
+            Box(Modifier.heightIn(min = MIN_TOUCH_TARGET), contentAlignment = Alignment.Center) {
+                SliderDefaults.Thumb(interactionSource = interaction, colors = colors)
+            }
+        },
+        modifier = modifier,
+    )
+}
+
+/** The same for a range. Each thumb is a target of its own for touch and for TalkBack, so each has to be wide enough as well as high enough. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+public fun KgRangeSlider(
+    value: ClosedFloatingPointRange<Float>,
+    onValueChange: (ClosedFloatingPointRange<Float>) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+    modifier: Modifier = Modifier,
+    steps: Int = 0,
+) {
+    val start = remember { MutableInteractionSource() }
+    val end = remember { MutableInteractionSource() }
+    val colors = kgSliderColors()
+    RangeSlider(
+        value = value,
+        onValueChange = onValueChange,
+        valueRange = valueRange,
+        steps = steps,
+        colors = colors,
+        startInteractionSource = start,
+        endInteractionSource = end,
+        startThumb = {
+            Box(Modifier.size(MIN_TOUCH_TARGET), contentAlignment = Alignment.Center) {
+                SliderDefaults.Thumb(interactionSource = start, colors = colors)
+            }
+        },
+        endThumb = {
+            Box(Modifier.size(MIN_TOUCH_TARGET), contentAlignment = Alignment.Center) {
+                SliderDefaults.Thumb(interactionSource = end, colors = colors)
+            }
+        },
+        // The track leaves a gap as wide as the thumb is measured, which is now far wider than what can be seen of it.
+        track = { state -> SliderDefaults.Track(rangeSliderState = state, colors = colors, thumbTrackGapSize = 0.dp) },
+        modifier = modifier,
+    )
+}
+
 /**
  * Slider colours that stay readable in both themes. The default unfilled part of the track uses a container colour
  * that nearly vanishes against a dark sheet.
@@ -176,5 +248,7 @@ public fun kgSliderColors(): SliderColors {
     )
 }
 
-private const val TRACK_ALPHA = 0.28f
+/** Enough for the 3:1 that a control's own edge needs, on a sheet and on the quick sliders' panel, in both themes. ThemeContrastTest holds it there. */
+internal const val TRACK_ALPHA = 0.55f
+private val MIN_TOUCH_TARGET = 48.dp
 private const val TICK_ALPHA = 0.7f

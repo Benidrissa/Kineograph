@@ -149,6 +149,7 @@ internal class ImageStore(private val maxPixels: Long, private val maxImagePixel
 internal class SvgResources(limits: SvgLimits) {
     val glyphs: GlyphCache = GlyphCache(limits.maxGlyphCacheBytes)
     val images: ImageStore = ImageStore(limits.maxDecodedImagePixels, limits.maxImagePixels)
+    val basicShapes: BasicShapeTable = BasicShapeTable()
 }
 
 /** The properties of an element at one moment: what the cascade gave it, with animated values laid on top. */
@@ -194,7 +195,6 @@ internal class SvgModel(
     /** Laid-out text, kept between frames because shaping text is far slower than drawing the outlines it produces. */
     val glyphs: GlyphCache get() = resources.glyphs
 
-    private val basicShapes = HashMap<String, BasicShape?>()
     private val motionMeasures = HashMap<PathData, MotionMeasure>()
 
     // By identity, since a list that is not animated stays the same object. Comparing them by content would itself take a long time.
@@ -209,8 +209,6 @@ internal class SvgModel(
         if (motionMeasures.size >= MAX_MOTION_MEASURES) motionMeasures.clear()
         return motionMeasures.getOrPut(data) { MotionMeasure(data) }
     }
-
-    fun basicShape(text: String): BasicShape? = basicShapes.getOrPut(text) { parseBasicShape(text) }
 
     /** A long polygon that does not change is the same path on every frame, and rebuilding it would leave a copy behind each time. */
     fun polyline(value: SvgValue, closed: Boolean, points: () -> List<Double>): PathData {

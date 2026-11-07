@@ -11,12 +11,15 @@ import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.ActivityResultRegistryOwner
 import androidx.activity.result.contract.ActivityResultContract
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -38,11 +41,13 @@ import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityOptionsCompat
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -54,6 +59,7 @@ import org.kineograph.data.db.openProjectDao
 import org.kineograph.data.files.ProjectFiles
 import org.kineograph.model.Background
 import org.kineograph.model.PaperKind
+import org.kineograph.ui.DefaultSwatches
 import org.kineograph.ui.KineographTheme
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
@@ -392,6 +398,94 @@ class GalleryUiTest {
         compose.onNodeWithTag("camera_unavailable").assertDoesNotExist()
         compose.onNodeWithTag("create_project").performScrollTo().performClick()
         assertEquals(Background.Transparent, created?.background)
+    }
+
+    /** A camera app that puts a photo of one colour in the file it was given, and says it worked. */
+    private fun showFormWithCamera(file: java.io.File, colors: () -> Int) {
+        val registry =
+            object : ActivityResultRegistry() {
+                override fun <I, O> onLaunch(
+                    requestCode: Int,
+                    contract: ActivityResultContract<I, O>,
+                    input: I,
+                    options: ActivityOptionsCompat?,
+                ) {
+                    val photo = Bitmap.createBitmap(160, 90, Bitmap.Config.ARGB_8888).apply { eraseColor(colors()) }
+                    file.outputStream().use { photo.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    dispatchResult(requestCode, true)
+                }
+            }
+        val owner =
+            object : ActivityResultRegistryOwner {
+                override val activityResultRegistry = registry
+            }
+        compose.setContent {
+            CompositionLocalProvider(LocalActivityResultRegistryOwner provides owner) {
+                KineographTheme(darkTheme = false) {
+                    NewProjectForm(
+                        defaultNumber = 3,
+                        canEncode = { _, _ -> false },
+                        onCreate = {},
+                        cameraUriFor = { Uri.fromFile(file) },
+                    )
+                }
+            }
+        }
+    }
+
+    /** Off to one side, where the ball never goes. */
+    private fun previewBackground(): Int {
+        val picture = compose.onNodeWithTag("project_preview").captureToImage().asAndroidBitmap()
+        return picture.getPixel(picture.width * 3 / 4, picture.height / 2)
+    }
+
+    private fun waitForPreview(argb: Int) {
+        compose.waitUntil(10_000) {
+            Thread.sleep(5)
+            previewBackground() == argb
+        }
+    }
+
+    @Test
+    fun `taking a second photo as the background shows the second photo`() {
+        var color = Color.RED
+        showFormWithCamera(temp.newFile("background.jpg")) { color }
+        chooseBackground("background_camera")
+        waitForPreview(Color.RED)
+        color = Color.BLUE
+        chooseBackground("background_camera")
+        waitForPreview(Color.BLUE)
+    }
+
+    @Test
+    fun `the ball never disappears against the background, starting with the colour first offered`() {
+        for (argb in listOf(DefaultSwatches[3], 0xFFE4572E.toInt(), 0xFFE55A30.toInt(), 0xFF000000.toInt(), 0xFFFFFFFF.toInt())) {
+            val ball = ballColorOn(BackgroundChoice.SolidChoice(argb))
+            assertNotEquals(
+                "#%08X".format(argb),
+                androidx.compose.ui.graphics
+                    .Color(argb),
+                ball,
+            )
+        }
+        assertNotEquals(ballColorOn(BackgroundChoice.TransparentChoice), ballColorOn(BackgroundChoice.SolidChoice(DefaultSwatches[3])))
+        // Any other colour leaves the ball as it is, so that the preview looks the same as it always has.
+        assertEquals(ballColorOn(BackgroundChoice.TransparentChoice), ballColorOn(BackgroundChoice.SolidChoice(0xFF000000.toInt())))
+    }
+
+    @Test
+    fun `the colour first offered still leaves a ball to look at in the preview`() {
+        val background = BackgroundChoice.SolidChoice(DefaultSwatches[3])
+        compose.setContent {
+            KineographTheme(darkTheme = true) { ProjectPreview(12, 1280, 720, background, null, Modifier.size(320.dp, 180.dp)) }
+        }
+        compose.waitForIdle()
+        val picture = compose.onNodeWithTag("project_preview").captureToImage().asAndroidBitmap()
+        val colours = HashSet<Int>()
+        for (x in 0 until picture.width) {
+            for (y in 0 until picture.height) colours += picture.getPixel(x, y)
+        }
+        assertTrue("no ball among ${colours.size} colours", ballColorOn(background).toArgb() in colours)
     }
 
     @Test
