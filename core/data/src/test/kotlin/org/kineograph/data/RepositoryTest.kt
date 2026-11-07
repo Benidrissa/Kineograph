@@ -1690,8 +1690,9 @@ class RepositoryTest {
         assertTrue(runCatching { runBlocking { store.awaitWrites() } }.exceptionOrNull() is OutOfMemoryError)
         failure = null
         runBlocking { store.awaitWrites() }
-        store.write(image())
+        // Before the write, since it may start at once.
         failure = IOException("disk full")
+        store.write(image())
         val error = runCatching { runBlocking { store.awaitWrites() } }.exceptionOrNull()
         assertTrue("got $error", error is IOException)
         store.close()
