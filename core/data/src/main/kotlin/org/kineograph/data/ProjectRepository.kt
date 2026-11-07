@@ -409,6 +409,8 @@ public class ProjectRepository(
                     adoptDirectory(id)
                 } catch (_: IOException) {
                     // Tried again at the next start-up.
+                } catch (_: OutOfMemoryError) {
+                    // A very long project's manifest can be too much for the heap. Tried again at the next start-up too.
                 }
             }
             index { dao.trashedBefore(clock() - TRASH_RETENTION_MS) }.forEach { deletePermanently(it) }

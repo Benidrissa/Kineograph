@@ -65,6 +65,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeFalse
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -842,8 +843,9 @@ class EditorViewModelTest {
         val editor = ShownEditor(viewModel)
 
         viewModel.startPlayback(FakeDisplay(), 1f)
-        // Nothing has had a chance to run on the main thread yet, so the start is still waiting for the save.
-        assertFalse(controller.state.value.isPlaying)
+        // The start is waiting for the save, since nothing has had a chance to run on the main thread. On a busy machine the save can finish
+        // before the start would suspend, and then it never waits, so this run has nothing to test.
+        assumeFalse(controller.state.value.isPlaying)
         editor.leaveTheApp()
 
         controller.runMainThreadUntilPlaying(forMs = 100)

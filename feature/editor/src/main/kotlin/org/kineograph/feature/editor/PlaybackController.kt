@@ -90,6 +90,37 @@ internal object PlaybackWindow {
 }
 
 /**
+ * The background picture for one playback, one copy between all the workers. Running out of memory usually shows up as no image rather than
+ * an error, and either way [read] throws [OutOfMemoryError] so the worker makes room and comes back. A picture that has gone, or keeps failing
+ * and so may be damaged, is left out: frames go on without it, here as everywhere else.
+ */
+private class PlaybackBackground(private val store: CelStore, private val file: String?) {
+    private var image: Bitmap? = null
+    private var settled = file == null
+    private var failures = 0
+
+    @Synchronized
+    fun read(): Bitmap? {
+        if (settled || file == null) return image
+        image =
+            try {
+                store.read(file)
+            } catch (_: OutOfMemoryError) {
+                null
+            }
+        if (image != null || store.isGone(file) || ++failures >= MAX_TRIES) {
+            settled = true
+            return image
+        }
+        throw OutOfMemoryError("The background picture did not fit")
+    }
+
+    private companion object {
+        const val MAX_TRIES = 4
+    }
+}
+
+/**
  * Plays the animation. The clock runs on Choreographer and never waits for anything: a frame not decoded yet is
  * skipped rather than slowing the animation down, so timing is always right. Frames are flattened ahead of the
  * playhead on background threads, at the size they are shown, and kept as hardware bitmaps where possible, so they
@@ -166,11 +197,12 @@ internal class PlaybackController(
         val prerollFrames = min(min(capacity, target.frames.size), PREROLL_FRAMES)
 
         val workerCount = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, if (isLowRam) 2 else 3)
+        val background = PlaybackBackground(store, (target.background as? Background.Image)?.file)
         repeat(workerCount) {
             jobs +=
                 scope.launch(
                     Dispatchers.Default,
-                ) { decodeLoop(target, timeline, width, height, scale, targetDisplay.supportsHardwareBitmaps) }
+                ) { decodeLoop(target, timeline, background, width, height, scale, targetDisplay.supportsHardwareBitmaps) }
         }
         _state.value = PlaybackState(isPlaying = true, isPreparing = true, slotIndex = startSlot)
         jobs +=
@@ -271,11 +303,16 @@ internal class PlaybackController(
         }
     }
 
-    private suspend fun decodeLoop(target: Project, timeline: TimelineIndex, width: Int, height: Int, scale: Float, hardware: Boolean) {
+    private suspend fun decodeLoop(
+        target: Project,
+        timeline: TimelineIndex,
+        background: PlaybackBackground,
+        width: Int,
+        height: Int,
+        scale: Float,
+        hardware: Boolean,
+    ) {
         val flattener = FrameFlattener(store)
-        val backgroundImage = target.background as? Background.Image
-        var background: Bitmap? = null
-        var backgroundRead = backgroundImage == null
         val options = FlattenOptions(forEditor = true, includeReferenceLayers = true)
         var scratch: Bitmap? = null
         var scratchCanvas: Canvas? = null
@@ -287,15 +324,10 @@ internal class PlaybackController(
                 continue
             }
             try {
-                // Inside the try, and read again next time if memory runs out: a large picture is the likeliest thing here to be too big.
-                if (!backgroundRead) {
-                    background = backgroundImage?.let { store.read(it.file) }
-                    backgroundRead = true
-                }
                 val surface = scratch ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { scratch = it }
                 val canvas = scratchCanvas ?: Canvas(surface).also { scratchCanvas = it }
                 surface.eraseColor(0)
-                flattener.flatten(target, target.frames[slot].id, canvas, scale, background, options)
+                flattener.flatten(target, target.frames[slot].id, canvas, scale, background.read(), options)
                 val finished = if (hardware) {
                     surface.copy(
                         Bitmap.Config.HARDWARE,
@@ -304,7 +336,8 @@ internal class PlaybackController(
                 } else {
                     surface.copy(Bitmap.Config.ARGB_8888, false)
                 }
-                if (finished != null) {
+                // A worker stopped part way through a frame must not leave it in the cache for the next start, which would show it.
+                if (finished != null && kotlinx.coroutines.currentCoroutineContext().isActive) {
                     evictIfFull(slot, timeline.slotCount)
                     cache[slot] = finished
                 }

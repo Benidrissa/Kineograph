@@ -1,6 +1,7 @@
 package org.kineograph.feature.editor
 
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.os.Looper
 import android.os.SystemClock
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -32,6 +33,8 @@ import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.LooperMode
 import org.robolectric.shadows.ShadowChoreographer
 import java.time.Duration
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -74,16 +77,48 @@ class PlaybackPauseTest {
         override fun trimMemory() = Unit
     }
 
-    /** Runs out of memory on the background picture the first [failures] times it is asked for. */
-    private class TightStore(private val failures: Int) : CelStore {
+    /** A red picture, which fails the first [failures] times it is asked for, as a thrown error or as no image. Cels are blue. */
+    private class TightStore(
+        private val failures: Int,
+        private val throwing: Boolean = true,
+        private val gone: Boolean = false,
+    ) : CelStore {
         val backgroundReads = AtomicInteger()
-        private val image = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+        private val picture = solid(Color.RED)
+        private val cel = solid(Color.BLUE)
+
+        override fun write(image: Bitmap): String = "cels/one.png"
+
+        override fun read(file: String, sampleSize: Int): Bitmap? {
+            if (file != BACKGROUND_FILE) return cel
+            if (backgroundReads.incrementAndGet() > failures) return picture
+            if (throwing) throw OutOfMemoryError("Test")
+            return null
+        }
+
+        override fun isGone(file: String): Boolean = gone
+
+        override suspend fun awaitWrites() = Unit
+
+        override fun trimMemory() = Unit
+
+        private fun solid(color: Int) = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888).apply { eraseColor(color) }
+    }
+
+    /** Holds every read of [HELD_FILE] until told to go on, with cels of that file red and any others blue. */
+    private class HoldingStore : CelStore {
+        val holding = CountDownLatch(1)
+        val letGo = CountDownLatch(1)
+        private val red = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+        private val blue = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.BLUE) }
 
         override fun write(image: Bitmap): String = "cels/one.png"
 
         override fun read(file: String, sampleSize: Int): Bitmap {
-            if (file == BACKGROUND_FILE && backgroundReads.incrementAndGet() <= failures) throw OutOfMemoryError("Test")
-            return image
+            if (file != HELD_FILE) return blue
+            holding.countDown()
+            letGo.await(WAIT_MS, TimeUnit.MILLISECONDS)
+            return red
         }
 
         override fun isGone(file: String): Boolean = false
@@ -150,11 +185,10 @@ class PlaybackPauseTest {
 
     private val slot get() = controller.state.value.slotIndex
 
-    @Test
-    fun `memory running out on the background picture is survived, and the picture is read once it fits`() {
+    /** Plays with [tight] until two frames have shown and [until] holds, and returns what the last one had in its far corner. */
+    private fun playBackground(tight: TightStore, until: () -> Boolean = { true }): Int {
         val uncaught = AtomicReference<Throwable?>()
         val guarded = CoroutineScope(SupervisorJob() + Dispatchers.Main + CoroutineExceptionHandler { _, e -> uncaught.set(e) })
-        val tight = TightStore(failures = 2)
         val playback =
             PlaybackController(guarded, tight, playbackBudgetBytes = 1024L * 1024, isLowRam = false, nanoTime = {
                 SystemClock.uptimeMillis() * 1_000_000
@@ -163,15 +197,96 @@ class PlaybackPauseTest {
 
         playback.start(project.copy(background = Background.Image(BACKGROUND_FILE)), 0, PlaybackMode.LOOP, 1f, frames)
         val deadline = System.currentTimeMillis() + WAIT_MS
-        while (frames.shown < 2 || tight.backgroundReads.get() <= 2) {
+        while (frames.shown < 2 || !until()) {
             check(System.currentTimeMillis() < deadline) { "No frames were shown" }
             runFor(16)
             Thread.sleep(2)
         }
+        val corner = checkNotNull(frames.last).getPixel(7, 7)
         playback.stop()
         guarded.cancel()
 
         assertEquals(null, uncaught.get())
+        return corner
+    }
+
+    @Test
+    fun `memory running out on the background picture is survived, and the picture is read once it fits`() {
+        val tight = TightStore(failures = 2)
+
+        assertEquals(Color.RED, playBackground(tight) { tight.backgroundReads.get() > 2 })
+    }
+
+    @Test
+    fun `no image from the background picture while the file is there means memory, so it is read again`() {
+        val tight = TightStore(failures = 2, throwing = false)
+
+        assertEquals(Color.RED, playBackground(tight) { tight.backgroundReads.get() > 2 })
+    }
+
+    @Test
+    fun `workers share one copy of the background picture`() {
+        val tight = TightStore(failures = 0)
+
+        assertEquals(Color.RED, playBackground(tight))
+        assertEquals(1, tight.backgroundReads.get())
+    }
+
+    @Test
+    fun `a background picture that keeps failing is given up on, and frames go on without it`() {
+        val tight = TightStore(failures = Int.MAX_VALUE, throwing = false)
+
+        assertEquals(Color.WHITE, playBackground(tight))
+        val reads = tight.backgroundReads.get()
+        runFor(100)
+        Thread.sleep(100)
+        assertEquals(reads, tight.backgroundReads.get())
+        assertTrue(reads in 2..8)
+    }
+
+    @Test
+    fun `a background picture that has gone is not asked for twice`() {
+        val tight = TightStore(failures = Int.MAX_VALUE, throwing = false, gone = true)
+
+        assertEquals(Color.WHITE, playBackground(tight))
+        assertEquals(1, tight.backgroundReads.get())
+    }
+
+    @Test
+    fun `a worker still on a frame when playback stops does not leave it for the next start`() {
+        val holding = HoldingStore()
+        val shown = CopyOnWriteArrayList<Int>()
+        val frames =
+            object : PlaybackDisplay {
+                override val supportsHardwareBitmaps = false
+
+                override fun setPlaybackFrame(frame: Bitmap?) {
+                    if (frame != null) shown += frame.getPixel(0, 0)
+                }
+            }
+        val playback =
+            PlaybackController(scope, holding, playbackBudgetBytes = 1024L * 1024, isLowRam = false, nanoTime = {
+                SystemClock.uptimeMillis() * 1_000_000
+            })
+        val withCels = { file: String -> project.copy(cels = project.cels.mapValues { (_, cel) -> cel.copy(file = file) }) }
+
+        playback.start(withCels(HELD_FILE), 0, PlaybackMode.LOOP, 1f, frames)
+        assertTrue(holding.holding.await(WAIT_MS, TimeUnit.MILLISECONDS))
+        playback.stop()
+        playback.start(withCels("cels/other.png"), 0, PlaybackMode.LOOP, 1f, frames)
+        val deadline = System.currentTimeMillis() + WAIT_MS
+        while (shown.size < 2) {
+            check(System.currentTimeMillis() < deadline) { "No frames were shown" }
+            runFor(16)
+            Thread.sleep(2)
+        }
+        holding.letGo.countDown()
+        Thread.sleep(200)
+        // Twice round the animation, so that any slot it could have landed on comes up.
+        runFor(2 * FRAMES * FRAME_MS)
+        playback.stop()
+
+        assertFalse(shown.contains(Color.RED))
     }
 
     @Test
@@ -289,6 +404,7 @@ class PlaybackPauseTest {
         const val FRAME_MS = 1000L / FPS
         const val WAIT_MS = 20_000L
         const val BACKGROUND_FILE = "media/background.png"
+        const val HELD_FILE = "cels/held.png"
         const val READ_MS = 40L
     }
 }

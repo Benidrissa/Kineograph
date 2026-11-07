@@ -6,6 +6,7 @@ applies to it. Files are designed to be readable by other tools.
 ```
 manifest.json          The project, as described below
 manifest.prev.json     The previous revision, kept for crash recovery (not part of a .kgraph)
+manifest.tmp           A revision being saved. When manifest.json is missing, this is the newest complete copy (not part of a .kgraph)
 cels/<uuid>.webp|png   One image per drawing
 media/                 Background images
 audio/                 Audio (from Phase 2)
@@ -27,7 +28,7 @@ Cels are lossless WebP (written on Android 11+) or PNG (written on older version
 }
 ```
 
-`version` is the schema version. A reader must refuse a version newer than it knows, and must not fall back to an older revision to get round that, because its next saves would push the newer one out. Readers must ignore unknown fields.
+`version` is the schema version. A reader must refuse a version newer than it knows, and must not fall back to an older revision to get round that, because its next saves would push the newer one out. Falling back is for a newest file that is damaged or cannot be read. Readers must ignore unknown fields.
 
 ### project
 

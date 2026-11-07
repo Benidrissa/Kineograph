@@ -69,7 +69,7 @@ public class ManifestStore(private val directory: File) {
                     continue
                 }
             val (kept, missing) = withoutMissingCels(project, celExists)
-            return LoadedProject(kept, recoveredFromBackup = isBackup || (file === temporary), missingCels = missing)
+            return LoadedProject(kept, recoveredFromBackup = isBackup, missingCels = missing)
         }
         return null
     }
