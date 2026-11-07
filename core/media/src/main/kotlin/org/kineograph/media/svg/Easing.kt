@@ -107,13 +107,14 @@ internal fun parseEasing(raw: String): Easing? {
 internal class LinearPoints(private val inputs: DoubleArray, private val outputs: DoubleArray) : Easing {
     override fun ease(p: Double): Double {
         // Past the ends, the line through the two nearest points carries on, except where two points share one input.
-        var i = inputs.lastIndex - 1
-        for (k in 0 until inputs.lastIndex) {
-            if (p < inputs[k + 1]) {
-                i = k
-                break
-            }
+        // By halves, since this runs on every frame and the list can be as long as a file likes. The inputs never go backwards.
+        var low = 0
+        var high = inputs.lastIndex - 1
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (p < inputs[middle + 1]) high = middle else low = middle + 1
         }
+        val i = low
         val span = inputs[i + 1] - inputs[i]
         if (span <= 0.0) return outputs[i + 1]
         return outputs[i] + (outputs[i + 1] - outputs[i]) * (p - inputs[i]) / span

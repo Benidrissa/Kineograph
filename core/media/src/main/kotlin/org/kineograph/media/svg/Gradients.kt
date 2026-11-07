@@ -25,6 +25,9 @@ internal object GradientShaders {
     /** The focal gradient before API 31 is computed by hand. Tests turn this on to exercise that path on a newer runtime. */
     internal var forceSoftwareFocal: Boolean = false
 
+    fun worksOutFocalByHand(cx: Double, cy: Double, fx: Double, fy: Double, fr: Double): Boolean =
+        (fx != cx || fy != cy || fr != 0.0) && (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || forceSoftwareFocal)
+
     /** [matrix] places the gradient in user space: unit box, gradientTransform and all. */
     fun linear(
         x1: Double,

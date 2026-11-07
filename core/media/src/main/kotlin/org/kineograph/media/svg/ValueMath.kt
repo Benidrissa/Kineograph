@@ -198,11 +198,14 @@ internal object ValueMath {
         val y = if (b.items.size % 2 == 0) b.items else b.items + b.items
         val size = leastCommonMultiple(x.size, y.size)
         // A pathological pattern must not allocate without bound. Beyond this a flip looks no worse.
-        if (size > 4096) return null
-        return DashValue(List(size) { i -> x[i % x.size] + (y[i % y.size] - x[i % x.size]) * p })
+        if (size > MAX_MIXED_DASHES) return null
+        return DashValue(List(size.toInt()) { i -> x[i % x.size] + (y[i % y.size] - x[i % x.size]) * p })
     }
 
-    private fun leastCommonMultiple(a: Int, b: Int): Int {
+    private const val MAX_MIXED_DASHES = 4096L
+
+    /** As a Long, since two long lists can have a multiple far past what an Int holds, which would come out negative and pass the check. */
+    private fun leastCommonMultiple(a: Int, b: Int): Long {
         var x = a
         var y = b
         while (y != 0) {
@@ -210,6 +213,6 @@ internal object ValueMath {
             x = y
             y = r
         }
-        return a / x * b
+        return a.toLong() / x * b
     }
 }

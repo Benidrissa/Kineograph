@@ -7,7 +7,13 @@ import kotlin.math.pow
 import kotlin.math.sin
 
 /** Colours as they appear in files: every CSS name, hex, and the colour functions of CSS Color 4, as far as a picture can use them. */
-internal fun parseColor(raw: String): Rgba? {
+internal fun parseColor(raw: String): Rgba? = parseColor(raw, 0)
+
+/** `color-mix` can hold another `color-mix`. Real files go a level or two, and each level goes over all of the text again. */
+private const val MAX_COLOR_MIX_DEPTH = 8
+
+private fun parseColor(raw: String, depth: Int): Rgba? {
+    if (depth > MAX_COLOR_MIX_DEPTH) return null
     val text = raw.trim()
     if (text.isEmpty()) return null
     if (text[0] == '#') return parseHex(text)
@@ -27,7 +33,7 @@ internal fun parseColor(raw: String): Rgba? {
         "lch" -> parseLchFunction(args, oklch = false)
         "oklch" -> parseLchFunction(args, oklch = true)
         "color" -> parseColorFunction(args)
-        "color-mix" -> parseColorMix(args)
+        "color-mix" -> parseColorMix(args, depth)
         else -> null
     }
 }
@@ -180,12 +186,12 @@ private fun parseColorFunction(args: String): Rgba? {
 }
 
 /** `color-mix(in space, a p%, b q%)`. The round spaces are mixed through their nearest straight one, which only changes the path taken. */
-private fun parseColorMix(args: String): Rgba? {
+private fun parseColorMix(args: String, depth: Int): Rgba? {
     val parts = splitTopLevel(args, ',').map { it.trim() }
     if (parts.size != 3 || !parts[0].startsWith("in ")) return null
     val space = parts[0].removePrefix("in ").trim().substringBefore(' ')
-    val first = parseMixPart(parts[1]) ?: return null
-    val second = parseMixPart(parts[2]) ?: return null
+    val first = parseMixPart(parts[1], depth) ?: return null
+    val second = parseMixPart(parts[2], depth) ?: return null
     val given1 = first.second
     val given2 = second.second
     val a = given1 ?: if (given2 != null) 1.0 - given2 else 0.5
@@ -196,11 +202,11 @@ private fun parseColorMix(args: String): Rgba? {
     return mixed.copy(a = mixed.a * minOf(total, 1.0))
 }
 
-private fun parseMixPart(text: String): Pair<Rgba, Double?>? {
+private fun parseMixPart(text: String, depth: Int): Pair<Rgba, Double?>? {
     val tokens = splitList(text)
     val percent = tokens.firstOrNull { it.endsWith("%") }
     val color = tokens.filter { it != percent }.joinToString(" ")
-    return (parseColor(color) ?: return null) to percent?.let(::parseFraction)
+    return (parseColor(color, depth + 1) ?: return null) to percent?.let(::parseFraction)
 }
 
 private fun mixIn(space: String, x: Rgba, y: Rgba, p: Double): Rgba =

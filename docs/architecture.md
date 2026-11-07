@@ -118,7 +118,7 @@ libraries cannot animate, so this is our own code. It knows nothing about the UI
 an AI model.
 
 ```
-bytes  ->  XmlReader  ->  tree of SvgElement  ->  SvgModelBuilder  ->  SvgDocument  ->  SvgRenderer  ->  Canvas
+bytes  ->  XmlInput  ->  XmlReader  ->  tree of SvgElement  ->  SvgModelBuilder  ->  SvgDocument  ->  SvgRenderer  ->  Canvas
                                                   stylesheets, cascade,              one instance per frame
                                                   animation timing
 ```
@@ -130,8 +130,13 @@ bytes  ->  XmlReader  ->  tree of SvgElement  ->  SvgModelBuilder  ->  SvgDocume
   works out every interval of every SMIL element, including those that depend on each other, and drawing only looks them up.
 - **Animations stack per property.** Each element holds tracks by property name. A frame starts from the value the cascade gave
   and applies the tracks in priority order: SMIL by start time, then CSS animations. `!important` beats all of them.
-- **Limits come from the device.** `SvgLimits.forDevice` sizes everything from the heap. Hitting one adds a warning and keeps what
-  was read, except for input too large to hold at all, which is refused with a reason the UI can translate.
+- **A file cannot take over the phone.** There is one mechanism for it. `SvgLimits` holds every size, depth and count, sized from the heap by
+  `SvgLimits.forDevice`. Every reference is checked for loops where it is followed. Whatever can take long pays first from a work
+  allowance, one for reading a file and one for each frame, in `SvgWork.kt`, so a native call that cannot be stopped is priced before it
+  starts. Going past a limit adds a warning and keeps what was read or drawn, except for input too much to read at all, which is refused
+  with a reason the UI can translate. See [decisions.md](decisions.md).
+- **A frame can be cancelled.** `SvgDocument.render` takes a check to ask, and also stops when its thread is interrupted, and
+  `renderCancellable` does the same for a coroutine. Only one native call, which is priced to be short, can delay that.
 - **Nothing here reaches outside the file.** There is no code that could run a script or open a URL. What was skipped is reported
   in `SvgDocument.warnings`, as enum values, so that the screen showing them can pick a translated sentence.
 - **A real browser is what it is checked against.** `SvgBrowserComparisonTest` compares it with what Chromium drew for several hundred

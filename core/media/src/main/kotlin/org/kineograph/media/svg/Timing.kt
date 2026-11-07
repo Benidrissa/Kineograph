@@ -93,17 +93,13 @@ internal class SmilTiming(
         val outStops = ArrayList<Double>()
         val outNatural = ArrayList<Double>()
         var index = 0
+        var endCursor = 0
         while (index < beginTimes.size && outStarts.size < maxIntervals) {
             val begin = beginTimes[index]
-            var endLimit = Double.POSITIVE_INFINITY
-            var hasEnd = false
-            for (end in endTimes) {
-                if (end > begin) {
-                    endLimit = end
-                    hasEnd = true
-                    break
-                }
-            }
+            // Both lists are sorted, so the end to look at only ever moves forward. Going through them all for each begin is quadratic.
+            while (endCursor < endTimes.size && endTimes[endCursor] <= begin) endCursor++
+            val hasEnd = endCursor < endTimes.size
+            val endLimit = if (hasEnd) endTimes[endCursor] else Double.POSITIVE_INFINITY
             // Every end is already in the past and none can still come: SMIL says this and all later intervals never happen.
             if (!hasEnd && !endOpen) break
             val repeating = repeatingDuration()
@@ -225,7 +221,19 @@ internal class SmilTiming(
 }
 
 /** Solves the intervals of every element in the file together, since each may depend on the others. */
-internal class SmilTimeline(private val timings: List<SmilTiming>) {
+internal class SmilTimeline(
+    private val timings: List<SmilTiming>,
+    private val work: WorkMeter,
+    /** Elements that keep moving each other earlier never settle, and on their own would use up all there is for reading the file. */
+    private val maxWork: Long,
+) {
+    private var spent = 0L
+
+    private fun pay(units: Long): Boolean {
+        spent += units
+        return work.spend(units) && spent <= maxWork
+    }
+
     private val byId = HashMap<String, SmilTiming>()
 
     /** Elements that lead, through their references, to a loop. Only those can produce intervals without end. */
@@ -252,19 +260,17 @@ internal class SmilTimeline(private val timings: List<SmilTiming>) {
         // Each pass re-derives only what changed. Going through everything over and over would be quadratic for long chains.
         val queue = ArrayDeque(timings)
         val queued = HashSet(timings)
-        var work = 0L
         while (queue.isNotEmpty()) {
-            if (work > WORK_BUDGET) {
-                exhausted = true
-                break
-            }
             val timing = queue.removeFirst()
             queued -= timing
             val looping = timing in inLoop
             val instanceLimit = if (looping) LOOP_INSTANCES else FINITE_INSTANCES
             val beginTimes = instances(timing.begins, instanceLimit)
             val endTimes = instances(timing.ends, instanceLimit)
-            work += beginTimes.size + endTimes.size + 16
+            if (work.isStopped || spent > maxWork) {
+                exhausted = true
+                break
+            }
             if (timing.computeIntervals(beginTimes, endTimes, if (looping) LOOP_INTERVALS else FINITE_INSTANCES)) {
                 dependents[timing]?.forEach { dependent -> if (queued.add(dependent)) queue.addLast(dependent) }
             }
@@ -305,34 +311,56 @@ internal class SmilTimeline(private val timings: List<SmilTiming>) {
         for (timing in timings) if (timing !in settled) inLoop += timing
     }
 
+    /** The times these specs give, from the earliest, and no more than [limit]. Everything looked at is paid for, also what is dropped. */
     private fun instances(specs: List<TimeSpec>, limit: Int): DoubleArray {
-        val out = ArrayList<Double>()
+        var times = DoubleArray(minOf(specs.size + 8, limit))
+        var count = 0
+
+        fun add(value: Double) {
+            if (count == times.size) {
+                // Only the earliest stay, so once there are plenty, the rest can go. A long list of references to a long list stays small.
+                if (count >= limit * 2) {
+                    count = sortedDistinct(times, count, limit)
+                } else {
+                    times = times.copyOf(minOf(times.size * 2, limit * 2))
+                }
+            }
+            times[count++] = value
+        }
         for (spec in specs) {
+            if (!pay(WorkCost.TIME_VALUE)) break
             when (spec) {
                 is TimeSpec.Offset -> {
-                    out += spec.seconds
+                    add(spec.seconds)
                 }
 
                 is TimeSpec.Sync -> {
                     val ref = byId[spec.refId] ?: continue
+                    if (!pay(ref.intervalCount * WorkCost.TIME_VALUE)) break
                     for (i in 0 until ref.intervalCount) {
                         val value =
                             when (spec.kind) {
                                 SyncKind.BEGIN -> ref.beginOf(i)
                                 SyncKind.END -> ref.endOf(i)
                                 SyncKind.REPEAT -> repeatTime(ref, i, spec.repeat)
-                            }
-                        if (value.isFinite()) out += value + spec.offset
+                            } + spec.offset
+                        if (value.isFinite()) add(value)
                     }
                 }
             }
         }
-        out.sort()
-        val distinct = ArrayList<Double>(out.size)
-        for (value in out) if (distinct.isEmpty() || value != distinct.last()) distinct += value
-        // Keeping only the earliest stops references that double at every step from growing without bound.
-        val kept = if (distinct.size > limit) distinct.subList(0, limit) else distinct
-        return kept.toDoubleArray()
+        pay(count * WorkCost.TIME_VALUE)
+        return times.copyOf(sortedDistinct(times, count, limit))
+    }
+
+    /** Sorts the first [count] in place, with duplicates taken out, and says how many of them to keep. */
+    private fun sortedDistinct(times: DoubleArray, count: Int, limit: Int): Int {
+        times.sort(0, count)
+        var kept = 0
+        for (i in 0 until count) {
+            if (kept == 0 || times[i] != times[kept - 1]) times[kept++] = times[i]
+        }
+        return minOf(kept, limit)
     }
 
     private fun repeatTime(ref: SmilTiming, index: Int, repeat: Int): Double {
@@ -342,8 +370,6 @@ internal class SmilTimeline(private val timings: List<SmilTiming>) {
     }
 
     private companion object {
-        const val WORK_BUDGET = 8_000_000L
-
         // Enough for the repeating pattern of a loop to show, and each extra one costs time at every step around that loop.
         const val LOOP_INTERVALS = 96
         const val LOOP_INSTANCES = 192

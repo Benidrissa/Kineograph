@@ -6,6 +6,7 @@ import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.ceil
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
@@ -59,6 +60,22 @@ internal class PathData(val commands: CharArray, val args: DoubleArray) {
                 boundsKnown = true
             }
             return cachedBounds
+        }
+
+    private var cachedLength = -1.0
+
+    /**
+     * The length of the path going through its control points, which is at least that of the path itself, and close to it. It goes into
+     * how long drawing the path will take, so finding it has to be quick and need nothing native.
+     */
+    val controlLength: Double
+        get() {
+            if (cachedLength < 0.0) {
+                val sink = ControlLengthSink()
+                walk(sink)
+                cachedLength = sink.total
+            }
+            return cachedLength
         }
 
     fun hasSameCommands(other: PathData): Boolean = commands.contentEquals(other.commands)
@@ -450,6 +467,45 @@ private fun vectorAngle(ux: Double, uy: Double, vx: Double, vy: Double): Double 
     val length = sqrt((ux * ux + uy * uy) * (vx * vx + vy * vy))
     val angle = acos((dot / length).coerceIn(-1.0, 1.0))
     return if (ux * vy - uy * vx < 0) -angle else angle
+}
+
+private class ControlLengthSink : PathSink {
+    private var x = 0.0
+    private var y = 0.0
+    private var startX = 0.0
+    private var startY = 0.0
+    var total: Double = 0.0
+        private set
+
+    private fun to(nextX: Double, nextY: Double) {
+        val length = hypot(nextX - x, nextY - y)
+        // A number that is far too big for anything still has to give a total that can be compared.
+        if (length.isFinite()) total += length
+        x = nextX
+        y = nextY
+    }
+
+    override fun moveTo(x: Double, y: Double) {
+        this.x = x
+        this.y = y
+        startX = x
+        startY = y
+    }
+
+    override fun lineTo(x: Double, y: Double) = to(x, y)
+
+    override fun quadTo(x1: Double, y1: Double, x: Double, y: Double) {
+        to(x1, y1)
+        to(x, y)
+    }
+
+    override fun cubicTo(x1: Double, y1: Double, x2: Double, y2: Double, x: Double, y: Double) {
+        to(x1, y1)
+        to(x2, y2)
+        to(x, y)
+    }
+
+    override fun close() = to(startX, startY)
 }
 
 private class BoundsSink : PathSink {

@@ -14,30 +14,35 @@ internal class SvgModelBuilder(
     private val root: SvgElement,
     private val limits: SvgLimits,
     private val warnings: MutableSet<SvgWarning>,
-    private val parseNested: (ByteArray, SvgLimits) -> SvgDocument?,
+    private val work: ParseWork,
+    private val parseNested: (ByteArray, SvgLimits, ParseWork, MutableSet<SvgWarning>) -> SvgDocument?,
 ) {
     private val byId = HashMap<String, SvgElement>()
     private val sheet = Stylesheet()
     private val cssTimings = ArrayList<CssTiming>()
     private val embeddedAnimations = ArrayList<SvgAnimationInfo>()
     private var foundCssAnimation = false
-    private val parseCache = HashMap<String, SvgValue?>()
+
+    /** One table per property and origin, keyed by the text. The same declaration stays one string, whose hash is only worked out once. */
+    private val parseCache = HashMap<String, HashMap<String, SvgValue?>>()
+    private val shapeCache = HashMap<String, Boolean>()
     private var trackOrder = 0
     private var rootFontSize = DEFAULT_ROOT_FONT_SIZE
+    private val mediaContext: MediaContext by lazy(LazyThreadSafetyMode.NONE) { readMediaContext() }
 
     fun build(): BuiltModel {
         index(root)
         readStylesheets(root)
         val rules = RuleIndex(sheet.rules)
-        cascade(root, emptyMap(), rules)
-        val smil = SmilBuilder(root, byId, warnings, rootFontSize)
+        cascade(root, CustomProperties(emptyMap()), rules)
+        val smil = SmilBuilder(root, byId, warnings, rootFontSize, work)
         smil.build()
         val summary =
             AnimationSummary.of(smil.foundAnimation || foundCssAnimation, smil.timings, cssTimings, embeddedAnimations, limits)
         val (width, height) = intrinsicSize()
         checkUseExpansion()
         freeAttributes(root)
-        return BuiltModel(SvgModel(root, byId, width, height, limits), summary)
+        return BuiltModel(SvgModel(root, byId, width, height, limits, work.resources), summary)
     }
 
     private fun index(element: SvgElement) {
@@ -59,10 +64,9 @@ internal class SvgModelBuilder(
         if (element.tag == "style") {
             val type = element.attrs["type"]?.trim()?.lowercase()
             val media = element.attrs["media"]
-            val context = mediaContext()
-            if ((type == null || type.isEmpty() || type == "text/css") && (media == null || mediaMatches(media, context))) {
+            if ((type == null || type.isEmpty() || type == "text/css") && (media == null || mediaMatches(media, mediaContext))) {
                 val text = element.content?.joinToString("") { it as? String ?: "" }.orEmpty()
-                CssParser(text, sheet, warnings, context).parse()
+                CssParser(text, sheet, warnings, mediaContext, work, limits).parse()
             }
             return
         }
@@ -70,7 +74,7 @@ internal class SvgModelBuilder(
     }
 
     /** Media queries come before the cascade, so this is the plain attributes' idea of the size, which is all a rule can rely on anyway. */
-    private fun mediaContext(): MediaContext {
+    private fun readMediaContext(): MediaContext {
         val box = root.attrs["viewBox"]?.let(::parseNumberList)?.takeIf { it.size == 4 }
 
         fun absolute(name: String): Double? = root.attrs[name]?.let(::parseLengthOrNull)?.takeIf { it.pct == 0.0 }?.let {
@@ -101,19 +105,21 @@ internal class SvgModelBuilder(
             }
         }
 
-        fun matching(element: SvgElement): List<StyleRule> {
+        fun matching(element: SvgElement, work: WorkMeter): List<StyleRule> {
+            if (work.isStopped) return emptyList()
             val out = ArrayList<StyleRule>(0)
 
             fun test(rules: List<StyleRule>?) {
                 if (rules == null) return
-                for (rule in rules) if (rule.selector.matches(element)) out += rule
+                for (rule in rules) if (rule.selector.matches(element, work)) out += rule
             }
             test(universal)
             test(byTag[element.tag])
             element.id?.let { test(byId[it]) }
             for (name in element.classes) test(byClass[name])
-            // A class listed twice in the attribute would otherwise apply the same rule twice. That is harmless, except for cost.
-            return out.distinct().sortedWith(compareBy({ it.selector.specificity }, { it.order }))
+            if (out.size <= 1) return out
+            work.spend(out.size * WorkCost.SELECTOR_STEP)
+            return out.sortedWith(compareBy({ it.selector.specificity }, { it.order }))
         }
     }
 
@@ -121,22 +127,33 @@ internal class SvgModelBuilder(
      * Applies the CSS cascade to one element and then its children. From lowest to highest: presentation attributes, rules by specificity
      * and then order, the style attribute, important rules, and an important style attribute. Each level overwrites the one below.
      */
-    private fun cascade(element: SvgElement, inheritedCustom: Map<String, String>, rules: RuleIndex) {
+    private fun cascade(element: SvgElement, inheritedCustom: CustomProperties, rules: RuleIndex) {
         // Their attributes only look like properties. The `fill` of an animate element says "freeze", and that is no colour.
         if (element.tag in ANIMATION_TAGS) return
-        val matched = rules.matching(element)
-        val inline = element.attrs["style"]?.let(::parseDeclarations).orEmpty()
+        work.spend(WorkCost.ELEMENT_STYLED)
+        val matched = rules.matching(element, work)
+        val inline = readInlineStyle(element)
         val ordered = ArrayList<Declaration>()
-        for (rule in matched) for (declaration in rule.declarations) if (!declaration.important) ordered += declaration
+        var affordable = 0
+        for (rule in matched) {
+            // Once the allowance has gone, nothing more comes from stylesheets, which leaves a cost that only grows with the file.
+            if (!work.spend(rule.declarations.size * WorkCost.DECLARATION_APPLIED)) break
+            affordable++
+            for (declaration in rule.declarations) if (!declaration.important) ordered += declaration
+        }
         for (declaration in inline) if (!declaration.important) ordered += declaration
-        for (rule in matched) for (declaration in rule.declarations) if (declaration.important) ordered += declaration
+        for (i in 0 until affordable) for (declaration in matched[i].declarations) if (declaration.important) ordered += declaration
         for (declaration in inline) if (declaration.important) ordered += declaration
 
         var custom = inheritedCustom
         for (declaration in ordered) {
-            if (declaration.name.startsWith("--")) {
-                if (custom === inheritedCustom) custom = HashMap(inheritedCustom)
-                (custom as MutableMap)[declaration.name] = declaration.value
+            if (declaration.name.startsWith("--") && !work.isStopped && custom.values[declaration.name] != declaration.value) {
+                // Only an element that changes something gets its own copy. A rule that sets the same values everywhere then costs little.
+                if (custom === inheritedCustom) {
+                    work.spend(custom.values.size * WorkCost.SELECTOR_STEP)
+                    custom = CustomProperties(HashMap(inheritedCustom.values))
+                }
+                (custom.values as MutableMap)[declaration.name] = declaration.value
             }
         }
 
@@ -147,9 +164,32 @@ internal class SvgModelBuilder(
         element.props = state.props
         element.important = state.important
         element.setsInherited = state.props.keys.any { PROPERTIES[it]?.inherited == true }
+        settleInherit(element, state.props)
         readImage(element, state)
         buildCssAnimations(element, state)
         for (child in element.children) cascade(child, custom, rules)
+    }
+
+    private fun readInlineStyle(element: SvgElement): List<Declaration> {
+        val text = element.attrs["style"] ?: return emptyList()
+        // Each declaration can be a few characters, and comes to a few small objects.
+        if (!HeapWatch.hasRoomForText(text.length, BYTES_PER_CHAR_OF_DECLARATIONS)) {
+            warnings += SvgWarning.LIMIT_REACHED
+            return emptyList()
+        }
+        return parseDeclarations(text)
+    }
+
+    /** `inherit` on a property that does not inherit by itself. A parent is always finished before its children, so this takes one look. */
+    private fun settleInherit(element: SvgElement, props: Map<String, SvgValue>) {
+        var settled: HashMap<String, SvgValue>? = null
+        for ((name, value) in props) {
+            if (value !== InheritValue || PROPERTIES[name]?.inherited == true) continue
+            val fromParent = element.parent?.staticView?.get(name) ?: continue
+            val map = settled ?: HashMap<String, SvgValue>(4).also { settled = it }
+            map[name] = fromParent
+        }
+        element.inheritedFromParent = settled
     }
 
     /** Everything measured in `rem` depends on this, including on the outermost element itself, so it is read before that is styled. */
@@ -162,7 +202,13 @@ internal class SvgModelBuilder(
         return size?.length?.resolve(DEFAULT_ROOT_FONT_SIZE, DEFAULT_ROOT_FONT_SIZE)?.takeIf { it > 0.0 } ?: DEFAULT_ROOT_FONT_SIZE
     }
 
-    private inner class CascadeState(val element: SvgElement, val custom: Map<String, String>) {
+    /** The custom properties in force on an element. What their values come to is kept, since many elements can share one set of them. */
+    private class CustomProperties(val values: Map<String, String>) {
+        val resolved = HashMap<String, String?>()
+        val beingResolved = HashSet<String>()
+    }
+
+    private inner class CascadeState(val element: SvgElement, val custom: CustomProperties) {
         val props = HashMap<String, SvgValue>()
         val important = HashSet<String>(0)
         val animationProps = HashMap<String, String>(0)
@@ -187,6 +233,7 @@ internal class SvgModelBuilder(
         fun applyDeclaration(declaration: Declaration) {
             val name = declaration.name
             if (name.startsWith("--")) return
+            work.spend(declaration.value.length / LONG_TEXT_CHARS_PER_UNIT)
             val value = substitute(declaration.value, custom) ?: return
             when {
                 name == "animation" -> {
@@ -228,8 +275,14 @@ internal class SvgModelBuilder(
             if (!fromCss && !def.attribute) return
             // An empty attribute says nothing, so there is nothing to warn about.
             if (rawValue.isBlank()) return
+            // Looking through a long value is not free, and one stylesheet rule can make every element do it.
+            if (!fromCss) work.spend(rawValue.length / LONG_TEXT_CHARS_PER_UNIT)
             // A plain presentation attribute may not use var(), but real files do, and browsers treat it as a declaration.
             val text = resolveRemIn(name, if ("var(" in rawValue) substitute(rawValue, custom) ?: return else rawValue, rootFontSize)
+            if (!HeapWatch.hasRoomForText(text.length, bytesPerChar(def.kind))) {
+                warnings += SvgWarning.LIMIT_REACHED
+                return
+            }
             val value = parsedValue(name, text, fromCss)
             if (value == null) {
                 warnings += SvgWarning.INVALID_CONTENT_IGNORED
@@ -242,12 +295,20 @@ internal class SvgModelBuilder(
     }
 
     private fun parsedValue(name: String, text: String, css: Boolean): SvgValue? {
-        val key = "$name\u0000$css\u0000$text"
-        if (parseCache.containsKey(key)) return parseCache[key]
+        val cache = parseCache.getOrPut(if (css) name else "attribute:$name") { HashMap() }
+        if (cache.containsKey(text)) return cache[text]
         val value = parseProperty(name, text, css)
-        parseCache[key] = value
+        cache[text] = value
         return value
     }
+
+    /** About how much memory a value can take for each character of its text. A list of numbers is by far the worst. */
+    private fun bytesPerChar(kind: PropKind): Int =
+        when (kind) {
+            PropKind.LENGTHS, PropKind.POINTS, PropKind.NUMBERS, PropKind.DASH -> 20
+            PropKind.PATH -> 6
+            else -> 2
+        }
 
     /** Warnings about what a value asks for, as opposed to whether it can be read at all. */
     private fun noteUnsupported(element: SvgElement, name: String, value: SvgValue) {
@@ -266,7 +327,8 @@ internal class SvgModelBuilder(
 
             "clip-path", "mask" -> {
                 val text = (value as? KeywordValue)?.text.orEmpty()
-                val isShape = name == "clip-path" && parseBasicShape(text) != null
+                // Only worked out once for each text. One rule can give every element the same shape, and it can be a very long one.
+                val isShape = name == "clip-path" && shapeCache.getOrPut(text) { parseBasicShape(text) != null }
                 if (!isShape && !text.equals("none", ignoreCase = true) && urlReference(text) == null) {
                     warnings +=
                         if (text.startsWith("url(", ignoreCase = true)) {
@@ -292,35 +354,63 @@ internal class SvgModelBuilder(
         }
     }
 
-    /** Replaces `var(--name, fallback)`. Returns null when a variable has no value and no fallback, which voids the declaration. */
-    private fun substitute(value: String, custom: Map<String, String>, depth: Int = 0): String? {
-        var text = value
-        var guard = 0
-        while (true) {
-            val start = text.indexOf("var(")
-            if (start < 0) return text
-            if (++guard > 64 || depth > 16) return null
-            var close = -1
-            var nesting = 0
-            for (i in start + 3 until text.length) {
-                if (text[i] == '(') nesting++
-                if (text[i] == ')') {
-                    nesting--
-                    if (nesting == 0) {
-                        close = i
-                        break
-                    }
-                }
-            }
+    /**
+     * Replaces `var(--name, fallback)`. Returns null when a variable has no value and no fallback, which voids the declaration.
+     *
+     * Variables can refer to variables, many times each, which is exponential if it is simply followed. So what each one comes to is
+     * kept, loops through a variable are refused as CSS says they should be, and all of it is paid for.
+     */
+    private fun substitute(value: String, custom: CustomProperties, depth: Int = 0): String? {
+        var start = value.indexOf("var(")
+        if (start < 0) return value
+        if (depth > MAX_VAR_DEPTH) return null
+        val out = StringBuilder(value.length)
+        var position = 0
+        while (start >= 0) {
+            if (!work.spend(WorkCost.VAR_REPLACED)) return null
+            val close = closingBracket(value, start + 3)
             if (close < 0) return null
-            val inner = text.substring(start + 4, close)
+            val inner = value.substring(start + 4, close)
             val comma = inner.indexOf(',')
             val name = (if (comma >= 0) inner.substring(0, comma) else inner).trim()
             val replacement =
-                custom[name]?.let { substitute(it, custom, depth + 1) }
+                customValue(name, custom, depth)
                     ?: if (comma >= 0) substitute(inner.substring(comma + 1).trim(), custom, depth + 1) else null
-            text = text.substring(0, start) + (replacement ?: return null) + text.substring(close + 1)
+            if (replacement == null) return null
+            out.append(value, position, start).append(replacement)
+            if (out.length > MAX_SUBSTITUTED_CHARS) {
+                warnings += SvgWarning.LIMIT_REACHED
+                return null
+            }
+            // Short texts copied again and again are the only way this grows, and that is what is paid for here.
+            work.spend(replacement.length / LONG_TEXT_CHARS_PER_UNIT)
+            position = close + 1
+            start = value.indexOf("var(", position)
         }
+        return out.append(value, position, value.length).toString()
+    }
+
+    private fun customValue(name: String, custom: CustomProperties, depth: Int): String? {
+        if (custom.resolved.containsKey(name)) return custom.resolved[name]
+        val raw = custom.values[name] ?: return null
+        if (!custom.beingResolved.add(name)) return null
+        val result = substitute(raw, custom, depth + 1)
+        custom.beingResolved -= name
+        // A cut-off result says nothing about what this variable means, and only short ones are worth holding on to for many elements.
+        if (!work.isStopped && (result == null || result.length <= MAX_KEPT_SUBSTITUTION_CHARS)) custom.resolved[name] = result
+        return result
+    }
+
+    private fun closingBracket(text: String, open: Int): Int {
+        var nesting = 0
+        for (i in open until text.length) {
+            if (text[i] == '(') nesting++
+            if (text[i] == ')') {
+                nesting--
+                if (nesting == 0) return i
+            }
+        }
+        return -1
     }
 
     private fun readImage(element: SvgElement, state: CascadeState) {
@@ -334,19 +424,19 @@ internal class SvgModelBuilder(
         }
         element.image = image
         if (image.mimeType == "image/svg+xml") {
-            if (limits.maxNestedImages <= 0) {
+            val bytes = image.bytes
+            if (limits.maxNestedImages <= 0 || work.isStopped || bytes == null) {
                 warnings += SvgWarning.LIMIT_REACHED
                 element.image = null
                 return
             }
             // Read now rather than at first draw, so that what the inner picture ignored is known before the import starts.
-            val nested = parseNested(image.bytes, limits.copy(maxNestedImages = limits.maxNestedImages - 1))
+            val nested = parseNested(bytes, limits.copy(maxNestedImages = limits.maxNestedImages - 1), work, warnings)
             if (nested == null) {
-                warnings += SvgWarning.INVALID_CONTENT_IGNORED
                 element.image = null
             } else {
                 image.nested = nested
-                image.decoded = true
+                image.bytes = null
                 warnings += nested.warnings
                 embeddedAnimations += nested.animation
             }
@@ -382,17 +472,20 @@ internal class SvgModelBuilder(
     private fun buildCssAnimations(element: SvgElement, state: CascadeState) {
         val names = state.animationProps["animation-name"] ?: return
         val nameList = splitTopLevel(names, ',').map { it.trim().trim('"', '\'') }
+        // Split once. Splitting a long list again for every entry of another long list would be quadratic.
+        val lists = HashMap<String, List<String>>()
 
         fun longhand(key: String, index: Int, default: String): String {
-            val list = state.animationProps[key]?.let { splitTopLevel(it, ',') }.orEmpty()
+            val list = lists.getOrPut(key) { state.animationProps[key]?.let { splitTopLevel(it, ',') }.orEmpty() }
             return if (list.isEmpty()) default else list[index % list.size].trim()
         }
         for ((index, name) in nameList.withIndex()) {
             if (name.equals("none", ignoreCase = true) || name.isEmpty()) continue
+            if (!work.spend(WorkCost.ANIMATION_ENTRY)) return
             val frames = sheet.keyframes[name] ?: continue
             foundCssAnimation = true
-            val duration = parseCssTime(longhand("animation-duration", index, "0s"))?.coerceAtLeast(0.0) ?: 0.0
-            val delay = parseCssTime(longhand("animation-delay", index, "0s")) ?: 0.0
+            val duration = parseCssTime(longhand("animation-duration", index, "0s"))?.coerceAtLeast(0.0)?.let(::usableTime) ?: 0.0
+            val delay = parseCssTime(longhand("animation-delay", index, "0s"))?.coerceIn(-MAX_TIME_SECONDS, MAX_TIME_SECONDS) ?: 0.0
             val iterationText = longhand("animation-iteration-count", index, "1").lowercase()
             val iterations =
                 if (iterationText == "infinite") {
@@ -417,7 +510,9 @@ internal class SvgModelBuilder(
 
     private fun buildCssTracks(element: SvgElement, frames: List<Keyframe>, timing: CssTiming, defaultEasing: Easing, state: CascadeState) {
         val perProperty = LinkedHashMap<String, ArrayList<CssFrame>>()
+        work.spend(frames.size * WorkCost.SELECTOR_STEP)
         for (frame in frames.sortedBy { it.offset }) {
+            if (!work.spend(frame.declarations.size * WorkCost.KEYFRAME_VALUE)) break
             val easing =
                 frame.declarations
                     .lastOrNull { it.name == "animation-timing-function" }
@@ -436,12 +531,16 @@ internal class SvgModelBuilder(
             }
         }
         for ((property, list) in perProperty) {
+            if (list.isEmpty()) continue
             // A moment the file leaves out is filled in with the value the property has without the animation.
             if (list.first().offset > 0.0) list.add(0, CssFrame(0.0, null, defaultEasing))
             if (list.last().offset < 1.0) list += CssFrame(1.0, null, defaultEasing)
             element.addTrack(CssTrack(property, trackOrder++, timing, list))
         }
     }
+
+    /** A zero duration means something of its own, and must stay zero. Anything else is kept to what a timeline can work with. */
+    private fun usableTime(seconds: Double): Double = if (seconds > 0.0) usableDuration(seconds) else 0.0
 
     private fun intrinsicSize(): Pair<Double, Double> {
         val view = root.staticView
@@ -464,28 +563,58 @@ internal class SvgModelBuilder(
     }
 
     /**
-     * References can multiply: ten levels of ten `use` elements each draw ten billion shapes. Drawing is capped either way. This
-     * only tells the person in advance that some of the picture will be missing, so that the cap is never silent.
+     * References can multiply: ten levels of ten `use` elements each draw ten billion shapes, and a long chain of them goes far deeper
+     * than the file does. Drawing is capped either way. This only tells the person in advance that some of the picture will be missing,
+     * so that the cap is never silent.
+     *
+     * Without recursion, because a chain can be as long as the file: walking it down must not need more stack than drawing it would.
      */
     private fun checkUseExpansion() {
-        val memo = HashMap<SvgElement, Long>()
-        val visiting = HashSet<SvgElement>()
-
-        fun expanded(element: SvgElement): Long {
-            memo[element]?.let { return it }
-            if (!visiting.add(element)) return 0L
+        class Visit(val element: SvgElement, val next: List<SvgElement>, val depth: Int) {
+            var position = 0
             var total = 1L
-            for (child in element.children) total = (total + expanded(child)).coerceAtMost(EXPANSION_CAP)
-            if (element.tag == "use") {
-                val href = (element.props["href"] as? KeywordValue)?.text?.trim()
-                val target = href?.takeIf { it.startsWith("#") }?.let { byId[it.substring(1)] }
-                if (target != null) total = (total + expanded(target)).coerceAtMost(EXPANSION_CAP)
-            }
-            visiting -= element
-            memo[element] = total
-            return total
+            var deepest = depth
         }
-        if (expanded(root) > limits.maxRenderedNodes) warnings += SvgWarning.LIMIT_REACHED
+
+        class Result(val total: Long, val deepest: Int)
+
+        fun nextOf(element: SvgElement): List<SvgElement> {
+            if (element.tag != "use") return element.children
+            val href = (element.props["href"] as? KeywordValue)?.text?.trim()
+            val target = href?.takeIf { it.startsWith("#") }?.let { byId[it.substring(1)] } ?: return element.children
+            return element.children + target
+        }
+        val done = HashMap<SvgElement, Result>()
+        val visiting = HashSet<SvgElement>()
+        val stack = ArrayList<Visit>()
+        visiting += root
+        stack += Visit(root, nextOf(root), 0)
+        var whole = Result(1L, 0)
+        while (stack.isNotEmpty()) {
+            val visit = stack[stack.lastIndex]
+            if (visit.position < visit.next.size) {
+                val child = visit.next[visit.position++]
+                val known = done[child]
+                if (known != null) {
+                    visit.total = (visit.total + known.total).coerceAtMost(EXPANSION_CAP)
+                    visit.deepest = maxOf(visit.deepest, visit.depth + 1 + known.deepest)
+                } else if (visiting.add(child)) {
+                    stack += Visit(child, nextOf(child), visit.depth + 1)
+                }
+                continue
+            }
+            stack.removeAt(stack.lastIndex)
+            visiting -= visit.element
+            // Depth below this element, which is what can be reused from wherever else it is referenced.
+            val result = Result(visit.total, visit.deepest - visit.depth)
+            done[visit.element] = result
+            whole = result
+            stack.lastOrNull()?.let { parent ->
+                parent.total = (parent.total + result.total).coerceAtMost(EXPANSION_CAP)
+                parent.deepest = maxOf(parent.deepest, visit.deepest)
+            }
+        }
+        if (whole.total > limits.maxRenderedNodes || whole.deepest > limits.maxDepth) warnings += SvgWarning.LIMIT_REACHED
     }
 
     /** The raw text has been parsed into typed values by now, so it can go. On a large file this is a good part of the memory. */
@@ -500,6 +629,15 @@ internal class SvgModelBuilder(
         const val DEFAULT_HEIGHT = 150.0
         const val EXPANSION_CAP = 1L shl 56
         const val DEFAULT_ROOT_FONT_SIZE = 16.0
+
+        /** Reading through long text is quick, and a charge per character would swamp everything else. */
+        const val LONG_TEXT_CHARS_PER_UNIT = 8L
+        const val BYTES_PER_CHAR_OF_DECLARATIONS = 30
+
+        /** Variables in real files hold a colour or a length, and only rarely a path. This is enough for any of those. */
+        const val MAX_VAR_DEPTH = 64
+        const val MAX_SUBSTITUTED_CHARS = 4 * 1024 * 1024
+        const val MAX_KEPT_SUBSTITUTION_CHARS = 64 * 1024
     }
 }
 

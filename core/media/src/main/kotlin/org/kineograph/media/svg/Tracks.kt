@@ -9,6 +9,9 @@ import kotlin.math.hypot
 internal abstract class Track(val property: String, val documentOrder: Int) {
     open val isCss: Boolean get() = false
 
+    /** What one evaluation comes to. A long list of values is gone through again on every frame. */
+    open val evaluationCost: Long get() = WorkCost.TRACK_EVALUATED
+
     open fun beginAt(time: Double): Double = 0.0
 
     /** The value at [time], given what lies beneath it in the stack. Null means no effect at this moment. */
@@ -41,6 +44,8 @@ internal class SmilValueTrack(
     private val isToAnimation: Boolean,
 ) : Track(property, documentOrder) {
     override fun beginAt(time: Double): Double = timing.currentBegin(time)
+
+    override val evaluationCost: Long get() = WorkCost.TRACK_EVALUATED + values.size
 
     /** Segment boundaries for paced mode, worked out once from the distances between the values. */
     private val pacedTimes: DoubleArray? by lazy(LazyThreadSafetyMode.NONE) { computePacedTimes() }
@@ -140,7 +145,15 @@ internal class SmilMotionTrack(
 ) : Track(MOTION_PROPERTY, documentOrder) {
     override fun beginAt(time: Double): Double = timing.currentBegin(time)
 
-    private val measure: MotionMeasure by lazy(LazyThreadSafetyMode.NONE) { MotionMeasure(path) }
+    private val lazyMeasure = lazy(LazyThreadSafetyMode.NONE) { MotionMeasure(path) }
+    private val measure: MotionMeasure by lazyMeasure
+
+    /** Measuring the path comes once, and takes as long as the path is long. */
+    override val evaluationCost: Long
+        get() {
+            val toMeasure = if (lazyMeasure.isInitialized()) 0L else path.commands.size * WorkCost.OUTLINE_SEGMENT
+            return WorkCost.TRACK_EVALUATED + (keyPoints?.size ?: 0) + toMeasure
+        }
 
     override fun evaluate(time: Double, underlying: SvgValue?, current: Rgba): SvgValue? {
         val state = timing.stateAt(time) ?: return null
@@ -365,6 +378,8 @@ internal class CssTrack(
     private val frames: List<CssFrame>,
 ) : Track(property, documentOrder) {
     override val isCss: Boolean get() = true
+
+    override val evaluationCost: Long get() = WorkCost.TRACK_EVALUATED + frames.size
 
     override fun evaluate(time: Double, underlying: SvgValue?, current: Rgba): SvgValue? {
         val progress = timing.progressAt(time) ?: return null

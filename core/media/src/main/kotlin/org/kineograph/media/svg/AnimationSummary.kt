@@ -12,6 +12,9 @@ internal object AnimationSummary {
      */
     private const val CYCLE_TOLERANCE_SECONDS = 0.002
 
+    /** No frame of an import could show a loop faster than this, and it is the same as not moving. */
+    private const val MIN_LOOP_SECONDS = 0.001
+
     fun of(
         hasOwnAnimation: Boolean,
         smil: List<SmilTiming>,
@@ -76,14 +79,17 @@ internal object AnimationSummary {
             }
         }
         val positive = cycles.filter { it > 0.0 && it.isFinite() }
-        if (positive.isEmpty()) return SvgAnimationInfo(true, max(lastEnd, 0.0), false, 0.0)
+        if (positive.isEmpty()) return SvgAnimationInfo(true, usableTime(lastEnd), false, 0.0)
         return SvgAnimationInfo(
             isAnimated = true,
-            durationSeconds = seamlessLoop(positive, limits.maxSeamlessLoopSeconds),
+            durationSeconds = usableTime(seamlessLoop(positive, limits.maxSeamlessLoopSeconds)).coerceAtLeast(MIN_LOOP_SECONDS),
             loopsForever = true,
-            loopStartSeconds = max(loopStart, lastEnd),
+            loopStartSeconds = usableTime(max(loopStart, lastEnd)),
         )
     }
+
+    /** This goes to whoever imports the picture, who may count frames with it. A file can write anything at all in these places. */
+    private fun usableTime(seconds: Double): Double = if (seconds.isNaN()) 0.0 else seconds.coerceIn(0.0, MAX_TIME_SECONDS)
 
     /** The least common multiple of the cycles when that is short enough to be worth importing, or else the longest cycle. */
     fun seamlessLoop(cycles: List<Double>, maxSeconds: Double): Double {

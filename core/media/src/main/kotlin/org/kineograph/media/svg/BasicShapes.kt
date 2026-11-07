@@ -8,7 +8,7 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 /** A CSS shape used as a `clip-path`, such as `circle(50%)`. It is measured against a box that is only known at drawing time. */
-internal class BasicShape(val box: Int, private val build: (Box, Double) -> Path) {
+internal class BasicShape(val box: Int, val segments: Int, private val build: (Box, Double) -> Path) {
     fun path(reference: Box, fontSize: Double): Path = build(reference, fontSize)
 
     companion object {
@@ -46,17 +46,17 @@ internal fun parseBasicShape(raw: String): BasicShape? {
     val open = text.indexOf('(')
     if (open < 0 || !text.endsWith(")")) return null
     val inner = text.substring(open + 1, text.length - 1).trim()
-    val build: ((Box, Double) -> Path)? =
-        when (text.substring(0, open).trim().lowercase()) {
-            "circle" -> parseCircle(inner)
-            "ellipse" -> parseEllipse(inner)
-            "inset" -> parseInset(inner)
-            "polygon" -> parsePolygon(inner)
-            "path" -> parsePathShape(inner)
-            else -> null
-        }
-    return build?.let { BasicShape(box, it) }
+    return when (text.substring(0, open).trim().lowercase()) {
+        "circle" -> parseCircle(inner)?.let { BasicShape(box, SIMPLE_SHAPE_SEGMENTS, it) }
+        "ellipse" -> parseEllipse(inner)?.let { BasicShape(box, SIMPLE_SHAPE_SEGMENTS, it) }
+        "inset" -> parseInset(inner)?.let { BasicShape(box, SIMPLE_SHAPE_SEGMENTS, it) }
+        "polygon" -> parsePolygon(inner, box)
+        "path" -> parsePathShape(inner, box)
+        else -> null
+    }
 }
+
+private const val SIMPLE_SHAPE_SEGMENTS = 8
 
 /** `at x y`, with keywords allowed in either order. A missing side means the centre. */
 private fun positionOf(tokens: List<String>): ((Box, Double) -> Pair<Double, Double>)? {
@@ -151,7 +151,7 @@ private fun parseInset(inner: String): ((Box, Double) -> Path)? {
     }
 }
 
-private fun parsePolygon(inner: String): ((Box, Double) -> Path)? {
+private fun parsePolygon(inner: String, box: Int): BasicShape? {
     val parts = splitTopLevel(inner, ',').map { it.trim() }.toMutableList()
     var evenOdd = false
     val first = parts.firstOrNull()?.lowercase()
@@ -166,12 +166,12 @@ private fun parsePolygon(inner: String): ((Box, Double) -> Path)? {
             (parseLengthOrNull(pair[0]) ?: return null) to (parseLengthOrNull(pair[1]) ?: return null)
         }
     if (points.isEmpty()) return null
-    return { box, fontSize ->
+    return BasicShape(box, points.size) { reference, fontSize ->
         Path().apply {
             fillType = if (evenOdd) Path.FillType.EVEN_ODD else Path.FillType.WINDING
             for ((index, point) in points.withIndex()) {
-                val x = (box.x + point.first.resolve(box.w, fontSize)).toFloat()
-                val y = (box.y + point.second.resolve(box.h, fontSize)).toFloat()
+                val x = (reference.x + point.first.resolve(reference.w, fontSize)).toFloat()
+                val y = (reference.y + point.second.resolve(reference.h, fontSize)).toFloat()
                 if (index == 0) moveTo(x, y) else lineTo(x, y)
             }
             close()
@@ -179,15 +179,15 @@ private fun parsePolygon(inner: String): ((Box, Double) -> Path)? {
     }
 }
 
-private fun parsePathShape(inner: String): ((Box, Double) -> Path)? {
+private fun parsePathShape(inner: String, box: Int): BasicShape? {
     val parts = splitTopLevel(inner, ',').map { it.trim() }
     val evenOdd = parts.size == 2 && parts[0].equals("evenodd", ignoreCase = true)
     val source = parts.last().trim('"', '\'')
     val data = parsePathData(source).data
     if (data.isEmpty) return null
-    return { box, _ ->
+    return BasicShape(box, data.commands.size) { reference, _ ->
         Path().apply {
-            addPath(data.path, box.x.toFloat(), box.y.toFloat())
+            addPath(data.path, reference.x.toFloat(), reference.y.toFloat())
             fillType = if (evenOdd) Path.FillType.EVEN_ODD else Path.FillType.WINDING
         }
     }

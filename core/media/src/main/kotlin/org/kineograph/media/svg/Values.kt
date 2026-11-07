@@ -188,15 +188,65 @@ internal fun parseLengthOrNull(raw: String): Length? {
     return lengthWithUnit(value, text.substring(scanner.pos))
 }
 
-private val REM_LENGTH = Regex("""([+-]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)rem\b""", RegexOption.IGNORE_CASE)
-
-/** `rem` depends on the file's outermost element, which a length cannot know by itself, so it becomes plain pixels before it is read. */
+/**
+ * `rem` depends on the file's outermost element, which a length cannot know by itself, so it becomes plain pixels before it is read.
+ *
+ * Written by hand because a regular expression would try again from every digit of a long number, and take quadratic time.
+ */
 internal fun resolveRem(text: String, rootFontSize: Double): String {
     if (!text.contains("rem", ignoreCase = true)) return text
-    return REM_LENGTH.replace(text) { match ->
-        val value = match.groupValues[1].toDoubleOrNull() ?: return@replace match.value
-        "${value * rootFontSize}px"
+    var out: StringBuilder? = null
+    var copied = 0
+    var i = 0
+    while (i < text.length) {
+        val c = text[i]
+        if (!c.isAsciiDigit() && c != '.' && c != '+' && c != '-') {
+            i++
+            continue
+        }
+        val end = numberEnd(text, i)
+        val isRem =
+            end > 0 && text.regionMatches(end, "rem", 0, 3, ignoreCase = true) &&
+                !(end + 3 < text.length && (text[end + 3].isLetterOrDigit() || text[end + 3] == '_'))
+        val value = if (isRem) text.substring(i, end).toDoubleOrNull() else null
+        if (value != null) {
+            val builder = out ?: StringBuilder(text.length).also { out = it }
+            builder.append(text, copied, i).append(value * rootFontSize).append("px")
+            i = end + 3
+            copied = i
+        } else if (c.isAsciiDigit()) {
+            // Starting again from any other digit of this run would only end up in the same place.
+            while (i < text.length && text[i].isAsciiDigit()) i++
+        } else {
+            i++
+        }
     }
+    val builder = out ?: return text
+    return builder.append(text, copied, text.length).toString()
+}
+
+/** Where the number starting exactly at [start] ends, or -1 when none starts there. */
+private fun numberEnd(text: String, start: Int): Int {
+    val n = text.length
+    var i = start
+    if (i < n && (text[i] == '+' || text[i] == '-')) i++
+    val digitsStart = i
+    while (i < n && text[i].isAsciiDigit()) i++
+    val hasWhole = i > digitsStart
+    if (i + 1 < n && text[i] == '.' && text[i + 1].isAsciiDigit()) {
+        i++
+        while (i < n && text[i].isAsciiDigit()) i++
+    } else if (!hasWhole) {
+        return -1
+    }
+    if (i < n && (text[i] == 'e' || text[i] == 'E')) {
+        var j = i + 1
+        if (j < n && (text[j] == '+' || text[j] == '-')) j++
+        val exponentStart = j
+        while (j < n && text[j].isAsciiDigit()) j++
+        if (j > exponentStart) i = j
+    }
+    return i
 }
 
 /** CSS wants a unit on every length and angle, with zero as the one exception. Text that is a bare number fails this. */
@@ -206,6 +256,7 @@ internal fun hasCssUnit(text: String): Boolean {
     return number == 0.0
 }
 
+/** Null for a unit we do not know, and for a number so big that the unit takes it past infinity, which no drawing code should meet. */
 internal fun lengthWithUnit(value: Double, unit: String): Length? =
     when (unit.lowercase()) {
         "", "px" -> Length(px = value)
@@ -233,18 +284,22 @@ internal fun lengthWithUnit(value: Double, unit: String): Length? =
         "vw", "vh", "vmin", "vmax" -> Length(pct = value)
 
         else -> null
-    }
+    }?.takeIf { it.isFinite() }
+
+private fun Length.isFinite(): Boolean = px.isFinite() && pct.isFinite() && em.isFinite()
 
 /** Parses `calc()` into the same sum-of-parts form, so that animation does not need to know it was ever an expression. */
 private class CalcParser(private val text: String) {
     private var pos = 0
+    private var depth = 0
 
     private class Term(val length: Length, val isScalar: Boolean)
 
+    /** Numbers that are fine by themselves can still multiply past infinity, or make nothing at all out of zero and infinity. */
     fun parse(): Length? {
         val result = factor() ?: return null
         skipSpace()
-        return result.length.takeIf { pos == text.length }
+        return result.length.takeIf { pos == text.length && it.isFinite() }
     }
 
     private fun skipSpace() {
@@ -286,7 +341,11 @@ private class CalcParser(private val text: String) {
         if (text.startsWith("calc(", pos, ignoreCase = true)) pos += 4
         if (text.getOrNull(pos) == '(') {
             pos++
-            val inner = expression() ?: return null
+            // Each level is a few frames of stack. No real expression has this many brackets.
+            if (++depth > MAX_CALC_DEPTH) return null
+            val inner = expression()
+            depth--
+            if (inner == null) return null
             skipSpace()
             if (text.getOrNull(pos) != ')') return null
             pos++
@@ -300,6 +359,10 @@ private class CalcParser(private val text: String) {
         val length = lengthWithUnit(value, unit) ?: return null
         pos = end
         return Term(length, unit.isEmpty())
+    }
+
+    private companion object {
+        const val MAX_CALC_DEPTH = 64
     }
 }
 
@@ -389,7 +452,7 @@ internal fun parseClock(raw: String): Double? {
             val value = part.trim().toUnsignedNumber() ?: return null
             seconds = seconds * 60.0 + value
         }
-        return seconds
+        return seconds.takeIf { it.isFinite() }
     }
     val scanner = NumberScanner(text)
     val value = scanner.number() ?: return null
@@ -399,8 +462,16 @@ internal fun parseClock(raw: String): Double? {
         "min" -> value * 60.0
         "h" -> value * 3600.0
         else -> null
-    }
+    }?.takeIf { it.isFinite() }
 }
+
+/**
+ * A duration a timeline can work with. Below this, dividing a moment by it stops giving usable numbers, and no frame could show the
+ * difference. Above this it lasts longer than any moment that can be asked for.
+ */
+internal fun usableDuration(seconds: Double): Double = seconds.coerceIn(MIN_DURATION_SECONDS, MAX_TIME_SECONDS)
+
+private const val MIN_DURATION_SECONDS = 1e-6
 
 private fun String.toUnsignedNumber(): Double? {
     if (isEmpty() || this[0] == '-' || this[0] == '+') return null
@@ -430,5 +501,5 @@ internal fun parseAngle(raw: String): Double? {
         "grad" -> value * 0.9
         "turn" -> value * 360.0
         else -> null
-    }
+    }?.takeIf { it.isFinite() }
 }

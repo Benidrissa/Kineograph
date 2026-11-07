@@ -225,7 +225,11 @@ internal fun urlReference(text: String): String? {
     return if (inner.startsWith("#") && inner.length > 1) inner.substring(1) else null
 }
 
-internal fun parsePaint(raw: String): PaintValue? {
+internal fun parsePaint(raw: String): PaintValue? = parsePaint(raw, 0)
+
+/** The fallback of a paint is one colour in real files. A longer list only needs a limit, so that it cannot use up the stack. */
+private fun parsePaint(raw: String, depth: Int): PaintValue? {
+    if (depth > MAX_PAINT_FALLBACKS) return null
     val text = raw.trim()
     when (text.lowercase()) {
         "none" -> return PaintValue.None
@@ -237,11 +241,13 @@ internal fun parsePaint(raw: String): PaintValue? {
         val close = text.indexOf(')')
         if (close < 0) return null
         val rest = text.substring(close + 1).trim()
-        val fallback = if (rest.isEmpty()) null else parsePaint(rest) ?: return null
+        val fallback = if (rest.isEmpty()) null else parsePaint(rest, depth + 1) ?: return null
         return PaintValue.Ref(urlReference(text), fallback)
     }
     return parseColor(text)?.let(PaintValue::Solid)
 }
+
+private const val MAX_PAINT_FALLBACKS = 8
 
 private fun parseColorValue(text: String): PaintValue? =
     if (text.equals("currentcolor", ignoreCase = true)) PaintValue.Current else parseColor(text)?.let(PaintValue::Solid)

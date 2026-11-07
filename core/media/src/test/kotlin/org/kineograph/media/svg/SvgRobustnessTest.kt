@@ -725,7 +725,7 @@ class SvgRobustnessTest {
         val big = SvgLimits.forDevice(512L * 1024 * 1024)
         assertTrue(big.maxInputBytes > small.maxInputBytes)
         assertTrue(big.maxElements > small.maxElements)
-        assertEquals(32L * 1024 * 1024, small.maxInputBytes)
+        assertEquals(16L * 1024 * 1024, small.maxInputBytes)
     }
 
     @Test

@@ -31,14 +31,22 @@ private val FRIENDLY_ENTITIES =
  *
  * The loop is iterative on purpose: a file that nests a hundred thousand groups must not be able to overflow the stack here.
  */
-internal class SvgXmlReader(private val limits: SvgLimits, private val warnings: MutableSet<SvgWarning>) {
+internal class SvgXmlReader(private val limits: SvgLimits, private val warnings: MutableSet<SvgWarning>, private val work: ParseWork) {
     private companion object {
         /** Deeper than any drawing, or any machine-made file. Only something written to cause trouble gets here. */
         const val ABANDON_DEPTH = 4096
+
+        /** Far more than any stylesheet could want, and each extra class costs time on every rule. */
+        const val MAX_CLASSES = 1024
     }
 
-    private val namespaceScopes = ArrayList<Map<String, String>?>()
-    private var elementCount = 0
+    /** One lookup, rather than a walk up every enclosing element, for each prefix of each attribute. A scope's changes are undone with it. */
+    private val namespaces = HashMap<String, String>()
+    private val namespaceUndo = ArrayList<Map<String, String?>?>()
+
+    /** Text arrives in many small pieces in files with entities or comments, and joining them one at a time would take quadratic time. */
+    private val pendingText = StringBuilder()
+    private var pendingOwner: SvgElement? = null
 
     fun read(parser: XmlPullParser): SvgElement {
         var root: SvgElement? = null
@@ -86,24 +94,33 @@ internal class SvgXmlReader(private val limits: SvgLimits, private val warnings:
                         skipDepth = 1
                         continue
                     }
-                    if (keptDepth >= limits.maxDepth || elementCount >= limits.maxElements) {
+                    if (keptDepth >= limits.maxDepth || work.elementsKept >= limits.maxElements) {
                         warnings += SvgWarning.LIMIT_REACHED
                         skipDepth = 1
                         continue
                     }
-                    elementCount++
+                    // Only the first element of a nested picture can get here with nothing left, and then there is nothing to draw anyway.
+                    if (!work.spend(WorkCost.ELEMENT_READ + parser.attributeCount * WorkCost.SELECTOR_STEP) && root != null) {
+                        warnings += SvgWarning.LIMIT_REACHED
+                        break@reading
+                    }
+                    work.elementsKept++
                     keptDepth++
-                    namespaceScopes += scope
+                    pushNamespaces(scope)
                     val element = SvgElement(tag, current)
                     readAttributes(parser, element)
                     val parent = current
+                    element.keepsText = tag == "style" || tag in TEXT_TAGS || (tag == "a" && parent?.keepsText == true)
                     if (parent == null) {
                         root = element
                     } else {
                         element.siblingIndex = parent.children.size
                         element.rawIndex = parent.rawChildCount - 1
                         parent.children += element
-                        if (keepsText(parent)) contentOf(parent) += element
+                        if (parent.keepsText) {
+                            flushText()
+                            contentOf(parent) += element
+                        }
                     }
                     current = element
                 }
@@ -113,7 +130,8 @@ internal class SvgXmlReader(private val limits: SvgLimits, private val warnings:
                         skipDepth--
                         continue
                     }
-                    namespaceScopes.removeAt(namespaceScopes.lastIndex)
+                    flushText()
+                    popNamespaces()
                     keptDepth--
                     current = current?.parent
                     // Whatever follows the root is not part of the picture, and browsers would not show it either.
@@ -122,25 +140,28 @@ internal class SvgXmlReader(private val limits: SvgLimits, private val warnings:
 
                 XmlPullParser.TEXT, XmlPullParser.CDSECT, XmlPullParser.ENTITY_REF, XmlPullParser.IGNORABLE_WHITESPACE -> {
                     val element = current
-                    if (skipDepth == 0 && element != null && keepsText(element)) appendText(element, parser.text)
+                    if (skipDepth == 0 && element != null && element.keepsText) appendText(element, parser.text)
                 }
             }
         }
+        flushText()
         return root ?: throw SvgParseException(SvgParseException.Reason.NOT_SVG, "The document has no root element.")
-    }
-
-    private fun keepsText(element: SvgElement): Boolean {
-        val tag = element.tag
-        return tag == "style" || tag in TEXT_TAGS || (tag == "a" && element.parent?.let { keepsText(it) } == true)
     }
 
     private fun contentOf(element: SvgElement): ArrayList<Any> = element.content ?: ArrayList<Any>(1).also { element.content = it }
 
     private fun appendText(element: SvgElement, text: String?) {
         if (text.isNullOrEmpty()) return
-        val content = contentOf(element)
-        val last = content.lastOrNull()
-        if (last is String) content[content.lastIndex] = last + text else content += text
+        if (pendingOwner !== element) flushText()
+        pendingOwner = element
+        pendingText.append(text)
+    }
+
+    private fun flushText() {
+        val owner = pendingOwner ?: return
+        if (pendingText.isNotEmpty()) contentOf(owner) += pendingText.toString()
+        pendingText.setLength(0)
+        pendingOwner = null
     }
 
     private fun shouldSkip(tag: String): Boolean =
@@ -182,12 +203,23 @@ internal class SvgXmlReader(private val limits: SvgLimits, private val warnings:
         return scope
     }
 
-    private fun lookupNamespace(prefix: String, scope: Map<String, String>?): String? {
-        scope?.get(prefix)?.let { return it }
-        for (i in namespaceScopes.indices.reversed()) {
-            namespaceScopes[i]?.get(prefix)?.let { return it }
+    private fun lookupNamespace(prefix: String, scope: Map<String, String>?): String? = scope?.get(prefix) ?: namespaces[prefix]
+
+    private fun pushNamespaces(scope: Map<String, String>?) {
+        if (scope == null) {
+            namespaceUndo += null
+            return
         }
-        return null
+        val undo = HashMap<String, String?>(scope.size * 2)
+        for ((prefix, uri) in scope) undo[prefix] = namespaces.put(prefix, uri)
+        namespaceUndo += undo
+    }
+
+    private fun popNamespaces() {
+        val undo = namespaceUndo.removeAt(namespaceUndo.lastIndex) ?: return
+        for ((prefix, uri) in undo) {
+            if (uri == null) namespaces.remove(prefix) else namespaces[prefix] = uri
+        }
     }
 
     /** The element's local name if it belongs to SVG, or null for Inkscape, RDF and other foreign elements, which are skipped. */
@@ -240,8 +272,26 @@ internal class SvgXmlReader(private val limits: SvgLimits, private val warnings:
         }
         element.attrs = attributes
         element.id = attributes["id"]?.trim()?.takeIf { it.isNotEmpty() }
-        attributes["class"]?.let { classes ->
-            element.classes = classes.split(' ', '\t', '\n', '\r').filter { it.isNotEmpty() }
+        attributes["class"]?.let { classes -> element.classes = readClasses(classes) }
+    }
+
+    /** One long attribute must not become millions of small strings, so this stops counting long before that. */
+    private fun readClasses(text: String): List<String> {
+        val out = LinkedHashSet<String>()
+        var start = -1
+        for (i in 0..text.length) {
+            val isEnd = i == text.length || text[i] == ' ' || text[i] == '\t' || text[i] == '\n' || text[i] == '\r'
+            if (isEnd) {
+                if (start >= 0) out += text.substring(start, i)
+                start = -1
+                if (out.size >= MAX_CLASSES) {
+                    warnings += SvgWarning.LIMIT_REACHED
+                    break
+                }
+            } else if (start < 0) {
+                start = i
+            }
         }
+        return out.toList()
     }
 }

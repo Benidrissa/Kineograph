@@ -1,8 +1,79 @@
 package org.kineograph.media.svg
 
 internal val ANIMATION_TAGS: Set<String> = setOf("animate", "animateTransform", "animateMotion", "animateColor", "set", "discard")
-private val SYNC_BEGIN_END = Regex("""^(.+?)\.(beginEvent|endEvent|begin|end)\s*(?:([+-])\s*(.+))?$""")
-private val SYNC_REPEAT = Regex("""^(.+?)\.repeat\(\s*(\d+)\s*\)\s*(?:([+-])\s*(.+))?$""")
+
+/** `id.end+1s` taken apart. [repeat] holds the count of `id.repeat(3)`, and [kind] says begin or end for the others. */
+internal class SyncReference(val id: String, val kind: SyncKind, val repeat: String, val sign: String, val offset: String)
+
+/**
+ * Reads `id.begin`, `id.end` or `id.repeat(n)` with its optional offset. A file's ids can hold dots, so each dot is tried in turn, and the
+ * first one that the whole of the rest fits after is the one.
+ *
+ * Written by hand because a regular expression retries the same stretch from every dot and from every space, which takes minutes on a
+ * value of a hundred kilobytes that does not end the way it hoped.
+ */
+internal fun readSyncReference(text: String): SyncReference? {
+    val firstBreak = text.indexOfFirst(::isLineBreak).let { if (it < 0) text.length else it }
+    val lastBreak = text.indexOfLast(::isLineBreak)
+    // A repeat wins over any other reading, so it goes first, as an extra pass.
+    for (wantsRepeat in booleanArrayOf(true, false)) {
+        var dot = text.indexOf('.', 1)
+        while (dot in 0 until firstBreak) {
+            val tail =
+                if (wantsRepeat) repeatTail(text, dot + 1) else beginOrEndTail(text, dot + 1)
+            if (tail != null) {
+                val found = offsetAfter(text, tail.end, lastBreak)
+                if (found != null) return SyncReference(text.substring(0, dot), tail.kind, tail.repeat, found.first, found.second)
+            }
+            dot = text.indexOf('.', dot + 1)
+        }
+    }
+    return null
+}
+
+private class SyncTail(val kind: SyncKind, val repeat: String, val end: Int)
+
+private fun beginOrEndTail(text: String, start: Int): SyncTail? =
+    when {
+        text.startsWith("beginEvent", start) -> SyncTail(SyncKind.BEGIN, "", start + 10)
+        text.startsWith("endEvent", start) -> SyncTail(SyncKind.END, "", start + 8)
+        text.startsWith("begin", start) -> SyncTail(SyncKind.BEGIN, "", start + 5)
+        text.startsWith("end", start) -> SyncTail(SyncKind.END, "", start + 3)
+        else -> null
+    }
+
+private fun repeatTail(text: String, start: Int): SyncTail? {
+    if (!text.startsWith("repeat(", start)) return null
+    var i = skipSpaces(text, start + 7)
+    val digitsStart = i
+    while (i < text.length && text[i].isAsciiDigit()) i++
+    if (i == digitsStart) return null
+    val digits = text.substring(digitsStart, i)
+    i = skipSpaces(text, i)
+    if (i >= text.length || text[i] != ')') return null
+    return SyncTail(SyncKind.REPEAT, digits, i + 1)
+}
+
+/** What must make up the rest of the text after the reference: nothing, or a sign and an offset. Null when it is something else. */
+private fun offsetAfter(text: String, start: Int, lastBreak: Int): Pair<String, String>? {
+    val i = skipSpaces(text, start)
+    if (i >= text.length) return "" to ""
+    val sign = text[i]
+    if (sign != '+' && sign != '-') return null
+    val valueStart = skipSpaces(text, i + 1)
+    if (valueStart >= text.length || lastBreak >= valueStart) return null
+    return sign.toString() to text.substring(valueStart)
+}
+
+private fun skipSpaces(text: String, from: Int): Int {
+    var i = from
+    while (i < text.length && isClockSpace(text[i])) i++
+    return i
+}
+
+private fun isClockSpace(c: Char): Boolean = c == ' ' || c == '\t' || c == '\n' || c == '\u000B' || c == '\u000C' || c == '\r'
+
+private fun isLineBreak(c: Char): Boolean = c == '\n' || c == '\r' || c == '\u0085' || c == '\u2028' || c == '\u2029'
 
 /** Turns SMIL animation elements into timings and tracks on their target elements. */
 internal class SmilBuilder(
@@ -10,6 +81,7 @@ internal class SmilBuilder(
     private val byId: Map<String, SvgElement>,
     private val warnings: MutableSet<SvgWarning>,
     private val rootFontSize: Double,
+    private val work: ParseWork,
 ) {
     val timings: ArrayList<SmilTiming> = ArrayList()
     var foundAnimation: Boolean = false
@@ -18,7 +90,7 @@ internal class SmilBuilder(
 
     fun build() {
         walk(root)
-        val timeline = SmilTimeline(timings)
+        val timeline = SmilTimeline(timings, work, work.limits.maxParseWork / SHARE_OF_WORK_FOR_TIMING)
         timeline.solve()
         if (timeline.exhausted) warnings += SvgWarning.LIMIT_REACHED
     }
@@ -27,10 +99,18 @@ internal class SmilBuilder(
         if (element.tag in ANIMATION_TAGS) {
             foundAnimation = true
             order++
-            build(element)
+            if (work.spend(WorkCost.ANIMATION_ENTRY)) {
+                if (hasRoomFor(element)) build(element) else warnings += SvgWarning.LIMIT_REACHED
+            }
             return
         }
         for (child in element.children) walk(child)
+    }
+
+    /** A long list of values makes one small object for every few characters, which is worth checking before they fill the heap. */
+    private fun hasRoomFor(element: SvgElement): Boolean {
+        val longest = element.attrs.values.maxOfOrNull { it.length } ?: return true
+        return HeapWatch.hasRoomForText(longest, BYTES_PER_CHAR_OF_VALUES)
     }
 
     private fun build(element: SvgElement) {
@@ -55,7 +135,7 @@ internal class SmilBuilder(
         val attrs = element.attrs
         val begins = readTimeList(attrs["begin"], isBegin = true)
         val ends = readTimeList(attrs["end"], isBegin = false)
-        val duration = attrs["dur"]?.let { parseClock(it) }?.takeIf { it > 0.0 }
+        val duration = attrs["dur"]?.let { parseClock(it) }?.takeIf { it > 0.0 }?.let(::usableDuration)
         val repeatCount =
             attrs["repeatCount"]?.trim()?.let {
                 if (it == "indefinite") Double.POSITIVE_INFINITY else parseNumberOrNull(it)?.takeIf { value -> value > 0.0 }
@@ -124,17 +204,11 @@ internal class SmilBuilder(
         val signed = text[0] == '+' || text[0] == '-'
         val offset = parseClock(if (signed) text.substring(1) else text)
         if (offset != null) return TimeSpec.Offset(if (text[0] == '-') -offset else offset)
-        SYNC_REPEAT.find(text)?.let { match ->
-            val (id, repeat, sign, value) = match.destructured
-            val seconds = syncOffset(sign, value) ?: return invalidTime()
-            val count = repeat.toIntOrNull() ?: return invalidTime()
-            return TimeSpec.Sync(unescapeId(id), SyncKind.REPEAT, count, seconds)
-        }
-        SYNC_BEGIN_END.find(text)?.let { match ->
-            val (id, kind, sign, value) = match.destructured
-            val seconds = syncOffset(sign, value) ?: return invalidTime()
-            // beginEvent and endEvent are events by name, but they fire by themselves, at exactly these same moments.
-            return TimeSpec.Sync(unescapeId(id), if (kind.startsWith("begin")) SyncKind.BEGIN else SyncKind.END, 0, seconds)
+        // beginEvent and endEvent are events by name, but they fire by themselves, at exactly the same moments as begin and end.
+        readSyncReference(text)?.let { sync ->
+            val seconds = syncOffset(sync.sign, sync.offset) ?: return invalidTime()
+            val count = if (sync.kind == SyncKind.REPEAT) sync.repeat.toIntOrNull() ?: return invalidTime() else 0
+            return TimeSpec.Sync(unescapeId(sync.id), sync.kind, count, seconds)
         }
         // Everything else is an event name, `click` or `a.mouseover+1s`, and no event fires during an import.
         warnings += SvgWarning.EVENT_TRIGGER_IGNORED
@@ -324,7 +398,6 @@ internal class SmilBuilder(
             warnings += SvgWarning.INVALID_CONTENT_IGNORED
             return
         }
-        val timing = readTiming(element)
         val mode =
             when (attrs["calcMode"]?.trim()) {
                 "discrete" -> CalcMode.DISCRETE
@@ -343,6 +416,13 @@ internal class SmilBuilder(
             }
         val keyTimes = attrs["keyTimes"]?.takeIf { mode != CalcMode.PACED }?.let { parseKeyTimes(it) }
         val splines = if (mode == CalcMode.SPLINE) parseKeySplines(attrs["keySplines"]) else null
+        val pairedTimes = keyTimes ?: if (keyPoints != null) attrs["keyTimes"]?.let { parseKeyTimes(it) } else null
+        // Each key point goes with one key time. Browsers switch off an animation where the two lists do not pair up.
+        if (keyPoints != null && attrs["keyTimes"] != null && (pairedTimes == null || pairedTimes.size != keyPoints.size)) {
+            warnings += SvgWarning.INVALID_CONTENT_IGNORED
+            return
+        }
+        val timing = readTiming(element)
         val rotate =
             when (val value = attrs["rotate"]?.trim()) {
                 null, "" -> MotionRotate.Fixed(0.0)
@@ -358,7 +438,7 @@ internal class SmilBuilder(
                 // keyPoints need times to pair with, so paced mode cannot apply to them. It would ignore keyTimes.
                 if (keyPoints != null && mode == CalcMode.PACED) CalcMode.LINEAR else mode,
                 keyPoints,
-                keyTimes ?: if (keyPoints != null) attrs["keyTimes"]?.let { parseKeyTimes(it) } else null,
+                pairedTimes,
                 splines,
                 rotate,
                 additive = attrs["additive"]?.trim() == "sum",
@@ -410,6 +490,11 @@ internal class SmilBuilder(
         return numbers[0] to (numbers.getOrNull(1) ?: 0.0)
     }
 }
+
+private const val BYTES_PER_CHAR_OF_VALUES = 20
+
+/** A file with a hundred thousand animations takes a tiny part of this, as each of them is only worked out once or a few times. */
+private const val SHARE_OF_WORK_FOR_TIMING = 10L
 
 /** The values of `animateTransform` are bare numbers, whose meaning and allowed count depend on its `type` attribute. */
 private fun parseAnimateTransformValue(type: String, text: String): SvgValue? {
