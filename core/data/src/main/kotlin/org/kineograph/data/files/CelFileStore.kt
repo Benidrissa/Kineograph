@@ -180,7 +180,7 @@ public class CelFileStore(
      */
     @Throws(IOException::class)
     override suspend fun awaitWrites() {
-        for ((name, write) in failed.entries.toList()) {
+        for ((name, write) in failed.entries.snapshot()) {
             takeQueueRoom(write.image)
             val retrying =
                 synchronized(settling) {
@@ -188,8 +188,8 @@ public class CelFileStore(
                 }
             if (!retrying) giveBackQueueRoom(write.image)
         }
-        jobs.values.toList().joinAll()
-        val failures = failed.values.toList()
+        jobs.values.snapshot().joinAll()
+        val failures = failed.values.snapshot()
         if (failures.isNotEmpty()) {
             if (failures.all { it.outOfMemory }) throw OutOfMemoryError("${failures.size} images could not be encoded")
             throw IOException("${failures.size} images could not be saved")
@@ -248,6 +248,12 @@ public class CelFileStore(
             // The next sweep gets another go at it. Nobody is waiting to hear about this, and an error on this path would end the app.
         }
     }
+
+    /**
+     * What a collection being changed by other threads holds at this moment. Kotlin's `toList` looks at the size first and then, for a single
+     * item, asks for it, and by then a write finishing can have taken it away.
+     */
+    private fun <T> Collection<T>.snapshot(): List<T> = ArrayList(this)
 
     /** Stops background work. Call after a final [awaitWrites]. Anything else still waiting for this store gets its answer, and no write it asks for later happens. */
     public fun close() {

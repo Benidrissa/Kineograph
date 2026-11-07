@@ -1097,6 +1097,29 @@ class RepositoryTest {
     }
 
     @Test
+    fun `waiting for writes survives them finishing at the same moment`() {
+        val project = create()
+        // A write that fails at once comes and goes in microseconds, retried by whoever is waiting, so one is forever about to end as another looks.
+        val store = CelFileStore(files.projectDirectory(project.id), 1024 * 1024, Dispatchers.IO) { _, _ -> throw IOException("disk full") }
+        store.write(image())
+        val deadline = System.currentTimeMillis() + 3_000
+        runBlocking(Dispatchers.Default) {
+            repeat(4) {
+                launch {
+                    while (System.currentTimeMillis() < deadline) {
+                        try {
+                            store.awaitWrites()
+                        } catch (_: IOException) {
+                            // Expected. Anything else is what this is here to catch.
+                        }
+                    }
+                }
+            }
+        }
+        store.close()
+    }
+
+    @Test
     fun `a stale row that cannot be removed does not stop the rest of start-up`() {
         useFailingDao()
         val gone = create()

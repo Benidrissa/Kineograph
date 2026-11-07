@@ -348,7 +348,7 @@ with the signing secrets has no write access.
 
 `publish` only uploads the universal APK. Android refuses a split APK on any other kind of phone with just "App not installed", and
 people opening Releases do not know which kind they have. The first file listed would be the arm64 one, which a cheap 32-bit phone
-cannot install. The universal APK is about 0.7 MB bigger than a split one (3.0 MB against 2.3 to 2.4 MB in the last build), which is
+cannot install. The universal APK is about 0.7 MB bigger than a split one (3.1 MB against 2.4 to 2.5 MB in the last build), which is
 a small price for a download that cannot be the wrong one. The split APKs stay in the `release` workflow artifact, with the bundle,
 which cannot be installed by hand. `ReleaseWorkflowTest` holds the job to this.
 

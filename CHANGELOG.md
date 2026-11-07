@@ -23,6 +23,7 @@ The bouncing ball works from start to finish.
 
 ### Fixed
 
+- A rare crash during a save, when an image finished writing at the exact moment the save was checking what was still being written
 - Playing a project with a very large background picture no longer crashes if memory runs out while reading it
 - The New Project sheet says why Create is off when the name is empty
 - A project saved once by a newer version of the app no longer opens from its older backup in an older version, where the next saves would
