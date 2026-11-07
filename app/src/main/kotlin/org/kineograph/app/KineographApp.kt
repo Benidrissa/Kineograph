@@ -26,7 +26,7 @@ import java.io.IOException
  * Wires the app together by hand. Doing this without a dependency-injection framework keeps the APK small and start-up
  * fast, and at this size a few lazy properties are all that is needed (see docs/decisions.md).
  */
-class KineographApp : Application(), ExportDependencies {
+open class KineographApp : Application(), ExportDependencies {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val files: ProjectFiles by lazy { ProjectFiles(this) }

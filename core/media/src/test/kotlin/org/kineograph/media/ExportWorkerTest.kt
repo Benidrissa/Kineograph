@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.ResolveInfo
+import android.os.BadParcelableException
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.Configuration
@@ -22,7 +23,9 @@ import androidx.work.impl.utils.taskexecutor.WorkManagerTaskExecutor
 import androidx.work.workDataOf
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -205,6 +208,7 @@ class ExportWorkerTest {
         val notification = resultNotification(id)
         assertNotNull(notification)
         assertEquals(projectId, projectTheTapOpens(notification))
+        assertEquals(projectId, ExportWorker.requestedProject(shadowOf(notification.contentIntent).savedIntent))
         assertTrue(notification.flags and android.app.Notification.FLAG_AUTO_CANCEL != 0)
     }
 
@@ -254,6 +258,85 @@ class ExportWorkerTest {
         assertFalse(directory.exists())
         assertNull(resultNotification(id))
         assertNull(progressNotification(id))
+    }
+
+    /** How many times an export of the sample reports progress, which it does right up to the last tick. */
+    private fun progressUpdatesInAnExport(): Int {
+        var updates = 0
+        onProgress = { updates++ }
+        success(runBlocking { worker().doWork() })
+        onProgress = {}
+        return updates
+    }
+
+    /** Stops an export at its last progress update. All that is left after that is finishing the file, with no check for a cancel. */
+    private fun assertStoppingAtTheEndLeavesNothing(stop: (ExportWorker, Job) -> Unit) {
+        val updates = progressUpdatesInAnExport()
+        assertTrue("the premise: the export has more than one tick", updates > 1)
+        val id = UUID.randomUUID()
+        val exporting = worker(id)
+        var seen = 0
+        assertThrows(CancellationException::class.java) {
+            runBlocking {
+                val job = async(Dispatchers.Default, CoroutineStart.LAZY) { exporting.doWork() }
+                onProgress = { if (++seen == updates) stop(exporting, job) }
+                job.await()
+            }
+        }
+        assertEquals("the premise: it did get to the end", updates, seen)
+        val deadline = System.currentTimeMillis() + WAIT_MS
+        val directory = File(context.cacheDir, "exports/$id")
+        while (directory.exists() && System.currentTimeMillis() < deadline) Thread.sleep(5)
+        assertFalse("half a cancel must not leave its file behind", directory.exists())
+        assertNull("nothing is ready, and a tap on this would lead nowhere", resultNotification(id))
+    }
+
+    @Test
+    fun `a cancel during the last tick still announces nothing and leaves nothing`() {
+        assertStoppingAtTheEndLeavesNothing { worker, job ->
+            worker.stop(0)
+            job.cancel()
+        }
+    }
+
+    @Test
+    fun `WorkManager marking the worker as stopped is enough, as that comes before the job is cancelled`() {
+        assertStoppingAtTheEndLeavesNothing { worker, _ -> worker.stop(0) }
+    }
+
+    @Test
+    fun `the job being cancelled is enough too`() {
+        assertStoppingAtTheEndLeavesNothing { _, job -> job.cancel() }
+    }
+
+    @Test
+    fun `an export that fails after being cancelled does not report the failure`() {
+        val id = UUID.randomUUID()
+        val stopped = worker(id, ExportConfig("not a project", ExportFormat.GIF))
+        stopped.stop(0)
+        assertEquals(ExportWorker.ERROR_NO_PROJECT, failure(runBlocking { stopped.doWork() }))
+        assertNull(resultNotification(id))
+    }
+
+    private fun requestFor(value: String) = Intent().putExtra(ExportWorker.EXTRA_PROJECT_ID, value)
+
+    @Test
+    fun `only what could be a project is taken from an intent, since any app can send one`() {
+        val notProjects =
+            listOf("", " ", "a", "a/b", "../..", "a%2Fb", "x?y=1", "$projectId/x", "$projectId ", projectId.uppercase(), "1-1-1-1-1")
+        for (value in notProjects) assertNull("\"$value\"", ExportWorker.requestedProject(requestFor(value)))
+        assertEquals(projectId, ExportWorker.requestedProject(requestFor(projectId)))
+    }
+
+    @Test
+    fun `an intent with no project in it, or one that cannot be read, asks for nothing`() {
+        assertNull(ExportWorker.requestedProject(Intent()))
+        assertNull(ExportWorker.requestedProject(Intent().putExtra(ExportWorker.EXTRA_PROJECT_ID, 7)))
+        val unreadable =
+            object : Intent() {
+                override fun getStringExtra(name: String?): String? = throw BadParcelableException("A class only the sender has")
+            }
+        assertNull(ExportWorker.requestedProject(unreadable))
     }
 
     private companion object {

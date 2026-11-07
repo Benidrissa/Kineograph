@@ -75,6 +75,11 @@ android {
     packaging {
         resources.excludes += setOf("DebugProbesKt.bin", "kotlin-tooling-metadata.json", "META-INF/*.version")
     }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 // Section 3 of the specification: no INTERNET permission, ever, even if a library tries to add one.
@@ -115,6 +120,12 @@ dependencies {
     implementation(libs.compose.material3.window.size)
     implementation(libs.work.runtime.ktx)
     implementation(libs.kotlinx.coroutines.android)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.test.ext.junit)
+    testImplementation(libs.compose.ui.test.junit4)
 
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.rules)

@@ -27,10 +27,15 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.dropUnlessResumed
+import androidx.lifecycle.viewModelScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -43,6 +48,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -498,6 +504,52 @@ class EditorViewModelTest {
         return session.state.value.frameId
     }
 
+    /** The real screen, on a lifecycle the test moves by hand, because the effect that goes with leaving the app is what is at stake. */
+    private inner class ShownEditor(viewModel: EditorViewModel) : LifecycleOwner {
+        private val registry = LifecycleRegistry.createUnsafe(this).apply { currentState = Lifecycle.State.RESUMED }
+        override val lifecycle: Lifecycle get() = registry
+
+        init {
+            compose.setContent {
+                CompositionLocalProvider(LocalLifecycleOwner provides this) {
+                    KineographTheme(darkTheme = false) { EditorRoute(viewModel, wideLayout = false) { } }
+                }
+            }
+            compose.waitUntil(WAIT_MS) { compose.onAllNodesWithTag("canvas_host").fetchSemanticsNodes().isNotEmpty() }
+        }
+
+        /** Another window taking the focus, as in multi-window. */
+        fun pause() {
+            registry.currentState = Lifecycle.State.STARTED
+        }
+
+        /** Home, or another app. */
+        fun leaveTheApp() {
+            registry.currentState = Lifecycle.State.CREATED
+        }
+    }
+
+    /** What the view model has going on, of which playback's clock and decoding are a part for as long as it plays. */
+    private fun EditorViewModel.workInProgress(): Int = viewModelScope.coroutineContext.job.children
+        .count()
+
+    /**
+     * Runs the main thread one task at a time until [playing] is true, or for as long as [forMs] if that comes first. Once
+     * playback's clock is going each frame asks for the next, and [waitUntil]'s way of emptying the queue would never come back.
+     */
+    private fun PlaybackController.runMainThreadUntilPlaying(forMs: Long = WAIT_MS) {
+        val deadline = System.currentTimeMillis() + forMs
+        while (!state.value.isPlaying && System.currentTimeMillis() < deadline) {
+            shadowOf(Looper.getMainLooper()).runOneTask()
+            Thread.sleep(1)
+        }
+    }
+
+    private fun PlaybackController.awaitPlaying() {
+        runMainThreadUntilPlaying()
+        assertTrue("playback did not start", state.value.isPlaying)
+    }
+
     @Test
     fun `leaving the app while nothing is playing stays on the same frame`() {
         val viewModel = viewModelFor(create().id)
@@ -509,8 +561,9 @@ class EditorViewModelTest {
                 .id,
             frame,
         )
+        val editor = ShownEditor(viewModel)
 
-        viewModel.stopPlayback()
+        editor.leaveTheApp()
         waitUntil("the session to settle") { !ready.session.state.value.busy }
 
         assertEquals(frame, ready.session.state.value.frameId)
@@ -522,12 +575,17 @@ class EditorViewModelTest {
         val ready = viewModel.awaitReady()
         ready.withFrames(4)
         val controller = checkNotNull(viewModel.playback)
+        val editor = ShownEditor(viewModel)
+        waitUntil("the session to settle") { !ready.session.state.value.busy }
+        val idle = viewModel.workInProgress()
 
         viewModel.startPlayback(FakeDisplay(), 1f)
-        waitUntil("playback to start") { controller.state.value.isPlaying }
-        viewModel.stopPlayback()
+        controller.awaitPlaying()
+        assertTrue("the premise: playback has work going on", viewModel.workInProgress() > idle)
+        editor.leaveTheApp()
 
         assertFalse(controller.state.value.isPlaying)
+        waitUntil("the decoding to stop") { viewModel.workInProgress() <= idle }
     }
 
     @Test
@@ -536,17 +594,165 @@ class EditorViewModelTest {
         val ready = viewModel.awaitReady()
         ready.withFrames(4)
         val controller = checkNotNull(viewModel.playback)
+        val editor = ShownEditor(viewModel)
 
         viewModel.startPlayback(FakeDisplay(), 1f)
         // Nothing has had a chance to run on the main thread yet, so the start is still waiting for the save.
         assertFalse(controller.state.value.isPlaying)
-        viewModel.stopPlayback()
+        editor.leaveTheApp()
 
-        repeat(20) {
-            shadowOf(Looper.getMainLooper()).idle()
-            Thread.sleep(5)
-        }
+        controller.runMainThreadUntilPlaying(forMs = 100)
         assertFalse(controller.state.value.isPlaying)
+    }
+
+    @Test
+    fun `only pausing leaves playback going, because in multi-window it is still on screen`() {
+        val viewModel = viewModelFor(create().id)
+        val ready = viewModel.awaitReady()
+        ready.withFrames(4)
+        val controller = checkNotNull(viewModel.playback)
+        val editor = ShownEditor(viewModel)
+
+        viewModel.startPlayback(FakeDisplay(), 1f)
+        controller.awaitPlaying()
+        editor.pause()
+
+        assertTrue(controller.state.value.isPlaying)
+    }
+
+    @Test
+    fun `stopping when nothing is playing does not move the editor to the first frame`() {
+        val viewModel = viewModelFor(create().id)
+        val ready = viewModel.awaitReady()
+        val frame = ready.withFrames(8)
+
+        viewModel.stopPlayback()
+        waitUntil("the session to settle") { !ready.session.state.value.busy }
+
+        assertEquals(frame, ready.session.state.value.frameId)
+    }
+
+    // ----- Going to another project -----
+
+    @Test
+    fun `going to another project saves first and then goes there`() {
+        val project = create()
+        val viewModel = viewModelFor(project.id)
+        val ready = viewModel.awaitReady()
+        stroke(ready.session)
+        var left = false
+        viewModel.requestLeaveFor(OTHER_PROJECT) { left = true }
+        waitUntil("leaving") { left }
+        assertEquals(OTHER_PROJECT, viewModel.leavingFor)
+        assertEquals(1, ManifestCodec.decode(manifestOf(project.id).readText()).cels.size)
+    }
+
+    @Test
+    fun `asking for another project while Back is still saving changes where Back goes`() {
+        val viewModel = viewModelFor(create().id)
+        stroke(viewModel.awaitReady().session)
+        var destination: String? = null
+        var left = false
+        // This is what the screen's own way of leaving does.
+        viewModel.requestLeave {
+            destination = viewModel.leavingFor
+            left = true
+        }
+        viewModel.requestLeaveFor(OTHER_PROJECT) { throw AssertionError("Only one of them may close the screen") }
+        waitUntil("leaving") { left }
+        assertEquals(OTHER_PROJECT, destination)
+    }
+
+    /** An editor on a disk that has filled up, on which something has just asked for [OTHER_PROJECT]. */
+    private fun askedAboutOtherProject(project: Project): EditorViewModel {
+        val viewModel = viewModelFor(project.id)
+        stroke(viewModel.awaitReady().session)
+        fillDisk(project.id)
+        viewModel.requestLeaveFor(OTHER_PROJECT) { throw AssertionError("It must not close while its changes are not saved") }
+        waitUntil("the save to fail") { viewModel.unsavedOnLeave.value }
+        return viewModel
+    }
+
+    @Test
+    fun `going to another project asks first when the changes cannot be saved`() {
+        val project = create()
+        val before = manifestOf(project.id).readText()
+        val viewModel = askedAboutOtherProject(project)
+        assertFalse(viewModel.leaving.value)
+        assertEquals("the work is still there to be saved", before, manifestOf(project.id).readText())
+        assertEquals(EditorMessage.SAVE_FAILED, nextMessage(viewModel))
+    }
+
+    @Test
+    fun `discarding goes on to the project that was asked for`() {
+        val viewModel = askedAboutOtherProject(create())
+        var destination: String? = null
+        viewModel.discardAndLeave { destination = viewModel.leavingFor }
+        assertEquals(OTHER_PROJECT, destination)
+    }
+
+    @Test
+    fun `staying means staying, so going back later is only going back`() {
+        val viewModel = askedAboutOtherProject(create())
+        viewModel.stayAfterFailedSave()
+        assertFalse(viewModel.unsavedOnLeave.value)
+        assertNull(viewModel.leavingFor)
+    }
+
+    @Test
+    fun `space being freed answers the question by staying, as it does for Back`() {
+        val project = create()
+        val viewModel = askedAboutOtherProject(project)
+        freeDisk(project.id)
+        viewModel.retryFailedSave()
+        waitUntil("the save to work") { !viewModel.unsavedOnLeave.value }
+        assertNull(viewModel.leavingFor)
+    }
+
+    @Test
+    fun `the save on coming back to the app does not stop a leave that is on its way`() {
+        val project = create()
+        val viewModel = viewModelFor(project.id)
+        val ready = viewModel.awaitReady()
+        stroke(ready.session)
+        fillDisk(project.id)
+        assertFalse("the premise: an earlier save failed", runBlocking { ready.autosaver.saveNow() })
+        freeDisk(project.id)
+
+        // A tap on a notification brings the app back, so these two arrive together.
+        viewModel.retryFailedSave()
+        var left = false
+        viewModel.requestLeaveFor(OTHER_PROJECT) { left = true }
+        waitUntil("leaving") { left }
+        waitUntil("the retry to finish") { !ready.autosaver.saveFailed.value }
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(OTHER_PROJECT, viewModel.leavingFor)
+    }
+
+    @Test
+    fun `the project already open is not left, and the last thing asked is what counts`() {
+        val project = create()
+        val viewModel = askedAboutOtherProject(project)
+        viewModel.requestLeaveFor(project.id) { throw AssertionError("It is already on this project") }
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(viewModel.unsavedOnLeave.value)
+        assertNull(viewModel.leavingFor)
+    }
+
+    @Test
+    fun `going to another project stops playback on the way`() {
+        val viewModel = viewModelFor(create().id)
+        val ready = viewModel.awaitReady()
+        ready.withFrames(4)
+        val controller = checkNotNull(viewModel.playback)
+        viewModel.startPlayback(FakeDisplay(), 1f)
+        controller.awaitPlaying()
+
+        var left = false
+        viewModel.requestLeaveFor(OTHER_PROJECT) { left = true }
+
+        assertFalse(controller.state.value.isPlaying)
+        waitUntil("leaving") { left }
     }
 
     @Test
@@ -567,6 +773,7 @@ class EditorViewModelTest {
 
     private companion object {
         const val WAIT_MS = 20_000L
+        const val OTHER_PROJECT = "the other project"
 
         /** Far more than any test machine can allocate twice over, so opening a canvas this size fails for real. */
         const val HUGE = 100_000

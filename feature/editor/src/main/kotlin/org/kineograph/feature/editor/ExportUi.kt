@@ -212,11 +212,16 @@ internal fun ExportOptions(project: Project, onExport: (ExportConfig) -> Unit) {
         value = EncoderCheck(withContext(Dispatchers.Default) { PlatformEncoder.avcLimits() })
     }
 
+    // A typed size counts for as long as it is a size. Emptying the box goes back to what was chosen before it, so this is
+    // worked out from the text rather than stored, or the digits typed and deleted along the way would stay behind.
+    val typedScale = scaleForLongestEdge(edgeText, project.width, project.height)
+    val activeFrame = frame.takeIf { typedScale == null }
+
     val config =
         ExportConfig(
             projectId = project.id,
             format = format,
-            scale = scale,
+            scale = typedScale ?: scale,
             fpsOverride = fpsOverride,
             rangeStart = range.start.roundToInt(),
             rangeEnd = range.endInclusive.roundToInt(),
@@ -227,8 +232,8 @@ internal fun ExportOptions(project: Project, onExport: (ExportConfig) -> Unit) {
             gifLoopForever = loopForever,
             videoQuality = quality,
             // A GIF takes the picture's shape, but going back to video brings the frame back.
-            frameWidth = frame?.width,
-            frameHeight = frame?.height,
+            frameWidth = activeFrame?.width,
+            frameHeight = activeFrame?.height,
         )
 
     // Notifications show progress and how it ended, and the editor shows both as well, so the export carries on whatever
@@ -279,7 +284,7 @@ internal fun ExportOptions(project: Project, onExport: (ExportConfig) -> Unit) {
         modifier = Modifier.testTag("export_size"),
     )
     encoder?.let { check ->
-        exportSizeNotes(project, config, frame, check.limits).forEach { note ->
+        exportSizeNotes(project, config, activeFrame, check.limits).forEach { note ->
             Text(
                 note.text(),
                 style = MaterialTheme.typography.bodySmall,
@@ -291,7 +296,7 @@ internal fun ExportOptions(project: Project, onExport: (ExportConfig) -> Unit) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         SCALE_CHOICES.forEach { choice ->
             FilterChip(
-                selected = frame == null && scale == choice,
+                selected = typedScale == null && frame == null && scale == choice,
                 onClick = {
                     scale = choice
                     // Choosing a scale means choosing the picture's own shape, so the label must stop promising the frame.
@@ -305,17 +310,10 @@ internal fun ExportOptions(project: Project, onExport: (ExportConfig) -> Unit) {
     }
     OutlinedTextField(
         value = edgeText,
-        onValueChange = { text ->
-            val digits = text.filter(Char::isDigit)
-            edgeText = digits
-            scaleForLongestEdge(digits, project.width, project.height)?.let { chosen ->
-                scale = chosen
-                frame = null
-            }
-        },
+        onValueChange = { text -> edgeText = text.filter(Char::isDigit) },
         label = { Text(stringResource(R.string.export_longest_edge)) },
         singleLine = true,
-        isError = edgeText.isNotEmpty() && scaleForLongestEdge(edgeText, project.width, project.height) == null,
+        isError = edgeText.isNotEmpty() && typedScale == null,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = Modifier.fillMaxWidth().testTag("export_longest_edge"),
     )

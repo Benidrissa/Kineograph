@@ -121,6 +121,14 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
     private val _unsavedOnLeave = MutableStateFlow(false)
     internal val unsavedOnLeave: StateFlow<Boolean> get() = _unsavedOnLeave
 
+    /**
+     * The project to go to when this editor closes, if the user asked for one rather than for going back. It is kept here
+     * because leaving can wait on a save and then on the user's answer, and the screen that hears the answer may be a newer
+     * one than the screen that asked.
+     */
+    public var leavingFor: String? = null
+        private set
+
     private val _export = MutableStateFlow<ExportUiState?>(null)
     internal val export: StateFlow<ExportUiState?> get() = _export
 
@@ -241,7 +249,8 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
         val state = ready ?: return
         if (!state.autosaver.saveFailed.value) return
         viewModelScope.launch {
-            if (state.autosaver.saveNow()) _unsavedOnLeave.value = false
+            // Only the question is settled by this. A leave that is on its way has not asked one, and still knows where it is going.
+            if (state.autosaver.saveNow() && _unsavedOnLeave.value) stayAfterFailedSave()
         }
     }
 
@@ -265,8 +274,23 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
         }
     }
 
+    /**
+     * Closes this editor to go to another project, for a tap on a notification, which can happen at any time. There is only
+     * ever one editor, so this one has to close first, and it does so the way Back does: what could not be saved exists only
+     * in memory, so the user is asked. [onLeft] goes to [leavingFor], and the screen's way of leaving has to do the same.
+     */
+    public fun requestLeaveFor(project: String, onLeft: () -> Unit) {
+        // The user has moved on from anything they were being asked. If it still applies, the save below fails and asks again.
+        stayAfterFailedSave()
+        if (project == projectId) return
+        leavingFor = project
+        stopPlayback()
+        requestLeave(onLeft)
+    }
+
     internal fun stayAfterFailedSave() {
         _unsavedOnLeave.value = false
+        leavingFor = null
     }
 
     /** The user chose to give up what could not be saved. The last save on disk is what the project goes back to. */

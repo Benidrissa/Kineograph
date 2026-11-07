@@ -20,12 +20,14 @@ The bouncing ball works from start to finish.
 ### Fixed
 
 - An export is no longer lost when the app is swiped away or killed. Opening the project shows it again, running or finished,
-  and a notification says when it has ended; tapping that or the progress notification goes to the project
+  and a notification says when it has ended; tapping that or the progress notification goes to the project. If another project
+  is open and its changes cannot be saved, the tap asks first, the same as Back
+- Cancelling at the very end of an export no longer leaves a "Your animation is ready" notification and a file behind
 - A video that storage ran out on, or that the muxer failed to finish, now reports a failure instead of "Your animation is
   ready" with a file that will not play
 - "TikTok / Reels vertical" now makes a vertical video from any drawing, with bars, and says so before it starts
 - Any export size can be typed in, as far as the encoder goes, and the sheet says what will really happen before the export
-  starts rather than after it
+  starts rather than after it. Emptying the box goes back to the size chosen before it
 - Small pixel-art canvases no longer fail on encoders with a minimum size, and any bars are mentioned
 - Exact frames can be chosen for the range on long animations
 - "Include the background" now does something for videos on solid colours, and explains what the drawing goes on

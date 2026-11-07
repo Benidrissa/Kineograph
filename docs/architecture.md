@@ -171,7 +171,9 @@ An export belongs to WorkManager, not to the editor that started it. It is uniqu
 project has one export at a time, and a new `EditorViewModel` can find it when the project opens, running or finished, and
 show the same dialog. The user finishing with a result is recorded in settings by work id, because WorkManager cannot forget
 one record. If the user has gone, a notification says how it ended, and a tap on it or on the progress notification opens the
-project through `MainActivity`.
+project through `MainActivity`. There is only ever one editor, so one open on another project has to close first, and it does so
+through `EditorViewModel.requestLeaveFor`, the same way as Back: what could not be saved is the user's to decide about. The
+launcher screen is open to other apps, so `ExportWorker.requestedProject` only accepts what could be a project id.
 
 Each export has its own directory in `cache/exports`, because another app may still be reading an earlier export through the
 link it was given, and two projects can share a name. A copy that reached the gallery and went to no other app is deleted

@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.os.BadParcelableException
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
@@ -14,11 +15,14 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.serialization.json.Json
 import org.kineograph.data.ProjectRepository
 import org.kineograph.media.R
 import java.io.File
 import java.io.IOException
+import java.util.UUID
 
 /** Supplies what the worker needs. The application provides this, because workers are created by the system. */
 public interface ExportDependencies {
@@ -69,6 +73,9 @@ public class ExportWorker(context: Context, parameters: WorkerParameters) : Coro
                         reportProgress(progress, percent)
                     }
                 }
+            // The exporter only checks at the start of each tick, so a cancel during the last one or while the file was being
+            // finished gets this far. WorkManager ignores what a stopped worker returns, so nobody else would clean up.
+            if (isStopped || !currentCoroutineContext().isActive) throw CancellationException("The export was cancelled")
             succeeded = true
             notifyResult(R.string.export_result_ready_title, R.string.export_result_ready_text)
             Result.success(
@@ -115,9 +122,10 @@ public class ExportWorker(context: Context, parameters: WorkerParameters) : Coro
     /**
      * Says how the export ended, for a user who has left the app. It has its own identity because WorkManager removes the
      * progress notification when the work ends. A denied notification permission just means this is not seen, and the
-     * editor shows the same result when the project is next opened.
+     * editor shows the same result when the project is next opened. Someone who cancelled has been told all they need.
      */
     private fun notifyResult(title: Int, text: Int) {
+        if (isStopped) return
         val project = projectId ?: return
         ensureChannel()
         val notification =
@@ -229,6 +237,29 @@ public class ExportWorker(context: Context, parameters: WorkerParameters) : Coro
         private const val CHANNEL_ID = "exports"
         private const val PROGRESS_MAX = 100
         private const val NOTIFICATION_STEP = 5
+
+        /**
+         * The project an intent that opens the app asks for. The launcher screen is open to every other app, and they can put
+         * anything at all in an intent, so this only answers with what could be a project. An id is always a UUID, and
+         * so is safe to go in a navigation route.
+         */
+        public fun requestedProject(intent: Intent): String? {
+            val id =
+                try {
+                    intent.getStringExtra(EXTRA_PROJECT_ID)
+                } catch (_: BadParcelableException) {
+                    // Older Android reads all of an intent's extras at once, including classes only the sender has.
+                    null
+                }
+            return id?.takeIf(::isProjectId)
+        }
+
+        private fun isProjectId(text: String): Boolean =
+            try {
+                UUID.fromString(text).toString() == text
+            } catch (_: IllegalArgumentException) {
+                false
+            }
 
         /** A safe file name from a project name, keeping accented letters since users see it in their gallery. */
         public fun fileName(projectName: String, format: ExportFormat): String {

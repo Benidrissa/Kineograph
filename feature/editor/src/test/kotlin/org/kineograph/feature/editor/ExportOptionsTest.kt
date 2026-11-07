@@ -21,6 +21,8 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasTestTag
@@ -202,6 +204,51 @@ class ExportOptionsTest {
                 .text,
         )
         assertEquals(2f, export().scale)
+    }
+
+    /** Types a size and deletes it again one key at a time, which is what a keyboard does. */
+    private fun typeAndDelete(text: String) {
+        val field = compose.onNodeWithTag("export_longest_edge").performScrollTo()
+        for (length in 1..text.length) field.performTextReplacement(text.take(length))
+        for (length in text.length - 1 downTo 0) field.performTextReplacement(text.take(length))
+    }
+
+    @Test
+    fun `emptying the size box goes back to the size from before, not the last digit's`() {
+        show(project())
+        typeAndDelete("1024")
+        size("1280 × 720")
+        assertEquals(1f, export().scale)
+    }
+
+    @Test
+    fun `emptying the size box goes back to the scale that was chosen`() {
+        show(project())
+        tap("scale_2.0")
+        typeAndDelete("1024")
+        size("2560 × 1440")
+        compose.onNodeWithTag("scale_2.0").assertIsSelected()
+        assertEquals(2f, export().scale)
+    }
+
+    @Test
+    fun `emptying the size box goes back to the preset that was chosen, frame and all`() {
+        show(project())
+        tap("preset_VERTICAL")
+        typeAndDelete("640")
+        size("1080 × 1920")
+        assertEquals(1080, export().frameWidth)
+    }
+
+    @Test
+    fun `no scale looks chosen while a typed size is what counts`() {
+        show(project())
+        compose.onNodeWithTag("scale_1.0").assertIsSelected()
+        val field = compose.onNodeWithTag("export_longest_edge").performScrollTo()
+        field.performTextReplacement("640")
+        compose.onNodeWithTag("scale_1.0").assertIsNotSelected()
+        field.performTextReplacement("")
+        compose.onNodeWithTag("scale_1.0").assertIsSelected()
     }
 
     @Test

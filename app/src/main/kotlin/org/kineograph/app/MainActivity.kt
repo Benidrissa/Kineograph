@@ -20,6 +20,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -75,13 +76,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun takeRequestedProject(intent: Intent) {
-        intent.getStringExtra(ExportWorker.EXTRA_PROJECT_ID)?.let { requestedProject.value = it }
+        ExportWorker.requestedProject(intent)?.let { requestedProject.value = it }
     }
 }
 
 @Composable
 private fun KineographNavHost(app: KineographApp, settings: AppSettings, wideLayout: Boolean, requestedProject: MutableStateFlow<String?>) {
     val nav = rememberNavController()
+    // Two editors on one project would overwrite each other's work, so there is only ever one, right above the gallery.
+    val openProject: (String) -> Unit = { id -> nav.navigate("editor/$id") { popUpTo(ROUTE_GALLERY) } }
     NavHost(navController = nav, startDestination = ROUTE_GALLERY) {
         composable(ROUTE_GALLERY) {
             val model: GalleryViewModel =
@@ -116,32 +119,15 @@ private fun KineographNavHost(app: KineographApp, settings: AppSettings, wideLay
                     ),
             )
         }
-        composable("editor/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
-            val id = entry.arguments?.getString("id").orEmpty()
-            val model: EditorViewModel =
-                viewModel(
-                    factory =
-                        factoryOf {
-                            EditorViewModel(
-                                EditorDependencies(
-                                    app.projectRepository,
-                                    app.settings,
-                                    app.budget,
-                                    app.exportManager,
-                                    app.files::spillDirectory,
-                                    app.appScope,
-                                    { file, format -> GalleryWriter.save(app, file, format) },
-                                ),
-                                id,
-                            )
-                        },
-                )
+        composable(ROUTE_EDITOR, arguments = listOf(navArgument(ARGUMENT_ID) { type = NavType.StringType })) { entry ->
+            val model: EditorViewModel = viewModel(factory = editorFactory(app, entry))
             DisposableEffect(model) {
                 val listener: () -> Unit = model::onLowMemory
                 app.lowMemoryListeners += listener
                 onDispose { app.lowMemoryListeners -= listener }
             }
-            EditorRoute(model, wideLayout, onBack = dropUnlessResumed { nav.popBackStack() })
+            val back = dropUnlessResumed { nav.popBackStack() }
+            EditorRoute(model, wideLayout, onBack = { model.leavingFor?.let(openProject) ?: back() })
         }
         composable(ROUTE_SETTINGS) {
             SettingsScreen(
@@ -158,12 +144,34 @@ private fun KineographNavHost(app: KineographApp, settings: AppSettings, wideLay
     val project by requestedProject.collectAsStateWithLifecycle()
     LaunchedEffect(project) {
         val id = project ?: return@LaunchedEffect
-        // Two editors on one project would overwrite each other's work, so there is only ever one, and it is this one.
-        // Another project's editor saves as it closes, as it does when the app is swiped away.
-        if (nav.currentBackStackEntry?.arguments?.getString("id") != id) {
-            nav.navigate("editor/$id") { popUpTo(ROUTE_GALLERY) }
-        }
         requestedProject.value = null
+        val entry = nav.currentBackStackEntry
+        if (entry?.destination?.route == ROUTE_EDITOR) {
+            // Its unsaved work is the user's to decide about, as it is for Back, so the editor has the last word on closing.
+            val editor = ViewModelProvider(entry, editorFactory(app, entry))[EditorViewModel::class.java]
+            editor.requestLeaveFor(id) { editor.leavingFor?.let(openProject) }
+        } else {
+            openProject(id)
+        }
+    }
+}
+
+/** The one place an editor is made, so that the screen and a request from outside it find the same one on [entry]. */
+private fun editorFactory(app: KineographApp, entry: NavBackStackEntry): ViewModelProvider.Factory {
+    val id = entry.arguments?.getString(ARGUMENT_ID).orEmpty()
+    return factoryOf {
+        EditorViewModel(
+            EditorDependencies(
+                app.projectRepository,
+                app.settings,
+                app.budget,
+                app.exportManager,
+                app.files::spillDirectory,
+                app.appScope,
+                { file, format -> GalleryWriter.save(app, file, format) },
+            ),
+            id,
+        )
     }
 }
 
@@ -174,5 +182,7 @@ private inline fun <reified T : ViewModel> factoryOf(crossinline create: () -> T
     }
 
 private const val ROUTE_GALLERY = "gallery"
+private const val ARGUMENT_ID = "id"
+private const val ROUTE_EDITOR = "editor/{$ARGUMENT_ID}"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_ABOUT = "about"
