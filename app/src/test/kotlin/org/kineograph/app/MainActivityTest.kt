@@ -323,7 +323,8 @@ class MainActivityTest {
         compose.onNodeWithContentDescription("Back").performClick()
         compose.waitUntil(WAIT_MS) { compose.onAllNodesWithTag("canvas_host").fetchSemanticsNodes().isEmpty() }
         assertEquals(2, framesOnDisk(first))
-        compose.onNodeWithText(second.name).assertIsDisplayed()
+        // The editor going says nothing about the gallery having been laid out, and the gallery's list comes from the database in its own time.
+        compose.waitUntil(WAIT_MS) { runCatching { compose.onNodeWithText(second.name).assertIsDisplayed() }.isSuccess }
         assertNotEquals("the gallery lists both", 0, compose.onAllNodesWithText(first.name).fetchSemanticsNodes().size)
     }
 
