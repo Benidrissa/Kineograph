@@ -146,6 +146,37 @@ class TouchRulesTest {
     }
 
     @Test
+    fun `opacity under the fill tool goes to the fill, and leaves the brush alone`() {
+        val tools = ToolState(tool = CanvasTool.FILL, brushId = BrushPresets.MARKER.id).withActiveOpacity(0.5f)
+        val config = tools.toCanvasConfig()
+        assertEquals(0.5f, tools.activeOpacity, 0f)
+        assertEquals(128, config.fillColorArgb ushr 24)
+        assertEquals(BrushPresets.MARKER.opacity, config.brush.opacity, 0f)
+    }
+
+    @Test
+    fun `a fill starts out solid, whatever the brush is set to`() {
+        val tools = ToolState(brushId = BrushPresets.MARKER.id).withActiveOpacity(0.2f).copy(tool = CanvasTool.FILL)
+        assertEquals(1f, tools.activeOpacity, 0f)
+        assertEquals(255, tools.toCanvasConfig().fillColorArgb ushr 24)
+        assertEquals(0.2f, tools.toCanvasConfig().brush.opacity, 0f)
+    }
+
+    @Test
+    fun `the strip only scrolls near its ends, faster the further in`() {
+        assertEquals(0f, autoScrollSpeed(150f, 300, 50f, 100f), 0f)
+        assertEquals(0f, autoScrollSpeed(50f, 300, 50f, 100f), 0f)
+        assertEquals(-50f, autoScrollSpeed(25f, 300, 50f, 100f), 0f)
+        assertEquals(50f, autoScrollSpeed(275f, 300, 50f, 100f), 0f)
+    }
+
+    @Test
+    fun `the strip is no faster with the finger far past its end`() {
+        assertEquals(-100f, autoScrollSpeed(-500f, 300, 50f, 100f), 0f)
+        assertEquals(100f, autoScrollSpeed(900f, 300, 50f, 100f), 0f)
+    }
+
+    @Test
     fun `the canvas gets the chosen brush`() {
         val config = ToolState(brushId = BrushPresets.MARKER.id).toCanvasConfig()
         assertEquals(BrushPresets.MARKER.id, config.brush.id)

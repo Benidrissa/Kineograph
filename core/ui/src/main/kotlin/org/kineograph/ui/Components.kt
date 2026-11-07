@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
@@ -42,7 +43,10 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
-/** An icon button whose touch target always meets the 48 dp accessibility minimum, with an optional selected look. */
+/**
+ * An icon button whose touch target always meets the 48 dp accessibility minimum. Giving [selected] a value makes it a toggle or a
+ * choice, which looks and reads as on or off. Leaving it null makes it a plain action, which has no such state to tell TalkBack about.
+ */
 @Composable
 public fun KgIconButton(
     icon: ImageVector,
@@ -50,11 +54,11 @@ public fun KgIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    selected: Boolean = false,
+    selected: Boolean? = null,
     tint: Color? = null,
 ) {
     val colors =
-        if (selected) {
+        if (selected == true) {
             IconButtonDefaults.iconButtonColors(
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -62,7 +66,8 @@ public fun KgIconButton(
         } else {
             IconButtonDefaults.iconButtonColors()
         }
-    IconButton(onClick = onClick, modifier = modifier.size(48.dp), enabled = enabled, colors = colors) {
+    val state = if (selected != null) Modifier.semantics { this.selected = selected } else Modifier
+    IconButton(onClick = onClick, modifier = modifier.size(48.dp).then(state), enabled = enabled, colors = colors) {
         Icon(icon, contentDescription = contentDescription, tint = tint ?: LocalContentColor.current)
     }
 }

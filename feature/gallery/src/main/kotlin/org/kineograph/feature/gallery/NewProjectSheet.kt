@@ -1,5 +1,7 @@
 package org.kineograph.feature.gallery
 
+import android.content.ActivityNotFoundException
+import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -14,12 +16,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -37,6 +39,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,17 +50,23 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.launch
 import org.kineograph.engine.compositor.BackgroundPainter
 import org.kineograph.model.Background
+import org.kineograph.model.CanvasFit
 import org.kineograph.model.CanvasPreset
 import org.kineograph.model.DEFAULT_FPS
 import org.kineograph.model.PaperKind
+import org.kineograph.ui.CanvasSizeField
+import org.kineograph.ui.CanvasSizeNote
 import org.kineograph.ui.ColorPicker
 import org.kineograph.ui.DefaultSwatches
+import org.kineograph.ui.rememberCanvasFit
 import java.io.File
 
 private sealed interface BackgroundChoice {
@@ -68,6 +77,33 @@ private sealed interface BackgroundChoice {
     data class ImageChoice(val uri: Uri) : BackgroundChoice
 
     data object TransparentChoice : BackgroundChoice
+}
+
+/** A choice has to outlive the activity, which the system may well destroy while the camera app has the screen. */
+private val BackgroundChoiceSaver =
+    listSaver<BackgroundChoice, Any>(
+        save = { choice ->
+            when (choice) {
+                is BackgroundChoice.PaperChoice -> listOf(SAVED_PAPER, choice.kind.name)
+                is BackgroundChoice.SolidChoice -> listOf(SAVED_SOLID, choice.argb)
+                is BackgroundChoice.ImageChoice -> listOf(SAVED_IMAGE, choice.uri)
+                BackgroundChoice.TransparentChoice -> listOf(SAVED_TRANSPARENT)
+            }
+        },
+        restore = { saved ->
+            when (saved[0]) {
+                SAVED_PAPER -> BackgroundChoice.PaperChoice(PaperKind.valueOf(saved[1] as String))
+                SAVED_SOLID -> BackgroundChoice.SolidChoice(saved[1] as Int)
+                SAVED_IMAGE -> BackgroundChoice.ImageChoice(saved[1] as Uri)
+                else -> BackgroundChoice.TransparentChoice
+            }
+        },
+    )
+
+/** Where the camera app is asked to put the photo. */
+private fun cameraPhotoUri(context: Context): Uri {
+    val directory = File(context.cacheDir, "camera").apply { mkdirs() }
+    return FileProvider.getUriForFile(context, "${context.packageName}.files", File(directory, "background.jpg"))
 }
 
 /** The form for starting a new project. Every choice here can be changed later in the project's settings. */
@@ -97,15 +133,23 @@ public fun NewProjectSheet(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun NewProjectForm(defaultNumber: Int, canEncode: (Int, Int) -> Boolean, onCreate: (NewProjectRequest) -> Unit) {
+internal fun NewProjectForm(
+    defaultNumber: Int,
+    canEncode: (Int, Int) -> Boolean,
+    onCreate: (NewProjectRequest) -> Unit,
+    cameraUriFor: (Context) -> Uri = ::cameraPhotoUri,
+) {
     val defaultName = stringResource(R.string.default_project_name, defaultNumber)
     var name by rememberSaveable { mutableStateOf(defaultName) }
     var fps by rememberSaveable { mutableIntStateOf(DEFAULT_FPS) }
     var presetId by rememberSaveable { mutableStateOf(CanvasPreset.DEFAULT.id) }
     var customWidth by rememberSaveable { mutableStateOf("1280") }
     var customHeight by rememberSaveable { mutableStateOf("720") }
-    var background by remember { mutableStateOf<BackgroundChoice>(BackgroundChoice.PaperChoice(PaperKind.WHITE)) }
-    var pickingColor by remember { mutableStateOf(false) }
+    var background by rememberSaveable(stateSaver = BackgroundChoiceSaver) {
+        mutableStateOf<BackgroundChoice>(BackgroundChoice.PaperChoice(PaperKind.WHITE))
+    }
+    var pickingColor by rememberSaveable { mutableStateOf(false) }
+    var cameraUnavailable by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
 
     val offeredPresets = remember { CanvasPreset.entries.filter { !it.requiresEncoderCheck || canEncode(it.width, it.height) } }
@@ -113,19 +157,23 @@ internal fun NewProjectForm(defaultNumber: Int, canEncode: (Int, Int) -> Boolean
     val preset = offeredPresets.firstOrNull { it.id == presetId }
     val widthValue = if (isCustom) customWidth.toIntOrNull() else preset?.width
     val heightValue = if (isCustom) customHeight.toIntOrNull() else preset?.height
-    val sizeIsValid =
-        widthValue != null && heightValue != null && widthValue in 1..CanvasPreset.MAX_CUSTOM_EDGE &&
-            heightValue in 1..CanvasPreset.MAX_CUSTOM_EDGE
+    val fit = rememberCanvasFit(widthValue, heightValue)
+    val sizeIsUsable = fit != null && fit !is CanvasFit.TooBig
+
+    fun choose(choice: BackgroundChoice) {
+        background = choice
+        cameraUnavailable = false
+    }
 
     val photoPicker =
         rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-            if (uri != null) background = BackgroundChoice.ImageChoice(uri)
+            if (uri != null) choose(BackgroundChoice.ImageChoice(uri))
         }
-    var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    var cameraUri by rememberSaveable { mutableStateOf<Uri?>(null) }
     val camera =
         rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
             val uri = cameraUri
-            if (saved && uri != null) background = BackgroundChoice.ImageChoice(uri)
+            if (saved && uri != null) choose(BackgroundChoice.ImageChoice(uri))
         }
 
     Column(
@@ -152,7 +200,7 @@ internal fun NewProjectForm(defaultNumber: Int, canEncode: (Int, Int) -> Boolean
                         label = paperName(kind),
                         selected = background == BackgroundChoice.PaperChoice(kind),
                         swatch = Color(BackgroundPainter.paperColor(kind)),
-                        onClick = { background = BackgroundChoice.PaperChoice(kind) },
+                        onClick = { choose(BackgroundChoice.PaperChoice(kind)) },
                     )
                 }
                 BackgroundChip(
@@ -174,17 +222,30 @@ internal fun NewProjectForm(defaultNumber: Int, canEncode: (Int, Int) -> Boolean
                     selected = cameraUri != null && (background as? BackgroundChoice.ImageChoice)?.uri == cameraUri,
                     swatch = null,
                     onClick = {
-                        val directory = File(context.cacheDir, "camera").apply { mkdirs() }
-                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", File(directory, "background.jpg"))
+                        val uri = cameraUriFor(context)
                         cameraUri = uri
-                        camera.launch(uri)
+                        try {
+                            camera.launch(uri)
+                            cameraUnavailable = false
+                        } catch (_: ActivityNotFoundException) {
+                            // The chip stays, because a check beforehand can say no on phones that do have a camera.
+                            cameraUnavailable = true
+                        }
                     },
                 )
                 BackgroundChip(
                     label = stringResource(R.string.background_transparent),
                     selected = background == BackgroundChoice.TransparentChoice,
                     swatch = null,
-                    onClick = { background = BackgroundChoice.TransparentChoice },
+                    onClick = { choose(BackgroundChoice.TransparentChoice) },
+                )
+            }
+            if (cameraUnavailable) {
+                Text(
+                    stringResource(R.string.camera_unavailable),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }.testTag("camera_unavailable"),
                 )
             }
         }
@@ -206,22 +267,14 @@ internal fun NewProjectForm(defaultNumber: Int, canEncode: (Int, Int) -> Boolean
             }
             if (isCustom) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 8.dp)) {
-                    SizeField(stringResource(R.string.size_width), customWidth, Modifier.weight(1f)) { customWidth = it }
-                    SizeField(stringResource(R.string.size_height), customHeight, Modifier.weight(1f)) { customHeight = it }
+                    CanvasSizeField(stringResource(R.string.size_width), customWidth, Modifier.weight(1f)) { customWidth = it }
+                    CanvasSizeField(stringResource(R.string.size_height), customHeight, Modifier.weight(1f)) { customHeight = it }
                 }
             }
-            if (!sizeIsValid) {
-                Text(
-                    stringResource(R.string.size_invalid, CanvasPreset.MAX_CUSTOM_EDGE),
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            } else if (widthValue.toLong() * heightValue > LARGE_CANVAS_PIXELS) {
-                Text(
-                    stringResource(R.string.size_large_warning),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.tertiary,
-                )
+            CanvasSizeNote(fit) { width, height ->
+                presetId = CUSTOM_PRESET
+                customWidth = width.toString()
+                customHeight = height.toString()
             }
         }
 
@@ -238,7 +291,7 @@ internal fun NewProjectForm(defaultNumber: Int, canEncode: (Int, Int) -> Boolean
         }
 
         Button(
-            enabled = sizeIsValid && name.isNotBlank(),
+            enabled = sizeIsUsable && name.isNotBlank(),
             onClick = {
                 val choice = background
                 onCreate(
@@ -258,7 +311,7 @@ internal fun NewProjectForm(defaultNumber: Int, canEncode: (Int, Int) -> Boolean
                     ),
                 )
             },
-            modifier = Modifier.fillMaxWidth().height(56.dp).testTag("create_project"),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("create_project"),
         ) {
             Text(stringResource(R.string.new_project_create))
         }
@@ -271,7 +324,7 @@ internal fun NewProjectForm(defaultNumber: Int, canEncode: (Int, Int) -> Boolean
             onDismissRequest = { pickingColor = false },
             confirmButton = {
                 TextButton(onClick = {
-                    background = BackgroundChoice.SolidChoice(chosen)
+                    choose(BackgroundChoice.SolidChoice(chosen))
                     pickingColor = false
                 }) { Text(stringResource(R.string.action_ok)) }
             },
@@ -317,18 +370,6 @@ private fun BackgroundChip(label: String, selected: Boolean, swatch: Color?, onC
 }
 
 @Composable
-private fun SizeField(label: String, value: String, modifier: Modifier, onChange: (String) -> Unit) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = { onChange(it.filter(Char::isDigit).take(5)) },
-        label = { Text(label) },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        modifier = modifier,
-    )
-}
-
-@Composable
 private fun paperName(kind: PaperKind): String =
     stringResource(
         when (kind) {
@@ -358,5 +399,8 @@ private fun presetName(preset: CanvasPreset): String =
 
 private const val CUSTOM_PRESET = "custom"
 private const val MAX_NAME_LENGTH = 80
-private const val LARGE_CANVAS_PIXELS = 3840L * 2160L
 private const val OPAQUE = 0xFF000000.toInt()
+private const val SAVED_PAPER = "paper"
+private const val SAVED_SOLID = "solid"
+private const val SAVED_IMAGE = "image"
+private const val SAVED_TRANSPARENT = "transparent"

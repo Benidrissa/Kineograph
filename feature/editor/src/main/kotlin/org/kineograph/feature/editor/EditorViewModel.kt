@@ -83,6 +83,8 @@ internal enum class EditorMessage {
     SETTING_NOT_SAVED,
     LAYER_NOT_SHOWN,
     CANVAS_DOES_NOT_FIT,
+    BACKGROUND_NOT_USED,
+    BACKGROUND_NOT_CHANGED,
 }
 
 /** An export in progress or finished, and what has happened to the result so far, for the export dialog. */
@@ -98,7 +100,12 @@ internal data class ExportUiState(
 /**
  * Owns one open project for as long as the editor is on screen, surviving window changes.
  */
-public class EditorViewModel(private val dependencies: EditorDependencies, private val projectId: String) : ViewModel() {
+public class EditorViewModel(
+    private val dependencies: EditorDependencies,
+    private val projectId: String,
+    /** The project was just created without the picture the user chose. It is said here, because this is where they end up. */
+    private val backgroundFailed: Boolean = false,
+) : ViewModel() {
     private val _load = MutableStateFlow<EditorLoadState>(EditorLoadState.Loading)
     internal val load: StateFlow<EditorLoadState> get() = _load
 
@@ -157,6 +164,7 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
         }
         if (opened.loaded.recoveredFromBackup) _messages.trySend(EditorMessage.RECOVERED_FROM_BACKUP)
         if (opened.loaded.missingCels > 0) _messages.trySend(EditorMessage.MISSING_DRAWINGS)
+        if (backgroundFailed) _messages.trySend(EditorMessage.BACKGROUND_NOT_USED)
 
         val settings =
             try {
@@ -223,8 +231,14 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
         _tools.update(change)
     }
 
+    /** Changes the colour. A drag on the picker comes through here many times on its way to the one the user wants. */
     internal fun pickColor(argb: Int) {
-        _tools.update { it.copy(colorArgb = argb or OPAQUE).withRecent(argb or OPAQUE) }
+        _tools.update { it.copy(colorArgb = argb or OPAQUE) }
+    }
+
+    /** The user has settled on the current colour, so it goes in the recent ones. */
+    internal fun commitColor() {
+        _tools.update { it.withRecent(it.colorArgb) }
     }
 
     internal fun notify(message: EditorMessage) {
@@ -347,6 +361,10 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
         frames.getOrNull(current.slotIndex)?.let { state.session.selectFrame(it.id) }
     }
 
+    internal fun togglePlaybackPause() {
+        playback?.togglePause()
+    }
+
     internal fun setPlaybackMode(mode: PlaybackMode) {
         val state = ready ?: return
         state.session.updateSettings { it.copy(playbackMode = mode) }
@@ -363,7 +381,7 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
         val project = state.session.state.value.project
         viewModelScope.launch {
             val image = dependencies.repository.importBackgroundImage(projectId, uri, resolver, project.width, project.height)
-            if (image != null) state.session.setBackground(image)
+            if (image != null) state.session.setBackground(image) else notify(EditorMessage.BACKGROUND_NOT_CHANGED)
         }
     }
 

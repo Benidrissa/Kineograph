@@ -9,6 +9,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.kineograph.engine.compositor.FlattenOptions
@@ -25,7 +26,13 @@ import kotlin.math.max
 import kotlin.math.min
 
 /** What playback is doing. */
-internal data class PlaybackState(val isPlaying: Boolean = false, val isPreparing: Boolean = false, val slotIndex: Int = 0)
+internal data class PlaybackState(
+    val isPlaying: Boolean = false,
+    val isPreparing: Boolean = false,
+    val slotIndex: Int = 0,
+    /** Stays playing as far as the rest of the editor goes, holding one frame on the full-screen preview. */
+    val isPaused: Boolean = false,
+)
 
 /**
  * Where the playhead is and which way it is about to go. Decoding threads read this, so these travel as one thing and
@@ -96,6 +103,7 @@ internal class PlaybackController(
     private val store: CelStore,
     private val playbackBudgetBytes: Long,
     private val isLowRam: Boolean,
+    private val nanoTime: () -> Long = System::nanoTime,
 ) {
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> get() = _state
@@ -115,6 +123,9 @@ internal class PlaybackController(
     private var startTick = 0
     private var running = false
     private var clockRunning = false
+
+    /** Decoding waits on this, so that a held frame costs nothing however long it is held. */
+    private val paused = MutableStateFlow(false)
 
     @Volatile
     private var capacity = 1
@@ -170,7 +181,7 @@ internal class PlaybackController(
                     waited += PREROLL_POLL_MS
                 }
                 if (running) {
-                    clockStartNanos = System.nanoTime()
+                    clockStartNanos = nanoTime()
                     clockRunning = true
                     _state.value = _state.value.copy(isPreparing = false)
                     choreographer.postFrameCallback(frameCallback)
@@ -179,15 +190,41 @@ internal class PlaybackController(
     }
 
     /** Changes the speed from now on, without jumping to a different frame. */
-    fun setFps(newFps: Int, nowNanos: Long = System.nanoTime()) {
+    fun setFps(newFps: Int, nowNanos: Long = nanoTime()) {
         if (!running || !clockRunning) {
             fps = newFps
             return
         }
-        val elapsed = (nowNanos - clockStartNanos) * fps / NANOS_PER_SECOND
-        startTick += elapsed.toInt()
+        foldClock(nowNanos)
         clockStartNanos = nowNanos
         fps = newFps
+    }
+
+    /** Moves the time the clock has run so far into [startTick], so the clock can start again from now without a jump. */
+    private fun foldClock(nowNanos: Long) {
+        startTick += ((nowNanos - clockStartNanos) * fps / NANOS_PER_SECOND).toInt()
+    }
+
+    /** Holds on the frame showing, or lets it go on. Waits until there is a frame to hold. */
+    fun togglePause(nowNanos: Long = nanoTime()) {
+        if (!running) return
+        if (paused.value) {
+            clockStartNanos = nowNanos
+            clockRunning = true
+            setPaused(false)
+            choreographer.removeFrameCallback(frameCallback)
+            choreographer.postFrameCallback(frameCallback)
+        } else if (clockRunning && shownSlot >= 0) {
+            foldClock(nowNanos)
+            clockRunning = false
+            choreographer.removeFrameCallback(frameCallback)
+            setPaused(true)
+        }
+    }
+
+    private fun setPaused(value: Boolean) {
+        paused.value = value
+        _state.value = _state.value.copy(isPaused = value)
     }
 
     fun setMode(playbackMode: PlaybackMode) {
@@ -198,6 +235,7 @@ internal class PlaybackController(
     fun stop() {
         running = false
         clockRunning = false
+        paused.value = false
         choreographer.removeFrameCallback(frameCallback)
         jobs.forEach { it.cancel() }
         jobs.clear()
@@ -239,6 +277,7 @@ internal class PlaybackController(
         var scratch: Bitmap? = null
         var scratchCanvas: Canvas? = null
         while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+            paused.first { !it }
             val slot = nextSlotToDecode(timeline.slotCount)
             if (slot == null) {
                 delay(IDLE_POLL_MS)

@@ -40,12 +40,15 @@ import org.kineograph.engine.session.DrawingSession
 internal class FrontBufferRenderer(
     surfaceView: SurfaceView,
     private val session: DrawingSession,
-    private val workspaceColor: Int,
+    initialWorkspaceColor: Int,
     initialView: Affine,
     private val onFailure: () -> Unit,
 ) : CanvasRenderer {
     private val sceneRenderer = SceneRenderer()
     private val painter = WetStrokePainter(session)
+
+    @Volatile
+    private var workspaceColor: Int = initialWorkspaceColor
 
     @Volatile
     private var view: Affine = initialView
@@ -110,6 +113,13 @@ internal class FrontBufferRenderer(
 
     override fun setPlaybackFrame(frame: Bitmap?) {
         playbackFrame = frame
+        requestRedraw()
+    }
+
+    override fun setWorkspaceColor(color: Int) {
+        workspaceColor = color
+        // The eraser paints with an image of the scene, whose margin has to match.
+        session.workspaceColor = color
         requestRedraw()
     }
 

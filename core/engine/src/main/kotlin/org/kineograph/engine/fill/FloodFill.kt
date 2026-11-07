@@ -129,7 +129,8 @@ public object FloodFill {
 
     /**
      * Paints [mask] onto [target]. With [behind], the fill goes under whatever is already there, so line
-     * art keeps its soft edges. Without it, selected pixels are simply replaced.
+     * art keeps its soft edges. Without it, the fill goes over it: an opaque colour replaces what is there, and a translucent one
+     * tints it, where replacing would make a see-through hole in the paint.
      */
     public fun apply(target: IntArray, width: Int, mask: FillMask, colorArgb: Int, behind: Boolean) {
         val grid = mask.grid
@@ -148,23 +149,24 @@ public object FloodFill {
                     val dstAlpha = dst ushr 24
                     target[index] =
                         when {
-                            !behind || dstAlpha == 0 -> colorArgb
+                            !behind -> if (colorAlpha == 255) colorArgb else compose(colorArgb, colorAlpha, dst, dstAlpha)
+                            dstAlpha == 0 -> colorArgb
                             dstAlpha == 255 -> dst
-                            else -> composeBehind(dst, dstAlpha, colorArgb, colorAlpha)
+                            else -> compose(dst, dstAlpha, colorArgb, colorAlpha)
                         }
                 }
             }
         }
     }
 
-    /** The result of [dst] drawn over [src], in unpremultiplied ARGB. */
-    private fun composeBehind(dst: Int, dstAlpha: Int, src: Int, srcAlpha: Int): Int {
-        val underAlpha = srcAlpha * (255 - dstAlpha) / 255
-        val outAlpha = dstAlpha + underAlpha
+    /** The result of [top] drawn over [under], in unpremultiplied ARGB. */
+    private fun compose(top: Int, topAlpha: Int, under: Int, underFullAlpha: Int): Int {
+        val underAlpha = underFullAlpha * (255 - topAlpha) / 255
+        val outAlpha = topAlpha + underAlpha
         if (outAlpha == 0) return 0
-        val r = (((dst shr 16) and 0xFF) * dstAlpha + ((src shr 16) and 0xFF) * underAlpha) / outAlpha
-        val g = (((dst shr 8) and 0xFF) * dstAlpha + ((src shr 8) and 0xFF) * underAlpha) / outAlpha
-        val b = ((dst and 0xFF) * dstAlpha + (src and 0xFF) * underAlpha) / outAlpha
+        val r = (((top shr 16) and 0xFF) * topAlpha + ((under shr 16) and 0xFF) * underAlpha) / outAlpha
+        val g = (((top shr 8) and 0xFF) * topAlpha + ((under shr 8) and 0xFF) * underAlpha) / outAlpha
+        val b = ((top and 0xFF) * topAlpha + (under and 0xFF) * underAlpha) / outAlpha
         return (outAlpha shl 24) or (r shl 16) or (g shl 8) or b
     }
 

@@ -26,7 +26,7 @@ import java.util.concurrent.TimeUnit
 internal class SoftwareRenderer(
     private val surfaceView: SurfaceView,
     private val session: DrawingSession,
-    private val workspaceColor: Int,
+    initialWorkspaceColor: Int,
 ) : CanvasRenderer {
     private val thread = HandlerThread("kg-render").apply { start() }
     private val handler = Handler(thread.looper)
@@ -43,6 +43,9 @@ internal class SoftwareRenderer(
 
     @Volatile
     private var view: Affine = Affine.IDENTITY
+
+    @Volatile
+    private var workspaceColor: Int = initialWorkspaceColor
 
     @Volatile
     private var playbackFrame: Bitmap? = null
@@ -69,6 +72,11 @@ internal class SoftwareRenderer(
 
     override fun setPlaybackFrame(frame: Bitmap?) {
         playbackFrame = frame
+        requestRedraw()
+    }
+
+    override fun setWorkspaceColor(color: Int) {
+        workspaceColor = color
         requestRedraw()
     }
 

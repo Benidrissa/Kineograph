@@ -21,7 +21,14 @@ internal data class ToolState(
     val fillGapClose: Int = 4,
     val fillSampleAllLayers: Boolean = false,
 ) {
-    private val activeId: String get() = if (tool == CanvasTool.ERASER) BrushPresets.ERASER.id else brushId
+    /** Whose size and opacity the controls change. The lasso paints nothing, so it leaves them on the brush. */
+    private val activeId: String
+        get() =
+            when (tool) {
+                CanvasTool.ERASER -> BrushPresets.ERASER.id
+                CanvasTool.FILL -> FILL_ID
+                else -> brushId
+            }
 
     private fun preset(id: String): BrushSpec =
         BrushPresets.DRAWING.firstOrNull { it.id == id } ?: if (id == BrushPresets.ERASER.id) BrushPresets.ERASER else BrushPresets.PEN
@@ -29,8 +36,8 @@ internal data class ToolState(
     /** The active brush's size in canvas pixels. */
     val activeSize: Float get() = sizes[activeId] ?: preset(activeId).sizePx
 
-    /** The active brush's opacity, 0..1. */
-    val activeOpacity: Float get() = opacities[activeId] ?: preset(activeId).opacity
+    /** The active tool's opacity, 0..1. A fill starts out solid. */
+    val activeOpacity: Float get() = opacities[activeId] ?: if (tool == CanvasTool.FILL) 1f else preset(activeId).opacity
 
     fun withActiveSize(size: Float): ToolState = copy(sizes = sizes + (activeId to size.coerceIn(MIN_SIZE, MAX_SIZE)))
 

@@ -18,12 +18,14 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -37,6 +39,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -44,12 +48,14 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,12 +68,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -76,32 +83,44 @@ import org.kineograph.engine.session.DrawingSession
 import org.kineograph.engine.session.SessionState
 import org.kineograph.feature.editor.canvas.CanvasTool
 import org.kineograph.model.Background
+import org.kineograph.model.CanvasFit
 import org.kineograph.model.Layer
 import org.kineograph.model.MAX_FPS
 import org.kineograph.model.MIN_FPS
 import org.kineograph.model.OnionSkinSettings
 import org.kineograph.model.PaperKind
 import org.kineograph.model.Project
+import org.kineograph.ui.CanvasSizeField
+import org.kineograph.ui.CanvasSizeNote
 import org.kineograph.ui.ColorPicker
 import org.kineograph.ui.DefaultSwatches
 import org.kineograph.ui.KgIconButton
 import org.kineograph.ui.KgIcons
+import org.kineograph.ui.rememberCanvasFit
 import kotlin.math.roundToInt
+
+/** Where the editor's messages show. A sheet draws in its own window, over the editor, so while one is open it has to show them itself. */
+internal val LocalEditorSnackbar = staticCompositionLocalOf<SnackbarHostState?> { null }
+
+private val SHEET_ITEM_SPACING = 12.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun EditorBottomSheet(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(start = 20.dp, end = 20.dp, bottom = 24.dp)
-                .navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            content = content,
-        )
+        Box {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = 20.dp, end = 20.dp, bottom = 24.dp)
+                    .navigationBarsPadding(),
+                verticalArrangement = Arrangement.spacedBy(SHEET_ITEM_SPACING),
+                content = content,
+            )
+            LocalEditorSnackbar.current?.let { host -> SnackbarHost(host, Modifier.align(Alignment.BottomCenter).navigationBarsPadding()) }
+        }
     }
 }
 
@@ -117,7 +136,8 @@ internal fun LabelledSlider(
 ) {
     Column {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, style = MaterialTheme.typography.labelLarge)
+            // A long label at a large font wraps, rather than taking all the room and leaving none for the value.
+            Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f).padding(end = 8.dp))
             Text(valueText, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Slider(
@@ -131,24 +151,32 @@ internal fun LabelledSlider(
     }
 }
 
+/**
+ * The whole row is the switch, so it is what TalkBack hears as on or off. The switch inside it is only there to be seen. Long labels
+ * wrap at large font sizes, so the row only has a minimum height.
+ */
 @Composable
 internal fun LabelledSwitch(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .height(48.dp)
-            .clickable(role = Role.Switch) { onChange(!checked) },
+            .heightIn(min = 48.dp)
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onChange),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f).padding(end = 12.dp))
         Switch(checked = checked, onCheckedChange = null)
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun ToolOptionsSheet(tools: ToolState, onChange: ((ToolState) -> ToolState) -> Unit, onDismiss: () -> Unit) {
+internal fun ToolOptionsSheet(
+    tools: ToolState,
+    onChange: ((ToolState) -> ToolState) -> Unit,
+    onOpenColor: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     EditorBottomSheet(onDismiss) {
         when (tools.tool) {
             CanvasTool.BRUSH -> {
@@ -163,6 +191,7 @@ internal fun ToolOptionsSheet(tools: ToolState, onChange: ((ToolState) -> ToolSt
                         )
                     }
                 }
+                ColorRow(tools.colorArgb, onOpenColor)
                 SizeAndOpacity(tools, onChange)
                 StrokeFeel(tools, onChange)
             }
@@ -175,6 +204,8 @@ internal fun ToolOptionsSheet(tools: ToolState, onChange: ((ToolState) -> ToolSt
 
             CanvasTool.FILL -> {
                 Text(stringResource(R.string.tool_fill), style = MaterialTheme.typography.titleLarge)
+                ColorRow(tools.colorArgb, onOpenColor)
+                OpacitySlider(tools, onChange)
                 LabelledSlider(
                     label = stringResource(R.string.fill_tolerance),
                     value = tools.fillTolerance.toFloat(),
@@ -214,6 +245,32 @@ internal fun ToolOptionsSheet(tools: ToolState, onChange: ((ToolState) -> ToolSt
     }
 }
 
+/** The way to the colour sheet from a tool's options. It swaps one sheet for the other, as only one shows at a time. */
+@Composable
+private fun ColorRow(argb: Int, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .testTag("options_color"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            stringResource(R.string.tool_color),
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f).padding(end = 12.dp),
+        )
+        Box(
+            Modifier
+                .size(30.dp)
+                .clip(CircleShape)
+                .background(Color(argb))
+                .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape),
+        )
+    }
+}
+
 @Composable
 private fun SizeAndOpacity(tools: ToolState, onChange: ((ToolState) -> ToolState) -> Unit) {
     LabelledSlider(
@@ -222,6 +279,11 @@ private fun SizeAndOpacity(tools: ToolState, onChange: ((ToolState) -> ToolState
         valueText = stringResource(R.string.pixels_value, tools.activeSize.roundToInt()),
         onChange = { value -> onChange { it.withActiveSize(ToolState.sliderToSize(value)) } },
     )
+    OpacitySlider(tools, onChange)
+}
+
+@Composable
+private fun OpacitySlider(tools: ToolState, onChange: ((ToolState) -> ToolState) -> Unit) {
     LabelledSlider(
         label = stringResource(R.string.slider_opacity),
         value = tools.activeOpacity,
@@ -258,11 +320,17 @@ private fun brushName(id: String): String =
     )
 
 @Composable
-internal fun ColorSheet(tools: ToolState, onColor: (Int) -> Unit, onOpacity: (Float) -> Unit, onDismiss: () -> Unit) {
+internal fun ColorSheet(
+    tools: ToolState,
+    onColor: (Int) -> Unit,
+    onColorCommit: () -> Unit,
+    onOpacity: (Float) -> Unit,
+    onDismiss: () -> Unit,
+) {
     EditorBottomSheet(onDismiss) {
         Text(stringResource(R.string.tool_color), style = MaterialTheme.typography.titleLarge)
         val alpha = (tools.activeOpacity * 255f + 0.5f).toInt()
-        // The opacity slider in the picker is the active brush's opacity: there is one setting, not two to confuse.
+        // The opacity slider in the picker is the active tool's opacity: there is one setting, not two to confuse.
         val shown = (tools.colorArgb and 0xFFFFFF) or (alpha shl 24)
         ColorPicker(
             argb = shown,
@@ -271,7 +339,9 @@ internal fun ColorSheet(tools: ToolState, onColor: (Int) -> Unit, onOpacity: (Fl
                 if (newAlpha != alpha) onOpacity(newAlpha / 255f)
                 if (argb and 0xFFFFFF != tools.colorArgb and 0xFFFFFF) onColor(argb or OPAQUE)
             },
-            recentColors = tools.recentColors.ifEmpty { DefaultSwatches },
+            // The first colour picked must not cost the user the other choices, so the defaults stay until recent colours fill the row.
+            recentColors = (tools.recentColors + DefaultSwatches).distinct().take(DefaultSwatches.size),
+            onColorCommit = onColorCommit,
         )
     }
 }
@@ -297,28 +367,34 @@ internal fun LayersSheet(state: SessionState, session: DrawingSession, thumbnail
         // The list shows the top of the stack first, just as the layers appear on the canvas.
         project.layers.asReversed().forEachIndexed { reversedIndex, layer ->
             val stackIndex = project.layers.lastIndex - reversedIndex
-            LayerRow(
-                layer = layer,
-                isActive = layer.id == state.layerId,
-                // A hidden layer and a visible one cannot merge without showing what was hidden or hiding what was shown.
-                canMergeDown = stackIndex > 0 && layer.visible == project.layers[stackIndex - 1].visible,
-                canDelete = project.layers.size > 1,
-                project = project,
-                frameId = state.frameId,
-                thumbnails = thumbnails,
-                onSelect = { session.selectLayer(layer.id) },
-                onVisibility = { session.setLayerVisible(layer.id, !layer.visible) },
-                onLock = { session.setLayerLocked(layer.id, !layer.locked) },
-                onRename = { renaming = layer },
-                onDuplicate = { session.duplicateLayer(layer.id, "${layer.name} $copySuffix") },
-                onMergeDown = { session.mergeLayerDown(layer.id) },
-                onDelete = { session.deleteLayer(layer.id) },
-                onDragBy = { rows ->
-                    // Rows count down the list, but the stack counts up.
-                    val target = (stackIndex - rows).coerceIn(0, project.layers.lastIndex)
-                    if (target != stackIndex) session.moveLayer(stackIndex, target)
-                },
-            )
+            // By layer, not by position, so that TalkBack stays on the layer it just moved, and Move up twice moves it twice.
+            key(layer.id) {
+                LayerRow(
+                    layer = layer,
+                    isActive = layer.id == state.layerId,
+                    description = stringResource(R.string.layer_row_description, layer.name, reversedIndex + 1, project.layers.size),
+                    canMoveUp = stackIndex < project.layers.lastIndex,
+                    canMoveDown = stackIndex > 0,
+                    // A hidden layer and a visible one cannot merge without showing what was hidden or hiding what was shown.
+                    canMergeDown = stackIndex > 0 && layer.visible == project.layers[stackIndex - 1].visible,
+                    canDelete = project.layers.size > 1,
+                    project = project,
+                    frameId = state.frameId,
+                    thumbnails = thumbnails,
+                    onSelect = { session.selectLayer(layer.id) },
+                    onVisibility = { session.setLayerVisible(layer.id, !layer.visible) },
+                    onLock = { session.setLayerLocked(layer.id, !layer.locked) },
+                    onRename = { renaming = layer },
+                    onDuplicate = { session.duplicateLayer(layer.id, "${layer.name} $copySuffix") },
+                    onMergeDown = { session.mergeLayerDown(layer.id) },
+                    onDelete = { session.deleteLayer(layer.id) },
+                    onDragBy = { rows ->
+                        // Rows count down the list, but the stack counts up.
+                        val target = (stackIndex - rows).coerceIn(0, project.layers.lastIndex)
+                        if (target != stackIndex) session.moveLayer(stackIndex, target)
+                    },
+                )
+            }
         }
         HorizontalDivider()
         project.layer(state.layerId)?.let { active ->
@@ -347,6 +423,9 @@ internal fun LayersSheet(state: SessionState, session: DrawingSession, thumbnail
 private fun LayerRow(
     layer: Layer,
     isActive: Boolean,
+    description: String,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
     canMergeDown: Boolean,
     canDelete: Boolean,
     project: Project,
@@ -365,7 +444,9 @@ private fun LayerRow(
     var menuOpen by remember { mutableStateOf(false) }
     var dragY by remember { mutableFloatStateOf(0f) }
     val rowHeight = 64.dp
-    val rowHeightPx = with(LocalDensity.current) { rowHeight.toPx() }
+    val rowPitchPx = with(LocalDensity.current) { (rowHeight + SHEET_ITEM_SPACING).toPx() }
+    val moveUp = stringResource(R.string.layer_move_up)
+    val moveDown = stringResource(R.string.layer_move_down)
     val thumbnail = rememberLayerThumbnail(thumbnails, project, frameId, layer.id)
     val latestDrag by rememberUpdatedState(onDragBy)
     Row(
@@ -378,18 +459,40 @@ private fun LayerRow(
             .background(if (isActive) colors.primaryContainer else colors.surfaceContainerHigh)
             .clickable(onClick = onSelect)
             .semantics {
+                contentDescription = description
                 role = Role.Button
                 selected = isActive
+                // What the handle does by dragging, which is no use to TalkBack.
+                customActions =
+                    buildList {
+                        if (canMoveUp) {
+                            add(
+                                CustomAccessibilityAction(moveUp) {
+                                    onDragBy(-1)
+                                    true
+                                },
+                            )
+                        }
+                        if (canMoveDown) {
+                            add(
+                                CustomAccessibilityAction(moveDown) {
+                                    onDragBy(1)
+                                    true
+                                },
+                            )
+                        }
+                    }
             }.testTag("layer_row_${layer.name}"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             Modifier
-                .size(40.dp, 64.dp)
+                .size(48.dp, 64.dp)
+                .testTag("layer_handle_${layer.name}")
                 .pointerInput(Unit) {
                     detectDragGestures(
                         onDragEnd = {
-                            val rows = (dragY / rowHeightPx).roundToInt()
+                            val rows = (dragY / rowPitchPx).roundToInt()
                             dragY = 0f
                             if (rows != 0) latestDrag(rows)
                         },
@@ -401,7 +504,7 @@ private fun LayerRow(
                 },
             contentAlignment = Alignment.Center,
         ) {
-            Icon(KgIcons.Handle, contentDescription = stringResource(R.string.layer_drag), tint = colors.onSurfaceVariant)
+            Icon(KgIcons.Handle, contentDescription = null, tint = colors.onSurfaceVariant)
         }
         Box(
             Modifier
@@ -555,22 +658,36 @@ internal fun ProjectSettingsSheet(project: Project, session: DrawingSession, vie
             },
         )
         Text(stringResource(R.string.project_size), style = MaterialTheme.typography.labelLarge)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            SizeField(stringResource(R.string.project_width), widthText, Modifier.weight(1f)) { widthText = it }
-            SizeField(stringResource(R.string.project_height), heightText, Modifier.weight(1f)) { heightText = it }
-            val newWidth = widthText.toIntOrNull()
-            val newHeight = heightText.toIntOrNull()
-            val valid = newWidth != null && newHeight != null && newWidth in 1..MAX_EDGE && newHeight in 1..MAX_EDGE
-            val changed = newWidth != project.width || newHeight != project.height
-            Button(enabled = valid && changed, onClick = {
-                if (newWidth != null &&
-                    newHeight != null
-                ) {
-                    session.resizeCanvas(newWidth, newHeight)
-                }
-            }) {
-                Text(stringResource(R.string.project_apply))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            CanvasSizeField(stringResource(R.string.project_width), widthText, Modifier.weight(1f).testTag("project_width")) {
+                widthText =
+                    it
             }
+            CanvasSizeField(stringResource(R.string.project_height), heightText, Modifier.weight(1f).testTag("project_height")) {
+                heightText =
+                    it
+            }
+        }
+        val newWidth = widthText.toIntOrNull()
+        val newHeight = heightText.toIntOrNull()
+        val changed = newWidth != project.width || newHeight != project.height
+        val fit = rememberCanvasFit(newWidth, newHeight)
+        // The size it already is has nothing wrong with it, and nothing to apply.
+        if (changed) {
+            CanvasSizeNote(fit) { width, height ->
+                widthText = width.toString()
+                heightText = height.toString()
+            }
+        }
+        Button(
+            enabled = changed && fit != null && fit !is CanvasFit.TooBig,
+            onClick = {
+                // A size that fits by this check can still fail to allocate. That changes nothing, and the session says so.
+                if (newWidth != null && newHeight != null) session.resizeCanvas(newWidth, newHeight)
+            },
+            modifier = Modifier.align(Alignment.End).testTag("project_apply_size"),
+        ) {
+            Text(stringResource(R.string.project_apply))
         }
         Text(
             stringResource(R.string.project_resize_help),
@@ -646,17 +763,4 @@ internal fun ProjectSettingsSheet(project: Project, session: DrawingSession, vie
     }
 }
 
-@Composable
-private fun SizeField(label: String, value: String, modifier: Modifier, onChange: (String) -> Unit) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = { onChange(it.filter(Char::isDigit).take(5)) },
-        label = { Text(label) },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        modifier = modifier,
-    )
-}
-
 private const val OPAQUE = 0xFF000000.toInt()
-private const val MAX_EDGE = 8192

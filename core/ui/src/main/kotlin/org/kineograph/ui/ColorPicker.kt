@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
@@ -29,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,8 +39,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
@@ -54,7 +57,8 @@ import android.graphics.Color as AndroidColor
 
 /**
  * The colour picker: a hue ring around a saturation and brightness square, a hex field, an opacity slider, and
- * recent colours. [argb] is the current colour, reported back through [onColorChange].
+ * recent colours. [argb] is the current colour, reported back through [onColorChange], which a drag calls many times on its way
+ * to the colour it ends on. [onColorCommit] says the user has settled on one, once per tap, drag, swatch or complete hex value.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -64,6 +68,7 @@ public fun ColorPicker(
     recentColors: List<Int>,
     modifier: Modifier = Modifier,
     showOpacity: Boolean = true,
+    onColorCommit: () -> Unit = {},
 ) {
     // Hue must survive black and white, where it cannot be recovered from the colour.
     var hue by remember { mutableFloatStateOf(hsvOf(argb)[0]) }
@@ -81,8 +86,8 @@ public fun ColorPicker(
         }
     }
 
-    fun publish(newAlpha: Int = alpha) {
-        onColorChange(AndroidColor.HSVToColor(newAlpha, floatArrayOf(hue, saturation, brightness)))
+    fun publish() {
+        onColorChange(AndroidColor.HSVToColor(alpha, floatArrayOf(hue, saturation, brightness)))
     }
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -99,20 +104,22 @@ public fun ColorPicker(
                 brightness = v
                 publish()
             },
+            onCommit = onColorCommit,
             modifier = Modifier
                 .align(Alignment.CenterHorizontally)
                 .widthIn(max = 280.dp)
                 .fillMaxWidth()
                 .aspectRatio(1f),
         )
-        HexField(argb, onColorChange)
+        HexField(argb, onColorChange, onColorCommit)
         if (showOpacity) {
             val opacityLabel = stringResource(R.string.color_opacity)
             Column {
                 Text("$opacityLabel ${(alpha * 100f / 255f).toInt()}%", style = MaterialTheme.typography.labelLarge)
                 Slider(
                     value = alpha / 255f,
-                    onValueChange = { publish((it * 255f + 0.5f).toInt()) },
+                    // Only the alpha changes. Going through hue and back could shift the colour by a level.
+                    onValueChange = { onColorChange((argb and RGB_MASK) or ((it * 255f + 0.5f).toInt() shl 24)) },
                     modifier = Modifier.semantics { contentDescription = opacityLabel },
                 )
             }
@@ -120,7 +127,14 @@ public fun ColorPicker(
         if (recentColors.isNotEmpty()) {
             Text(stringResource(R.string.color_recent), style = MaterialTheme.typography.labelLarge)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                recentColors.forEach { color -> ColorSwatch(color, selected = color == argb) { onColorChange(color) } }
+                recentColors.forEach { color ->
+                    // A swatch is a colour, not an opacity, so it leaves the opacity as it is, and matches whatever that is.
+                    val rgb = color and RGB_MASK
+                    ColorSwatch(color, selected = rgb == argb and RGB_MASK) {
+                        onColorChange(rgb or (argb and ALPHA_MASK))
+                        onColorCommit()
+                    }
+                }
             }
         }
     }
@@ -133,8 +147,11 @@ public fun ColorSwatch(argb: Int, selected: Boolean, modifier: Modifier = Modifi
     Box(
         modifier
             .size(48.dp)
-            .clickable(onClick = onClick)
-            .semantics { contentDescription = description },
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics {
+                contentDescription = description
+                this.selected = selected
+            },
         contentAlignment = Alignment.Center,
     ) {
         Box(
@@ -158,10 +175,16 @@ private fun HueRingAndSquare(
     brightness: Float,
     onHue: (Float) -> Unit,
     onSquare: (Float, Float) -> Unit,
+    onCommit: () -> Unit,
     modifier: Modifier,
 ) {
     var size by remember { mutableStateOf(Size.Zero) }
     val hueLabel = stringResource(R.string.color_hue_ring)
+    // The gestures below keep running from the first touch on, and restarting them for each colour would cut a drag short.
+    // So they read these, or they would go on comparing against the colour from that first touch.
+    val latestHue by rememberUpdatedState(onHue)
+    val latestSquare by rememberUpdatedState(onSquare)
+    val latestCommit by rememberUpdatedState(onCommit)
 
     fun handle(position: Offset, grabbedRing: Boolean?): Boolean {
         val radius = min(size.width, size.height) / 2f
@@ -172,10 +195,10 @@ private fun HueRingAndSquare(
         if (onRing) {
             var degrees = Math.toDegrees(atan2(dy, dx).toDouble()).toFloat()
             if (degrees < 0f) degrees += 360f
-            onHue(degrees)
+            latestHue(degrees)
         } else {
             val half = radius * SQUARE_HALF
-            onSquare(((dx + half) / (half * 2f)).coerceIn(0f, 1f), (1f - (dy + half) / (half * 2f)).coerceIn(0f, 1f))
+            latestSquare(((dx + half) / (half * 2f)).coerceIn(0f, 1f), (1f - (dy + half) / (half * 2f)).coerceIn(0f, 1f))
         }
         return onRing
     }
@@ -183,20 +206,31 @@ private fun HueRingAndSquare(
     var grabbedRing by remember { mutableStateOf<Boolean?>(null) }
     Canvas(
         modifier
+            .onSizeChanged { size = Size(it.width.toFloat(), it.height.toFloat()) }
             .semantics { contentDescription = hueLabel }
-            .pointerInput(Unit) { detectTapGestures { handle(it, null) } }
             .pointerInput(Unit) {
+                detectTapGestures {
+                    handle(it, null)
+                    latestCommit()
+                }
+            }.pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = { grabbedRing = handle(it, null) },
-                    onDragEnd = { grabbedRing = null },
-                    onDragCancel = { grabbedRing = null },
+                    onDragEnd = {
+                        grabbedRing = null
+                        latestCommit()
+                    },
+                    // The colour has already changed by now, so it counts as much as a drag that ended normally.
+                    onDragCancel = {
+                        grabbedRing = null
+                        latestCommit()
+                    },
                 ) { change, _ ->
                     change.consume()
                     handle(change.position, grabbedRing)
                 }
             },
     ) {
-        size = this.size
         val radius = min(this.size.width, this.size.height) / 2f
         val center = Offset(this.size.width / 2f, this.size.height / 2f)
         val ringWidth = radius * (1f - RING_INNER)
@@ -228,7 +262,7 @@ private fun HueRingAndSquare(
 }
 
 @Composable
-private fun HexField(argb: Int, onColorChange: (Int) -> Unit) {
+private fun HexField(argb: Int, onColorChange: (Int) -> Unit, onColorCommit: () -> Unit) {
     var text by remember { mutableStateOf("") }
     val canonical = "%06X".format(argb and 0xFFFFFF)
     LaunchedEffect(canonical) {
@@ -243,14 +277,17 @@ private fun HexField(argb: Int, onColorChange: (Int) -> Unit) {
                 .take(6)
                 .uppercase()
             text = cleaned
-            parseHex(cleaned)?.let { hex -> onColorChange((argb and ALPHA_MASK) or hex.toInt(16)) }
+            parseHex(cleaned)?.let { hex ->
+                onColorChange((argb and ALPHA_MASK) or hex.toInt(16))
+                onColorCommit()
+            }
         },
         label = { Text(stringResource(R.string.color_hex)) },
         prefix = { Text("#") },
         singleLine = true,
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
         isError = text.isNotEmpty() && parseHex(text) == null,
-        modifier = Modifier.fillMaxWidth().height(64.dp),
+        modifier = Modifier.fillMaxWidth(),
     )
 }
 
@@ -262,6 +299,7 @@ private const val RING_INNER = 0.82f
 private const val SQUARE_HALF = 0.56f
 private const val HUE_STOPS = 12
 private const val ALPHA_MASK = 0xFF000000.toInt()
+private const val RGB_MASK = 0xFFFFFF
 
 /** Colours offered before the user has any recent ones. */
 public val DefaultSwatches: List<Int> =

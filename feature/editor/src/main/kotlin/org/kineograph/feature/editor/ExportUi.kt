@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -414,7 +414,7 @@ internal fun ExportOptions(project: Project, onExport: (ExportConfig) -> Unit) {
                 onExport(config)
             }
         },
-        modifier = Modifier.fillMaxWidth().height(56.dp).testTag("start_export"),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("start_export"),
     ) {
         Text(stringResource(R.string.export_start))
     }

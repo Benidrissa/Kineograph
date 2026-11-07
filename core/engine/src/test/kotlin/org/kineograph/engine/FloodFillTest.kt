@@ -306,6 +306,32 @@ class FloodFillTest {
     }
 
     @Test
+    fun `a translucent fill tints paint instead of making a hole in it`() {
+        val halfRed = 0x80FF0000.toInt()
+        val pixels = intArrayOf(0xFF0000FF.toInt())
+        FloodFill.apply(pixels, 1, FillMask.of(1, 1) { _, _ -> true }, halfRed, behind = false)
+        val result = pixels[0]
+        assertEquals("the paint stays as solid as it was", 255, result ushr 24)
+        assertTrue("red over blue: ${Integer.toHexString(result)}", ((result shr 16) and 0xFF) in 120..135)
+        assertTrue("red over blue: ${Integer.toHexString(result)}", (result and 0xFF) in 120..135)
+    }
+
+    @Test
+    fun `a translucent fill on an empty pixel is exactly its own colour`() {
+        val halfRed = 0x80FF0000.toInt()
+        val pixels = intArrayOf(empty)
+        FloodFill.apply(pixels, 1, FillMask.of(1, 1) { _, _ -> true }, halfRed, behind = false)
+        assertEquals(halfRed, pixels[0])
+    }
+
+    @Test
+    fun `an opaque fill replaces a translucent one`() {
+        val pixels = intArrayOf(0x80FF0000.toInt())
+        FloodFill.apply(pixels, 1, FillMask.of(1, 1) { _, _ -> true }, black, behind = false)
+        assertEquals(black, pixels[0])
+    }
+
+    @Test
     fun `filling behind keeps opaque line art on top`() {
         val pixels = intArrayOf(empty, black)
         val mask = FillMask.of(2, 1) { _, _ -> true }

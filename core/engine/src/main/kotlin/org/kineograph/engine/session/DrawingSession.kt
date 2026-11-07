@@ -103,7 +103,7 @@ public sealed interface SessionEvent {
     /** A layer other than the active one could not be read, so it is missing from the view. Its drawing has not changed. */
     public data object LayerNotShown : SessionEvent
 
-    /** The canvas is too large for memory at its new size, so nothing can be drawn until it is made to fit. */
+    /** A change of canvas size, by a resize, undo or redo, does not fit in memory, so the canvas stays as it was. */
     public data object CanvasDoesNotFit : SessionEvent
 }
 
@@ -352,7 +352,7 @@ public class DrawingSession(
             val pixels = IntArray(width * height)
             target.getPixels(pixels, 0, width, overscan, overscan, width, height)
             val sample = if (sampleAllLayers) readFlattenedLayers(width, height) else pixels
-            val seedIsPaint = (sample[y * width + x] ushr 24) >= OPAQUE_SEED_ALPHA
+            val seedIsPaint = (sample[y * width + x] ushr 24) >= PAINT_SEED_ALPHA
             val mask =
                 FloodFill.computeMask(
                     sample,
@@ -587,8 +587,10 @@ public class DrawingSession(
                     }
 
                     is StructureEntry -> {
-                        restoreStructure(entry.before, entry.cursorBefore)
-                        history.popUndo()
+                        withSurfacesFor(entry.before.width, entry.before.height) { surfaces ->
+                            restoreStructure(entry.before, entry.cursorBefore, surfaces)
+                            history.popUndo()
+                        }
                     }
 
                     null -> {
@@ -611,8 +613,10 @@ public class DrawingSession(
                 }
 
                 is StructureEntry -> {
-                    restoreStructure(entry.after, entry.cursorAfter)
-                    history.popRedo()
+                    withSurfacesFor(entry.after.width, entry.after.height) { surfaces ->
+                        restoreStructure(entry.after, entry.cursorAfter, surfaces)
+                        history.popRedo()
+                    }
                 }
 
                 null -> {
@@ -672,7 +676,7 @@ public class DrawingSession(
         return PatchOutcome.APPLIED
     }
 
-    private fun restoreStructure(target: Project, cursor: HistoryCursor) {
+    private fun restoreStructure(target: Project, cursor: HistoryCursor, surfaces: NewSurfaces?) {
         // Settings that are not part of undo stay as they are now.
         val current = project
         project =
@@ -686,7 +690,7 @@ public class DrawingSession(
         layerId = if (project.layer(cursor.layerId) != null) cursor.layerId else project.layers.last().id
         // Pixels on the surface already match this snapshot; anything unsaved was undone first.
         activeDirty = false
-        matchSurfacesToCanvas()
+        moveToSurfaces(surfaces)
         syncLive(forceActive = true)
         scheduleGhosts()
         markChanged()
@@ -768,7 +772,6 @@ public class DrawingSession(
         flushActive()
         frameId = newFrameId
         layerId = newLayerId
-        matchSurfacesToCanvas()
         syncLive()
         scheduleGhosts()
     }
@@ -783,7 +786,6 @@ public class DrawingSession(
      */
     private fun ensureSurfaceLoaded(): Boolean {
         if (isSurfaceLoaded()) return true
-        matchSurfacesToCanvas()
         syncLive(forceActive = true)
         if (!isSurfaceLoaded()) return false
         publishScene()
@@ -1071,11 +1073,11 @@ public class DrawingSession(
         post {
             if (stroke != null) return@post
             settleOpacityPreview()
-            applyStructure(edit)
+            applyStructure(edit = edit)
         }
     }
 
-    private fun applyStructure(edit: (Project) -> Pair<Project, HistoryCursor>) {
+    private fun applyStructure(surfaces: NewSurfaces? = null, edit: (Project) -> Pair<Project, HistoryCursor>) {
         val hadSelection = floating != null
         commitFloatingInternal()
         flushActive()
@@ -1093,7 +1095,7 @@ public class DrawingSession(
         project = after
         frameId = cursorAfter.frameId
         layerId = cursorAfter.layerId
-        val resized = matchSurfacesToCanvas()
+        val resized = moveToSurfaces(surfaces)
         syncLive(forceActive = resized)
         scheduleGhosts()
         markChanged()
@@ -1102,13 +1104,27 @@ public class DrawingSession(
     }
 
     /**
-     * Reallocates the surfaces after the canvas changes size. Returns whether it tried. The check uses the margin the
-     * surface really has, which is smaller than the budget's after a low-memory open. Callers have already saved the
-     * surface's pixels. If memory is short, the old surface stays but counts as holding nothing, so edits are refused
-     * until an allocation succeeds. Every caller goes on to [loadSurface], which tells the user.
+     * Runs [change], which gives the canvas this size, with surfaces for that size made first. If they do not fit, nothing has
+     * changed, so nothing happens but telling the user. That is what keeps the project and its surfaces the same size at all
+     * times: a drawing can never be loaded onto a surface too small for it, and saved back cut down. A size that does not differ,
+     * or a session with no surface yet, needs no new surfaces.
      */
-    private fun matchSurfacesToCanvas(): Boolean {
-        if (surface == null || surfaceFitsCanvas()) return false
+    private inline fun withSurfacesFor(width: Int, height: Int, change: (NewSurfaces?) -> Unit) {
+        if (surface == null || (width == project.width && height == project.height)) {
+            change(null)
+            return
+        }
+        val surfaces = makeSurfaces(width, height)
+        if (surfaces == null) {
+            _events.trySend(SessionEvent.CanvasDoesNotFit)
+        } else {
+            change(surfaces)
+        }
+    }
+
+    /** Goes over to [surfaces], if the size is changing. Callers have already saved the pixels. Returns whether it did. */
+    private fun moveToSurfaces(surfaces: NewSurfaces?): Boolean {
+        if (surfaces == null) return false
         // Every layer's position changed, so nothing live can be reused.
         liveCels.clear()
         ghostCache.clear()
@@ -1117,13 +1133,8 @@ public class DrawingSession(
         revealGeneration = -1
         loadedKey = null
         loadedFile = null
-        allocateSurfaces(project.width, project.height)
+        install(surfaces)
         return true
-    }
-
-    private fun surfaceFitsCanvas(): Boolean {
-        val current = surface ?: return false
-        return current.width == project.width + overscan * 2 && current.height == project.height + overscan * 2
     }
 
     // ----- Settings that are not undo steps -----
@@ -1151,9 +1162,18 @@ public class DrawingSession(
     /**
      * Changes the canvas size, keeping the artwork centred. Nothing is cropped: drawings keep their pixels and just
      * get new positions, so this is instant and undoable, and anything now past the edge is still there to bring back.
+     * A size that does not fit in memory changes nothing at all, not even a lifted selection, and sends [SessionEvent.CanvasDoesNotFit].
      */
     public fun resizeCanvas(width: Int, height: Int) {
-        structureEdit { p -> resized(p, width, height) to HistoryCursor(frameId, layerId) }
+        post {
+            if (stroke != null) return@post
+            settleOpacityPreview()
+            val newWidth = width.coerceAtLeast(1)
+            val newHeight = height.coerceAtLeast(1)
+            withSurfacesFor(newWidth, newHeight) { surfaces ->
+                applyStructure(surfaces) { p -> resized(p, newWidth, newHeight) to HistoryCursor(frameId, layerId) }
+            }
+        }
     }
 
     private fun resized(source: Project, width: Int, height: Int): Project {
@@ -1277,7 +1297,9 @@ public class DrawingSession(
 
     private fun open() {
         try {
-            if (allocateSurfaces(project.width, project.height)) {
+            val surfaces = makeSurfaces(project.width, project.height)
+            if (surfaces != null) {
+                install(surfaces)
                 backgroundImage = readBackgroundImage()
                 syncLive(forceActive = true)
                 scheduleGhosts()
@@ -1318,12 +1340,15 @@ public class DrawingSession(
         }
     }
 
+    /** Surfaces made ahead of being needed. Until they are installed, nothing has changed. */
+    private class NewSurfaces(val margin: Int, val surface: Bitmap, val strokeBuffer: Bitmap)
+
     /**
      * Allocates the surface and stroke buffer. Falls back to no margin if the full size does not fit. A complete failure
      * is left for the caller to explain, because a general warning that the user's work is safe would not tell them why
      * they cannot draw.
      */
-    private fun allocateSurfaces(width: Int, height: Int): Boolean {
+    private fun makeSurfaces(width: Int, height: Int): NewSurfaces? {
         val attempts = intArrayOf(budget.overscanFor(width, height), 0)
         var ranOut = false
         for (margin in attempts) {
@@ -1339,13 +1364,8 @@ public class DrawingSession(
                         newSurface.recycle()
                         throw e
                     }
-                overscan = margin
-                surface = newSurface
-                surfaceCanvas = Canvas(newSurface)
-                strokeBuffer = newBuffer
-                strokeCanvas = Canvas(newBuffer)
                 if (ranOut) warnLowMemory()
-                return true
+                return NewSurfaces(margin, newSurface, newBuffer)
             } catch (_: OutOfMemoryError) {
                 ranOut = true
                 freeMemory()
@@ -1353,7 +1373,15 @@ public class DrawingSession(
                 // Too large for a bitmap at all, though perhaps not without the margin.
             }
         }
-        return false
+        return null
+    }
+
+    private fun install(surfaces: NewSurfaces) {
+        overscan = surfaces.margin
+        surface = surfaces.surface
+        surfaceCanvas = Canvas(surfaces.surface)
+        strokeBuffer = surfaces.strokeBuffer
+        strokeCanvas = Canvas(surfaces.strokeBuffer)
     }
 
     /** Makes the live cels match the project: reloads the surface if needed, and any other visible layer whose file changed. */
@@ -1394,19 +1422,10 @@ public class DrawingSession(
      * an empty cel: the surface then counts as holding nothing, so a later stroke cannot replace a drawing that was
      * only temporarily out of reach. Clearing the cel, or a load that works later, ends that state. The user is told at
      * once, because all they would otherwise see is an empty frame.
-     *
-     * A surface of the wrong size is a different problem with a different way out: clearing the cel cannot help, but
-     * undoing the resize or choosing a smaller size can. So it is checked first, and has its own message.
      */
     private fun loadSurface(key: CelKey, cel: Cel?) {
         val target = surface ?: return
         val canvas = surfaceCanvas ?: return
-        if (!surfaceFitsCanvas()) {
-            loadedKey = null
-            loadedFile = null
-            _events.trySend(SessionEvent.CanvasDoesNotFit)
-            return
-        }
         val file = cel?.file
         val celBounds = cel?.bounds
         val image = if (file != null && celBounds != null) readCel(file) else null
@@ -1790,7 +1809,13 @@ public class DrawingSession(
         const val EVENT_BUFFER = 16
         const val MIN_LASSO_COORDINATES = 6
         const val MAX_CACHED_GHOSTS = 16
-        const val OPAQUE_SEED_ALPHA = 200
+
+        /**
+         * A tap on anything this solid is a tap on paint, which the fill goes over. Fainter than this it is empty space or the soft
+         * edge of a line, which the fill goes behind. A translucent fill or marker stroke has to count as paint, or filling it again
+         * would put the new colour underneath the old one.
+         */
+        const val PAINT_SEED_ALPHA = 64
         const val FILL_EXPAND_PX = 2
         const val GHOST_TINT_PREVIOUS = 0xD0E53935.toInt()
         const val GHOST_TINT_NEXT = 0xD02E9E4F.toInt()

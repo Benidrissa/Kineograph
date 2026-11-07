@@ -93,7 +93,7 @@ internal class KineographCanvasView(
     context: Context,
     private val session: DrawingSession,
     private val lowLatency: Boolean,
-    private val workspaceColor: Int,
+    workspaceColor: Int,
     private val toolConfig: () -> CanvasToolConfig,
     private val listener: CanvasListener,
     private val lowLatencyFactory: LowLatencyFactory =
@@ -102,6 +102,7 @@ internal class KineographCanvasView(
             FrontBufferRenderer(surfaceView, session, workspaceColor, view, onFailure)
         },
 ) : FrameLayout(context), PlaybackDisplay {
+    private var workspaceColor = workspaceColor
     private val surfaceView = CanvasSurfaceView(context)
     private val overlay = LassoOverlay(context)
     private val density = resources.displayMetrics.density
@@ -168,14 +169,19 @@ internal class KineographCanvasView(
     /**
      * True while playback is running, when touches only serve to stop it. From then on a touch under way would never get
      * its ending, and a stroke that never ends leaves the session ignoring everything else, so it is called off here.
+     * Playback is a preview of what will be exported, so it shows the whole canvas, upright. Where the user had placed the canvas
+     * is kept, not overwritten, so stopping goes back to it, and it goes on following changes of window size meanwhile.
      */
     internal var isPlaying: Boolean = false
         set(value) {
+            if (field == value) return
             field = value
             if (value) {
                 onCancel()
                 tappingPlayback = false
             }
+            publishView()
+            renderer?.requestRedraw()
         }
 
     /** Only a touch that began during playback is a tap on it. A finger that was already drawing is just lifting. */
@@ -261,6 +267,7 @@ internal class KineographCanvasView(
         if (!hasSurface) return
         val next = createRenderer()
         next.setView(publishedView)
+        next.setWorkspaceColor(workspaceColor)
         // In place before the first redraw, so that no later change to the scene can miss both.
         renderer = next
         playbackFrame?.let(next::setPlaybackFrame)
@@ -292,6 +299,13 @@ internal class KineographCanvasView(
         val old = renderer ?: return
         renderer = null
         old.release()
+    }
+
+    /** Follows the theme, which can change with the app open. */
+    internal fun setWorkspaceColor(color: Int) {
+        if (color == workspaceColor) return
+        workspaceColor = color
+        renderer?.setWorkspaceColor(color)
     }
 
     /** Failures on the render thread land here. One from a renderer that has since been replaced no longer matters. */
@@ -363,15 +377,27 @@ internal class KineographCanvasView(
         renderer?.requestRedraw()
     }
 
-    /** The scale a full frame is displayed at when fitted to the screen. */
+    /**
+     * The scale to decode frames at for playback, for the size the canvas will have by then. The system bars go, so that is nearly the
+     * whole window. Slightly too large only costs a little memory, where too small would leave every frame soft.
+     */
     internal fun fitScale(): Float {
         val project = session.state.value.project
-        return ViewTransform.fit(width.coerceAtLeast(1), height.coerceAtLeast(1), project.width, project.height, 0f).zoom
+        val window = rootView
+        val availableWidth = maxOf(width, window.width).coerceAtLeast(1)
+        val availableHeight = maxOf(height, window.height).coerceAtLeast(1)
+        return ViewTransform.fit(availableWidth, availableHeight, project.width, project.height, 0f).zoom
     }
 
     private fun publishView() {
         val project = session.state.value.project
-        val view = transform.toAffine(project.width, project.height)
+        val shown =
+            if (isPlaying) {
+                ViewTransform.fit(width.coerceAtLeast(1), height.coerceAtLeast(1), project.width, project.height, 0f)
+            } else {
+                transform
+            }
+        val view = shown.toAffine(project.width, project.height)
         publishedView = view
         publishedInverse = view.inverse()
         renderer?.setView(view)

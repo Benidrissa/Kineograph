@@ -73,6 +73,5 @@
     <string name="preset_custom">Personnalisé</string>
     <string name="size_width">Largeur</string>
     <string name="size_height">Hauteur</string>
-    <string name="size_invalid">Saisissez une largeur et une hauteur de 1 à %1$d.</string>
-    <string name="size_large_warning">Un canevas de cette taille demande beaucoup de mémoire et peut être lent sur cet appareil.</string>
+    <string name="camera_unavailable">Aucune application d’appareil photo n’est disponible sur cet appareil. Choisissez une image ou un autre arrière-plan.</string>
 </resources>

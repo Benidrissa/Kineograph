@@ -6,12 +6,15 @@ import android.os.Build
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -48,7 +51,7 @@ import org.kineograph.ui.KgIconButton
 import org.kineograph.ui.KgIcons
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 public fun SettingsScreen(settings: AppSettings, repository: SettingsRepository, onBack: () -> Unit, onOpenAbout: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -78,7 +81,8 @@ public fun SettingsScreen(settings: AppSettings, repository: SettingsRepository,
         ) {
             SectionLabel(stringResource(R.string.settings_section_appearance))
             Text(stringResource(R.string.settings_theme))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // These wrap, because at the largest font size they are wider than a small phone.
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ThemeChip(
                     R.string.settings_theme_system,
                     settings.theme == ThemeMode.SYSTEM,
@@ -101,7 +105,7 @@ public fun SettingsScreen(settings: AppSettings, repository: SettingsRepository,
 
             SectionLabel(stringResource(R.string.settings_section_drawing))
             Text(stringResource(R.string.settings_toolbar_side))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ThemeChip(R.string.settings_side_left, settings.toolbarSide == ToolbarSide.LEFT) {
                     save { repository.setToolbarSide(ToolbarSide.LEFT) }
                 }
@@ -153,10 +157,11 @@ private fun ThemeChip(label: Int, selected: Boolean, onClick: () -> Unit) {
     FilterChip(selected = selected, onClick = onClick, label = { Text(stringResource(label)) })
 }
 
+/** The whole row is the switch, so it is what TalkBack hears as on or off. The switch inside it is only there to be seen. */
 @Composable
-private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Switch) { onChange(!checked) },
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(value = checked, role = Role.Switch, onValueChange = onChange),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, Modifier.weight(1f).padding(end = 12.dp))

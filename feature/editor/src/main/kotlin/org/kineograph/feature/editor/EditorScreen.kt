@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.storage.StorageManager
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +29,8 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,11 +41,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -159,6 +166,7 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
         viewModel.messages.collect { message -> snackbar.showSnackbar(context.getString(message.textRes())) }
     }
     LaunchedEffect(playback.isPlaying, canvasView) { canvasView?.isPlaying = playback.isPlaying }
+    HideSystemBars(playback.isPlaying)
     // Project settings, undo and redo can all change this, and nothing about them changes the size of the view.
     LaunchedEffect(sessionState.project.width, sessionState.project.height, canvasView) { canvasView?.onCanvasSizeChanged() }
 
@@ -203,6 +211,8 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
                             },
                     ).also { canvasView = it }
                 },
+                // A change of theme reaches here without the activity starting over, so the view has to be told.
+                update = { it.setWorkspaceColor(workspaceColor) },
                 // During playback, Back stops it from anywhere along the edge.
                 modifier =
                     Modifier
@@ -242,12 +252,15 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
             if (sessionState.busy || playback.isPreparing || leaving) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             }
-            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
+            // A sheet covers this, so while one is open it shows the messages instead.
+            if (sheet == null) SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
         }
         if (playback.isPlaying) {
             PlaybackBar(
                 project = sessionState.project,
+                playback = playback,
                 onStop = viewModel::stopPlayback,
+                onTogglePause = viewModel::togglePlaybackPause,
                 onMode = viewModel::setPlaybackMode,
                 onFps = viewModel::setFps,
             )
@@ -263,45 +276,48 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
         }
     }
 
-    when (sheet) {
-        EditorSheet.TOOL_OPTIONS -> {
-            ToolOptionsSheet(tools, viewModel::updateTools) { sheet = null }
-        }
+    CompositionLocalProvider(LocalEditorSnackbar provides snackbar) {
+        when (sheet) {
+            EditorSheet.TOOL_OPTIONS -> {
+                ToolOptionsSheet(tools, viewModel::updateTools, onOpenColor = { sheet = EditorSheet.COLOR }) { sheet = null }
+            }
 
-        EditorSheet.COLOR -> {
-            ColorSheet(
-                tools = tools,
-                onColor = viewModel::pickColor,
-                onOpacity = { opacity -> viewModel.updateTools { it.withActiveOpacity(opacity) } },
-                onDismiss = { sheet = null },
-            )
-        }
+            EditorSheet.COLOR -> {
+                ColorSheet(
+                    tools = tools,
+                    onColor = viewModel::pickColor,
+                    onColorCommit = viewModel::commitColor,
+                    onOpacity = { opacity -> viewModel.updateTools { it.withActiveOpacity(opacity) } },
+                    onDismiss = { sheet = null },
+                )
+            }
 
-        EditorSheet.LAYERS -> {
-            if (thumbnails != null) LayersSheet(sessionState, session, thumbnails) { sheet = null }
-        }
+            EditorSheet.LAYERS -> {
+                if (thumbnails != null) LayersSheet(sessionState, session, thumbnails) { sheet = null }
+            }
 
-        EditorSheet.ONION_SKIN -> {
-            OnionSkinSheet(sessionState.project.settings.onionSkin, session) { sheet = null }
-        }
+            EditorSheet.ONION_SKIN -> {
+                OnionSkinSheet(sessionState.project.settings.onionSkin, session) { sheet = null }
+            }
 
-        EditorSheet.PROJECT_SETTINGS -> {
-            ProjectSettingsSheet(sessionState.project, session, viewModel) { sheet = null }
-        }
+            EditorSheet.PROJECT_SETTINGS -> {
+                ProjectSettingsSheet(sessionState.project, session, viewModel) { sheet = null }
+            }
 
-        EditorSheet.EXPORT -> {
-            ExportSheet(
-                project = sessionState.project,
-                onExport = { config ->
-                    sheet = null
-                    viewModel.startExport(config)
-                },
-                onDismiss = { sheet = null },
-            )
-        }
+            EditorSheet.EXPORT -> {
+                ExportSheet(
+                    project = sessionState.project,
+                    onExport = { config ->
+                        sheet = null
+                        viewModel.startExport(config)
+                    },
+                    onDismiss = { sheet = null },
+                )
+            }
 
-        null -> {
-            Unit
+            null -> {
+                Unit
+            }
         }
     }
     exportState?.let { state ->
@@ -328,6 +344,24 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
             },
             onDiscard = { viewModel.discardAndLeave(onBack) },
         )
+    }
+}
+
+/**
+ * Takes the system bars away for a full-screen preview. A swipe brings them back for a moment, so the system is never out of reach.
+ * Leaving the screen brings them back for good. The space they leave is taken up by the canvas, which fits itself to it.
+ */
+@Composable
+private fun HideSystemBars(hidden: Boolean) {
+    val window = LocalActivity.current?.window ?: return
+    val view = LocalView.current
+    DisposableEffect(hidden, window, view) {
+        val controller = WindowCompat.getInsetsController(window, view)
+        if (hidden) {
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose { if (hidden) controller.show(WindowInsetsCompat.Type.systemBars()) }
     }
 }
 
@@ -370,4 +404,6 @@ private fun EditorMessage.textRes(): Int =
         EditorMessage.SETTING_NOT_SAVED -> R.string.message_setting_not_saved
         EditorMessage.LAYER_NOT_SHOWN -> R.string.message_layer_not_shown
         EditorMessage.CANVAS_DOES_NOT_FIT -> R.string.message_canvas_does_not_fit
+        EditorMessage.BACKGROUND_NOT_USED -> R.string.message_background_not_used
+        EditorMessage.BACKGROUND_NOT_CHANGED -> R.string.message_background_not_changed
     }

@@ -9,6 +9,8 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.core.view.WindowCompat
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -22,6 +24,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.kineograph.data.ThemeMode
 import org.kineograph.data.manifest.ManifestCodec
 import org.kineograph.media.export.ExportWorker
 import org.kineograph.model.Background
@@ -56,6 +59,8 @@ class MainActivityTest {
     @After
     fun tearDown() {
         scenario?.close()
+        // Settings outlive a test, as they do an app.
+        runBlocking { app.settings.setTheme(ThemeMode.SYSTEM) }
     }
 
     private fun create(name: String): Project =
@@ -108,6 +113,76 @@ class MainActivityTest {
         fillDisk(open)
         tapNotificationFor(other.id)
         waitForText(UNSAVED_TITLE)
+    }
+
+    // ----- The system bars follow the app's own theme -----
+
+    private fun statusBarIconsAreDark(): Boolean {
+        var dark = false
+        checkNotNull(scenario).onActivity { activity ->
+            dark = WindowCompat.getInsetsController(activity.window, activity.window.decorView).isAppearanceLightStatusBars
+        }
+        return dark
+    }
+
+    /** What the system does on a rotation, which the activity handles itself. */
+    private fun rotate() {
+        checkNotNull(scenario).onActivity { activity ->
+            activity.window.decorView.dispatchConfigurationChanged(android.content.res.Configuration(activity.resources.configuration))
+        }
+        compose.waitForIdle()
+    }
+
+    private fun waitForBars(darkIcons: Boolean) {
+        compose.waitUntil(WAIT_MS) { statusBarIconsAreDark() == darkIcons }
+    }
+
+    @Test
+    fun `the dark theme on a light system gets light icons on the status bar, and keeps them through a rotation`() {
+        runBlocking { app.settings.setTheme(ThemeMode.DARK) }
+        launch(Intent(app, MainActivity::class.java))
+        waitForBars(darkIcons = false)
+        rotate()
+        assertEquals(false, statusBarIconsAreDark())
+    }
+
+    @Test
+    fun `the light theme on a dark system gets dark icons on the status bar`() {
+        runBlocking { app.settings.setTheme(ThemeMode.LIGHT) }
+        launch(Intent(app, MainActivity::class.java))
+        waitForBars(darkIcons = true)
+        rotate()
+        assertEquals(true, statusBarIconsAreDark())
+    }
+
+    @Test
+    @Config(qualifiers = "night")
+    fun `following a dark system gets light icons`() {
+        launch(Intent(app, MainActivity::class.java))
+        waitForBars(darkIcons = false)
+    }
+
+    @Test
+    fun `changing the theme with the app open changes the icons`() {
+        launch(Intent(app, MainActivity::class.java))
+        waitForBars(darkIcons = true)
+        runBlocking { app.settings.setTheme(ThemeMode.DARK) }
+        waitForBars(darkIcons = false)
+        rotate()
+        assertEquals(false, statusBarIconsAreDark())
+    }
+
+    // ----- A new project -----
+
+    @Test
+    fun `a new project opens in the editor, with no message when nothing went wrong`() {
+        launch(Intent(app, MainActivity::class.java))
+        compose.waitUntil(WAIT_MS) { compose.onAllNodesWithTag("new_project_button").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("new_project_button").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("create_project").performScrollTo().performClick()
+        compose.waitUntil(WAIT_MS) { compose.onAllNodesWithTag("canvas_host").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("could not be used", substring = true).assertDoesNotExist()
     }
 
     @Test

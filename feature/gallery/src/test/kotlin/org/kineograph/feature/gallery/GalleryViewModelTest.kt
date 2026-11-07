@@ -2,6 +2,7 @@ package org.kineograph.feature.gallery
 
 import android.content.Context
 import android.database.sqlite.SQLiteFullException
+import android.net.Uri
 import android.os.Looper
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -28,11 +29,14 @@ import org.junit.runner.RunWith
 import org.kineograph.data.ProjectRepository
 import org.kineograph.data.db.ProjectDao
 import org.kineograph.data.db.ProjectEntity
+import org.kineograph.data.db.openProjectDao
 import org.kineograph.data.files.ProjectFiles
+import org.kineograph.data.manifest.ManifestCodec
 import org.kineograph.model.Background
 import org.kineograph.model.PaperKind
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -111,10 +115,80 @@ class GalleryViewModelTest {
     fun `a project that cannot be created says so and does not open`() {
         val viewModel = listenTo(viewModelWith(FullDao()))
         var created = false
-        viewModel.create(request, "Layer 1", context.contentResolver) { created = true }
+        viewModel.create(request, "Layer 1", context.contentResolver) { _, _ -> created = true }
         waitForMessages(1)
         assertEquals(GalleryMessage.STORAGE_PROBLEM, received.single())
         assertFalse(created)
+    }
+
+    private val files by lazy { ProjectFiles(temp.newFolder(), temp.newFolder()) }
+
+    private fun workingViewModel() = viewModelWith(openProjectDao(context), files)
+
+    private fun waitFor(condition: () -> Boolean) {
+        val deadline = System.currentTimeMillis() + WAIT_MS
+        while (!condition()) {
+            check(System.currentTimeMillis() < deadline) { "Timed out" }
+            shadowOf(Looper.getMainLooper()).idle()
+            Thread.sleep(5)
+        }
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun `a project with a picture that cannot be read is still made, and the editor gets to hear why it looks as it does`() {
+        val viewModel = workingViewModel()
+        val notAPicture = Uri.fromFile(temp.newFile("not-a-picture.jpg").apply { writeText("not a picture") })
+        var result: Pair<String, Boolean>? = null
+        viewModel.create(request.copy(backgroundUri = notAPicture), "Layer 1", context.contentResolver) { id, failed ->
+            result =
+                id to failed
+        }
+        waitFor { result != null }
+        val (id, failed) = checkNotNull(result)
+        assertTrue(failed)
+        val manifest = File(files.projectDirectory(id), "manifest.json").readText()
+        assertEquals(Background.Paper(PaperKind.WHITE), ManifestCodec.decode(manifest).background)
+    }
+
+    @Test
+    fun `a project with no picture has nothing to report`() {
+        val viewModel = workingViewModel()
+        var result: Pair<String, Boolean>? = null
+        viewModel.create(request, "Layer 1", context.contentResolver) { id, failed -> result = id to failed }
+        waitFor { result != null }
+        assertEquals(false, result?.second)
+    }
+
+    // ----- The default name -----
+
+    private fun defaultName(number: Int) = "My animation $number"
+
+    @Test
+    fun `the first project is number 1, whatever else there is`() {
+        assertEquals(1, nextDefaultNumber(setOf("Bouncing Ball"), ::defaultName))
+        assertEquals(1, nextDefaultNumber(emptySet(), ::defaultName))
+    }
+
+    @Test
+    fun `a number freed up is used again, and a name in use is never repeated`() {
+        assertEquals(1, nextDefaultNumber(setOf("My animation 2", "My animation 3"), ::defaultName))
+        assertEquals(4, nextDefaultNumber(setOf("My animation 1", "My animation 2", "My animation 3"), ::defaultName))
+    }
+
+    @Test
+    fun `the state has every project's name, including the ones in the trash, which can come back`() {
+        val viewModel = workingViewModel()
+        var latest = GalleryUiState()
+        listening.launch(Dispatchers.Main) { viewModel.state.collect { latest = it } }
+        var made = 0
+        viewModel.create(request.copy(name = "Kept"), "Layer 1", context.contentResolver) { _, _ -> made++ }
+        viewModel.create(request.copy(name = "Thrown"), "Layer 1", context.contentResolver) { id, _ ->
+            viewModel.moveToTrash(id)
+            made++
+        }
+        waitFor { made == 2 && latest.all.map { it.name } == listOf("Kept") && latest.allNames.size == 2 }
+        assertEquals(setOf("Kept", "Thrown"), latest.allNames)
     }
 
     @Test

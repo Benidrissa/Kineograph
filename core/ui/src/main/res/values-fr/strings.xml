@@ -4,4 +4,9 @@
     <string name="color_recent">Couleurs récentes</string>
     <string name="color_hue_ring">Couleur : anneau de teinte autour d’un carré de saturation et de luminosité</string>
     <string name="color_hex">Couleur hexadécimale</string>
+    <string name="canvas_size_invalid">Saisissez une largeur et une hauteur d’au moins 1.</string>
+    <string name="canvas_size_too_big">Un canevas de cette taille demande plus de mémoire que cet appareil n’en a de disponible pour l’instant. Fermez d’autres applications ou choisissez une taille plus petite.</string>
+    <string name="canvas_size_too_big_for_android">Un canevas de cette taille dépasse ce qu’Android peut gérer en une seule image, quel que soit l’appareil. Choisissez une taille plus petite.</string>
+    <string name="canvas_size_use">Utiliser %1$d × %2$d</string>
+    <string name="canvas_size_large">Un canevas de cette taille demande beaucoup de mémoire et peut être lent sur cet appareil.</string>
 </resources>

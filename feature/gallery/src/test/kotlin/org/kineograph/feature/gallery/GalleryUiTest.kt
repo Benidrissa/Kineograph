@@ -1,10 +1,29 @@
 package org.kineograph.feature.gallery
 
+import android.app.ActivityManager
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.net.Uri
+import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.activity.result.ActivityResultRegistry
+import androidx.activity.result.ActivityResultRegistryOwner
+import androidx.activity.result.contract.ActivityResultContract
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -13,16 +32,25 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.core.app.ActivityOptionsCompat
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
+import org.kineograph.data.ProjectRepository
 import org.kineograph.data.ProjectSummary
+import org.kineograph.data.db.openProjectDao
+import org.kineograph.data.files.ProjectFiles
 import org.kineograph.model.Background
 import org.kineograph.model.PaperKind
 import org.kineograph.ui.KineographTheme
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -32,6 +60,9 @@ import org.robolectric.annotation.GraphicsMode
 class GalleryUiTest {
     @get:Rule
     val compose = createComposeRule()
+
+    @get:Rule
+    val temp = TemporaryFolder()
 
     private fun summary(name: String, id: String = name, trashed: Boolean = false) =
         ProjectSummary(
@@ -80,8 +111,7 @@ class GalleryUiTest {
     private fun loaded(vararg projects: ProjectSummary) = GalleryUiState(
         all = projects.toList(),
         isLoaded = true,
-        nextDefaultNumber =
-            projects.size + 1,
+        allNames = projects.mapTo(HashSet()) { it.name },
     )
 
     @Test
@@ -156,6 +186,20 @@ class GalleryUiTest {
         }
     }
 
+    private fun typeCustomSize(width: String, height: String) {
+        compose.onNodeWithText("Custom").performScrollTo().performClick()
+        compose.onNodeWithText("Width").performScrollTo().performTextClearance()
+        if (width.isNotEmpty()) compose.onNodeWithText("Width").performTextInput(width)
+        compose.onNodeWithText("Height").performTextClearance()
+        if (height.isNotEmpty()) compose.onNodeWithText("Height").performTextInput(height)
+        compose.waitForIdle()
+    }
+
+    private fun availableMemoryIs(bytes: Long) {
+        val manager = ApplicationProvider.getApplicationContext<Context>().getSystemService(ActivityManager::class.java)
+        shadowOf(manager).setMemoryInfo(ActivityManager.MemoryInfo().apply { availMem = bytes })
+    }
+
     @Test
     fun `the form starts with the specified defaults`() {
         var created: NewProjectRequest? = null
@@ -203,17 +247,11 @@ class GalleryUiTest {
     fun `a custom size is used and a bad one blocks creation with an explanation`() {
         var created: NewProjectRequest? = null
         showForm(onCreate = { created = it })
-        compose.onNodeWithText("Custom").performScrollTo().performClick()
-        compose.onNodeWithText("Width").performScrollTo().performTextClearance()
-        compose.onNodeWithText("Width").performTextInput("640")
-        compose.onNodeWithText("Height").performTextClearance()
-        compose.onNodeWithText("Height").performTextInput("99999")
-        compose.waitForIdle()
+        typeCustomSize("640", "0")
         compose.onNodeWithTag("create_project").performScrollTo().assertIsNotEnabled()
-        compose.onNodeWithText("Enter a width and height from 1 to 8192.").assertExists()
-        compose.onNodeWithText("Height").performTextClearance()
-        compose.onNodeWithText("Height").performTextInput("480")
-        compose.waitForIdle()
+        compose.onNodeWithText("Enter a width and height of at least 1.").assertExists()
+        typeCustomSize("640", "480")
+        compose.onNodeWithText("Enter a width and height of at least 1.").assertDoesNotExist()
         compose
             .onNodeWithTag("create_project")
             .performScrollTo()
@@ -221,6 +259,335 @@ class GalleryUiTest {
             .performClick()
         assertEquals(640, created?.width)
         assertEquals(480, created?.height)
+    }
+
+    @Test
+    fun `a blank size says what is wrong`() {
+        showForm()
+        typeCustomSize("", "480")
+        compose.onNodeWithTag("create_project").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithText("Enter a width and height of at least 1.").assertExists()
+    }
+
+    @Test
+    fun `a canvas past the old limit of 8192 is fine when the device can hold it`() {
+        var created: NewProjectRequest? = null
+        showForm(onCreate = { created = it })
+        typeCustomSize("99999", "10")
+        compose.onNodeWithTag("canvas_size_note").assertDoesNotExist()
+        compose
+            .onNodeWithTag("create_project")
+            .performScrollTo()
+            .assertIsEnabled()
+            .performClick()
+        assertEquals(99999, created?.width)
+    }
+
+    @Test
+    fun `a canvas no device could hold says so, and offers one that fits`() {
+        var created: NewProjectRequest? = null
+        showForm(onCreate = { created = it })
+        typeCustomSize("40000", "20000")
+        compose.onNodeWithTag("create_project").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithText("more than Android can hold", substring = true).assertExists()
+        compose.onNodeWithTag("canvas_size_use").performScrollTo().performClick()
+        compose.waitForIdle()
+        compose
+            .onNodeWithTag("create_project")
+            .performScrollTo()
+            .assertIsEnabled()
+            .performClick()
+        val request = created ?: error("nothing created")
+        assertEquals("the same shape", 2.0, request.width.toDouble() / request.height, 0.01)
+    }
+
+    @Test
+    fun `a canvas too big for what is free says to close other apps, or offers one that fits`() {
+        availableMemoryIs(64L * 1024 * 1024)
+        var created: NewProjectRequest? = null
+        showForm(onCreate = { created = it })
+        typeCustomSize("9000", "9000")
+        compose.onNodeWithTag("create_project").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithText("Close other apps", substring = true).assertExists()
+        compose.onNodeWithTag("canvas_size_use").performScrollTo().performClick()
+        compose.waitForIdle()
+        compose
+            .onNodeWithTag("create_project")
+            .performScrollTo()
+            .assertIsEnabled()
+            .performClick()
+        val request = created ?: error("nothing created")
+        assertTrue("$request", request.width.toLong() * request.height * 8 <= 64L * 1024 * 1024)
+    }
+
+    @Test
+    fun `a preset too big for what is free says so too`() {
+        availableMemoryIs(1024L * 1024)
+        showForm()
+        compose.onNodeWithTag("create_project").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithText("Close other apps", substring = true).assertExists()
+    }
+
+    @Test
+    fun `a canvas that will be slow warns, and can still be made`() {
+        showForm()
+        typeCustomSize("4000", "4000")
+        compose.onNodeWithText("may run slowly", substring = true).assertExists()
+        compose.onNodeWithTag("create_project").performScrollTo().assertIsEnabled()
+    }
+
+    // ----- The camera -----
+
+    /** Launches nothing, as on a device with no camera app. */
+    private fun showFormOnPhoneWithoutCamera(onCreate: (NewProjectRequest) -> Unit = {}) {
+        val registry =
+            object : ActivityResultRegistry() {
+                override fun <I, O> onLaunch(
+                    requestCode: Int,
+                    contract: ActivityResultContract<I, O>,
+                    input: I,
+                    options: ActivityOptionsCompat?,
+                ): Unit = throw ActivityNotFoundException("No camera app")
+            }
+        val owner =
+            object : ActivityResultRegistryOwner {
+                override val activityResultRegistry = registry
+            }
+        compose.setContent {
+            CompositionLocalProvider(LocalActivityResultRegistryOwner provides owner) {
+                KineographTheme(darkTheme = false) {
+                    NewProjectForm(
+                        defaultNumber = 3,
+                        canEncode = { _, _ -> false },
+                        onCreate = onCreate,
+                        cameraUriFor = { Uri.parse("content://test/photo.jpg") },
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `a phone with no camera app gets an explanation, not a crash`() {
+        var created: NewProjectRequest? = null
+        showFormOnPhoneWithoutCamera(onCreate = { created = it })
+        compose.onNodeWithText("Camera").performScrollTo().performClick()
+        compose.onNodeWithTag("camera_unavailable").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Transparent").performScrollTo().performClick()
+        compose.onNodeWithTag("camera_unavailable").assertDoesNotExist()
+        compose.onNodeWithTag("create_project").performScrollTo().performClick()
+        assertEquals(Background.Transparent, created?.background)
+    }
+
+    // ----- Surviving the camera -----
+
+    private fun StateRestorationTester.showFormWith(onCreate: (NewProjectRequest) -> Unit) {
+        setContent {
+            KineographTheme(darkTheme = false) {
+                NewProjectForm(defaultNumber = 3, canEncode = { _, _ -> false }, onCreate = onCreate)
+            }
+        }
+    }
+
+    @Test
+    fun `the background choice outlives the activity`() {
+        var created: NewProjectRequest? = null
+        val restoration = StateRestorationTester(compose)
+        restoration.showFormWith { created = it }
+        compose.onNodeWithText("Dots").performScrollTo().performClick()
+        restoration.emulateSavedInstanceStateRestore()
+        compose.onNodeWithTag("create_project").performScrollTo().performClick()
+        assertEquals(Background.Paper(PaperKind.DOTS), created?.background)
+    }
+
+    @Test
+    fun `a transparent choice outlives the activity`() {
+        var created: NewProjectRequest? = null
+        val restoration = StateRestorationTester(compose)
+        restoration.showFormWith { created = it }
+        compose.onNodeWithText("Transparent").performScrollTo().performClick()
+        restoration.emulateSavedInstanceStateRestore()
+        compose.onNodeWithTag("create_project").performScrollTo().performClick()
+        assertEquals(Background.Transparent, created?.background)
+    }
+
+    @Test
+    fun `an open sheet outlives the activity, for the photo to come back to`() {
+        val restoration = StateRestorationTester(compose)
+        restoration.setContent {
+            KineographTheme(darkTheme = false) {
+                GalleryScreen(GalleryUiState(isLoaded = true), canEncode = { _, _ -> false }, actions = noActions)
+            }
+        }
+        compose.onNodeWithTag("new_project_button").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("new_project_name").assertExists()
+        restoration.emulateSavedInstanceStateRestore()
+        compose.onNodeWithTag("new_project_name").assertExists()
+    }
+
+    // ----- The default name -----
+
+    @Test
+    fun `the sheet offers the first number no project has`() {
+        show(loaded(summary("Bouncing Ball"), summary("My animation 1"), summary("My animation 3")))
+        compose.onNodeWithTag("new_project_button").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("new_project_name").assertTextContains("My animation 2")
+    }
+
+    // ----- Tapping a card -----
+
+    private fun actionsOpening(onOpen: (String) -> Unit, onQuery: (String) -> Unit = {}) =
+        GalleryActions(
+            onOpen = onOpen,
+            onCreate = {},
+            onRename = { _, _ -> },
+            onDuplicate = { _, _ -> },
+            onTrash = {},
+            onRestore = {},
+            onDeleteForever = {},
+            onQuery = onQuery,
+            onSort = {},
+            onFilter = {},
+            onOpenSettings = {},
+        )
+
+    @Test
+    fun `tapping anywhere on a card opens it`() {
+        val opened = ArrayList<String>()
+        show(loaded(summary("Mine")), actionsOpening({ opened += it }))
+        compose.onNodeWithText("Mine").performClick()
+        assertEquals(listOf("Mine"), opened)
+        compose.onNodeWithText("00:02 · 12 frames").performClick()
+        assertEquals(listOf("Mine", "Mine"), opened)
+        compose.onNodeWithText("12 fps").performClick()
+        assertEquals(listOf("Mine", "Mine", "Mine"), opened)
+        compose.onNodeWithTag("project_card_Mine").performClick()
+        assertEquals(4, opened.size)
+    }
+
+    @Test
+    fun `the menu on a card opens the menu, not the project`() {
+        val opened = ArrayList<String>()
+        show(loaded(summary("Mine")), actionsOpening({ opened += it }))
+        compose.onNode(hasContentDescription("More actions for Mine")).performClick()
+        assertTrue(opened.isEmpty())
+        compose.onNodeWithText("Rename").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a card in the trash does not open`() {
+        val opened = ArrayList<String>()
+        show(loaded(summary("Mine", trashed = true)), actionsOpening({ opened += it }))
+        compose.onNodeWithText("Mine").performClick()
+        assertTrue(opened.isEmpty())
+    }
+
+    // ----- Holding a card -----
+
+    @Test
+    fun `holding a card plays the project on its picture, not on white`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repository = ProjectRepository(openProjectDao(context), ProjectFiles(temp.newFolder(), temp.newFolder()), 1024L * 1024)
+        val picture = temp.newFile("picture.png")
+        val red = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+        picture.outputStream().use { red.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        val project =
+            runBlocking {
+                val id = "with-picture"
+                val background =
+                    checkNotNull(repository.importBackgroundImage(id, Uri.fromFile(picture), context.contentResolver, 100, 100))
+                repository.create("Mine", 100, 100, 12, background, "Layer 1", id)
+            }
+        compose.setContent {
+            KineographTheme(darkTheme = false) {
+                GalleryScreen(
+                    loaded(summary("Mine", id = project.id)),
+                    canEncode = { _, _ -> false },
+                    actions = noActions,
+                    previewSource = repository,
+                )
+            }
+        }
+        compose.waitForIdle()
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithTag("project_card_Mine").performTouchInput { down(center) }
+        compose.mainClock.advanceTimeBy(1000)
+
+        fun centreOfCard(): Int =
+            compose
+                .onNodeWithTag("project_card_Mine")
+                .captureToImage()
+                .asAndroidBitmap()
+                .let { it.getPixel(it.width / 2, it.height / 3) }
+        val deadline = System.currentTimeMillis() + 10_000
+        while (Color.red(centreOfCard()) < 200 || Color.green(centreOfCard()) > 100) {
+            check(System.currentTimeMillis() < deadline) { "The card shows ${Integer.toHexString(centreOfCard())}" }
+            Thread.sleep(20)
+            compose.mainClock.advanceTimeBy(100)
+        }
+        compose.onNodeWithTag("project_card_Mine").performTouchInput { up() }
+        compose.mainClock.autoAdvance = true
+    }
+
+    // ----- Search -----
+
+    @Test
+    fun `closing search ends the search`() {
+        var state by mutableStateOf(loaded(summary("Mine")))
+        compose.setContent {
+            KineographTheme(darkTheme = false) {
+                GalleryScreen(
+                    state,
+                    canEncode = { _, _ -> false },
+                    actions = actionsOpening({}, onQuery = { state = state.copy(query = it) }),
+                )
+            }
+        }
+        compose.onNodeWithTag("search_button").performClick()
+        compose.onNodeWithTag("search_field").performTextInput("xyz")
+        compose.waitForIdle()
+        assertEquals("xyz", state.query)
+        compose.onNodeWithTag("search_button").performClick()
+        compose.waitForIdle()
+        assertEquals("", state.query)
+        compose.onNodeWithTag("search_field").assertDoesNotExist()
+        compose.onNodeWithTag("search_button").assertIsNotSelected()
+    }
+
+    @Test
+    fun `a search already in force has its box on screen`() {
+        show(loaded(summary("Mine")).copy(query = "Mi"))
+        compose.onNodeWithTag("search_field").assertIsDisplayed().assertTextContains("Mi")
+        compose.onNodeWithTag("search_button").assertIsSelected()
+    }
+
+    @Test
+    fun `emptying the box does not take it away from under the user`() {
+        var state by mutableStateOf(loaded(summary("Mine")))
+        compose.setContent {
+            KineographTheme(darkTheme = false) {
+                GalleryScreen(
+                    state,
+                    canEncode = { _, _ -> false },
+                    actions = actionsOpening({}, onQuery = { state = state.copy(query = it) }),
+                )
+            }
+        }
+        compose.runOnIdle { state = state.copy(query = "Mi") }
+        compose.waitForIdle()
+        compose.onNodeWithTag("search_field").performTextClearance()
+        compose.waitForIdle()
+        compose.onNodeWithTag("search_field").assertIsDisplayed()
+    }
+
+    @Test
+    fun `search says whether it is on, to TalkBack too`() {
+        show(loaded(summary("Mine")))
+        compose.onNodeWithTag("search_button").assertIsNotSelected().performClick()
+        compose.onNodeWithTag("search_button").assertIsSelected()
+        compose.onNodeWithTag("search_field").assertIsDisplayed()
     }
 
     @Test

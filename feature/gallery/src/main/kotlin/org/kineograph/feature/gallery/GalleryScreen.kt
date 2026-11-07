@@ -10,6 +10,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
@@ -47,6 +49,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +60,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -75,6 +80,7 @@ import org.kineograph.data.ProjectRepository
 import org.kineograph.data.ProjectSummary
 import org.kineograph.engine.compositor.FlattenOptions
 import org.kineograph.engine.compositor.FrameFlattener
+import org.kineograph.model.Background
 import org.kineograph.model.Timeline
 import org.kineograph.model.TimelineIndex
 import org.kineograph.ui.KgIconButton
@@ -82,7 +88,7 @@ import org.kineograph.ui.KgIcons
 import java.io.File
 
 /** The home screen: every project, plus the way to start a new one. */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 public fun GalleryScreen(
     state: GalleryUiState,
@@ -97,8 +103,12 @@ public fun GalleryScreen(
     LaunchedEffect(messages) {
         messages.collect { message -> snackbar.showSnackbar(messageContext.getString(message.textRes()), withDismissAction = true) }
     }
-    var showNewProject by remember { mutableStateOf(false) }
-    var searching by remember { mutableStateOf(false) }
+    // Saved, because the system may destroy the activity while the camera app has the screen, and the photo comes back to this sheet.
+    var showNewProject by rememberSaveable { mutableStateOf(false) }
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
+    // A search in force always has its box on screen, or projects would seem to have gone missing for no visible reason.
+    val searching = searchOpen || state.query.isNotEmpty()
+    LaunchedEffect(state.query) { if (state.query.isNotEmpty()) searchOpen = true }
     var renaming by remember { mutableStateOf<ProjectSummary?>(null) }
     var confirmDelete by remember { mutableStateOf<ProjectSummary?>(null) }
     val movedToTrash = stringResource(R.string.gallery_moved_to_trash)
@@ -109,9 +119,18 @@ public fun GalleryScreen(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.app_title)) },
+                title = { Text(stringResource(R.string.app_title), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 actions = {
-                    KgIconButton(KgIcons.Search, stringResource(R.string.gallery_search), { searching = !searching }, selected = searching)
+                    KgIconButton(
+                        KgIcons.Search,
+                        stringResource(R.string.gallery_search),
+                        {
+                            if (searching) actions.onQuery("")
+                            searchOpen = !searching
+                        },
+                        selected = searching,
+                        modifier = Modifier.testTag("search_button"),
+                    )
                     SortMenu(state.sort, actions.onSort)
                     KgIconButton(KgIcons.Settings, stringResource(R.string.gallery_settings), actions.onOpenSettings)
                 },
@@ -136,7 +155,7 @@ public fun GalleryScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("search_field"),
                 )
             }
-            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = state.filter == GalleryFilter.ALL,
                     onClick = { actions.onFilter(GalleryFilter.ALL) },
@@ -200,8 +219,11 @@ public fun GalleryScreen(
     }
 
     if (showNewProject) {
+        val resources = LocalResources.current
+        val defaultNumber =
+            remember(state.allNames) { nextDefaultNumber(state.allNames) { resources.getString(R.string.default_project_name, it) } }
         NewProjectSheet(
-            defaultNumber = state.nextDefaultNumber,
+            defaultNumber = defaultNumber,
             canEncode = canEncode,
             onDismiss = { showNewProject = false },
             onCreate = { request ->
@@ -320,6 +342,7 @@ private fun ProjectCard(project: ProjectSummary, actions: CardActions, previewSo
     val framesText = pluralStringResource(R.plurals.frame_count, project.frameCount, project.frameCount)
     val description = stringResource(R.string.gallery_card_description, project.name, duration, framesText, project.fps)
     val open = { if (!project.isTrashed) actions.onOpen(project.id) }
+    val latestOpen by rememberUpdatedState(open)
 
     Card(
         Modifier
@@ -331,6 +354,17 @@ private fun ProjectCard(project: ProjectSummary, actions: CardActions, previewSo
                     open()
                     true
                 }
+            }
+            // On the whole card, as TalkBack has it. The menu button inside takes its own touches first.
+            .pointerInput(project.id) {
+                detectTapGestures(
+                    onTap = { latestOpen() },
+                    onLongPress = { previewing = true },
+                    onPress = {
+                        tryAwaitRelease()
+                        previewing = false
+                    },
+                )
             },
     ) {
         Box(
@@ -338,17 +372,7 @@ private fun ProjectCard(project: ProjectSummary, actions: CardActions, previewSo
                 .fillMaxWidth()
                 .aspectRatio(CARD_ASPECT)
                 .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .pointerInput(project.id) {
-                    detectTapGestures(
-                        onTap = { open() },
-                        onLongPress = { previewing = true },
-                        onPress = {
-                            tryAwaitRelease()
-                            previewing = false
-                        },
-                    )
-                },
+                .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
             val thumbnail by rememberThumbnail(project.thumbnail, project.updatedAt)
             val animated by rememberAnimatedPreview(previewing, project.id, previewSource)
@@ -445,21 +469,37 @@ private fun rememberAnimatedPreview(playing: Boolean, projectId: String, reposit
             val scale = PREVIEW_EDGE.toFloat() / maxOf(project.width, project.height)
             val flattener = FrameFlattener(opened.store)
             val frameMs = 1000L / project.fps
+            // The stored picture can be far larger than this preview, so it is read at about the preview's size.
+            val background =
+                (project.background as? Background.Image)?.let { image ->
+                    withContext(Dispatchers.IO) {
+                        try {
+                            opened.store.read(image.file, FrameFlattener.sampleSizeFor(scale))
+                        } catch (_: OutOfMemoryError) {
+                            null
+                        }
+                    }
+                }
             var tick = 0
             while (true) {
                 val slot = project.frames[index.slotAtTick(tick)]
                 val image =
                     withContext(Dispatchers.Default) {
-                        val bitmap =
-                            Bitmap.createBitmap(
-                                (project.width * scale).toInt().coerceAtLeast(1),
-                                (project.height * scale).toInt().coerceAtLeast(1),
-                                Bitmap.Config.ARGB_8888,
-                            )
-                        flattener.flatten(project, slot.id, Canvas(bitmap), scale, null, FlattenOptions(forEditor = true))
-                        bitmap.asImageBitmap()
+                        try {
+                            val bitmap =
+                                Bitmap.createBitmap(
+                                    (project.width * scale).toInt().coerceAtLeast(1),
+                                    (project.height * scale).toInt().coerceAtLeast(1),
+                                    Bitmap.Config.ARGB_8888,
+                                )
+                            flattener.flatten(project, slot.id, Canvas(bitmap), scale, background, FlattenOptions(forEditor = true))
+                            bitmap.asImageBitmap()
+                        } catch (_: OutOfMemoryError) {
+                            null
+                        }
                     }
-                value = image
+                // Out of memory, the card just goes on showing what it was showing.
+                if (image != null) value = image
                 delay(frameMs)
                 tick = (tick + 1) % index.totalTicks
             }

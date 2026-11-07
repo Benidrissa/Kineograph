@@ -99,3 +99,19 @@ public history.
 
 French strings, canvas resizing, background changes, ping-pong and play-once were built ahead of schedule because the
 model already supported them and each was small. Anything shown in the UI works; nothing is a placeholder.
+
+## Canvas size is checked against the device, not a number
+
+Rule 2 allows no fixed limit on canvas size. A canvas takes two bitmaps of its size, so both size boxes compare that with what the
+system says is free (`canvasFit`), and offer a same-shaped size that needs at most half of it. Past that, the only limit is that
+Android will not make a bitmap over 2 GB. `availMem` is only an estimate, so allocating can still fail, and the session makes the new
+surfaces before changing anything, so that a size that does not fit changes nothing at all. Other limits are worked around rather
+than passed on to the user: a cel too long for WebP is saved as PNG, a canvas too long for some GPUs draws in software, and a GIF too
+long for its format scales down.
+
+## A fill goes over paint, however translucent
+
+A fill started on empty space or a soft edge goes behind what is there, so line art keeps its edges. Anything more solid than that
+counts as paint, and the fill goes over it. A translucent fill tints what it lands on, as replacing it would make a see-through hole,
+and an opaque one replaces it. This includes earlier translucent fills and marker strokes, because a new colour going underneath an
+old one is not what anyone tapping on it expects.

@@ -25,6 +25,9 @@ internal interface CanvasRenderer : PlaybackDisplay {
     /** Sets the canvas-to-view transform. Takes effect at the next redraw. */
     fun setView(view: Affine)
 
+    /** Sets the colour around the canvas, which follows the theme, and shows it. */
+    fun setWorkspaceColor(color: Int)
+
     /** Asks for the whole scene to be drawn again. Requests are merged, so this can be called freely. */
     fun requestRedraw()
 
@@ -46,11 +49,18 @@ internal interface CanvasRenderer : PlaybackDisplay {
 
 /**
  * Whether a canvas of this size can go through a hardware canvas, which refuses bitmaps over 100 MB. The bitmap in question is the
- * surface: the canvas plus a margin that at most multiplies its area by about 1.6, which the allowance here covers.
+ * surface: the canvas plus a margin that at most multiplies its area by about 1.6, which the allowance here covers. Its longest edge
+ * has to suit the GPU too, and not every one that runs Android 10 goes past this. This only picks the drawing path: a longer canvas
+ * draws in software, where low latency would be a small loss on something this size anyway.
  */
-internal fun fitsHardwareCanvas(canvasWidth: Int, canvasHeight: Int): Boolean =
-    canvasWidth.toLong() * canvasHeight * BYTES_PER_PIXEL * OVERSCAN_ALLOWANCE < HARDWARE_BITMAP_LIMIT
+internal fun fitsHardwareCanvas(canvasWidth: Int, canvasHeight: Int): Boolean {
+    val surfaceEdge = maxOf(canvasWidth, canvasHeight).toLong() + minOf(canvasWidth, canvasHeight) / OVERSCAN_EDGE_DIVISOR
+    return canvasWidth.toLong() * canvasHeight * BYTES_PER_PIXEL * OVERSCAN_ALLOWANCE < HARDWARE_BITMAP_LIMIT &&
+        surfaceEdge <= HARDWARE_EDGE_LIMIT
+}
 
 private const val BYTES_PER_PIXEL = 4L
 private const val OVERSCAN_ALLOWANCE = 2L
 private const val HARDWARE_BITMAP_LIMIT = 100L * 1024 * 1024
+private const val OVERSCAN_EDGE_DIVISOR = 4
+private const val HARDWARE_EDGE_LIMIT = 8192L

@@ -3,9 +3,12 @@ package org.kineograph.data
 import android.content.Context
 import android.database.sqlite.SQLiteFullException
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.media.ExifInterface
+import android.net.Uri
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.CompletableDeferred
@@ -870,6 +873,131 @@ class RepositoryTest {
 
     private fun useFailingDao() {
         repository = ProjectRepository(failingDao, files, 8L * 1024 * 1024, Dispatchers.IO) { now }
+    }
+
+    // ----- Pictures -----
+
+    /** Red on the left half, blue on the right, which shows both how it was turned and whether it was mirrored once a corner is added. */
+    private fun pictureFile(orientation: Int?, width: Int = 80, height: Int = 40): File {
+        val image = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(image)
+        canvas.drawColor(Color.RED)
+        canvas.drawRect(width / 2f, 0f, width.toFloat(), height.toFloat(), Paint().apply { color = Color.BLUE })
+        val file = temp.newFile("picture-$orientation.jpg")
+        file.outputStream().use { image.compress(Bitmap.CompressFormat.JPEG, 100, it) }
+        if (orientation != null) {
+            ExifInterface(file.path).run {
+                setAttribute(ExifInterface.TAG_ORIENTATION, orientation.toString())
+                saveAttributes()
+            }
+        }
+        return file
+    }
+
+    private fun import(file: File, canvasWidth: Int = 200, canvasHeight: Int = 200): Bitmap {
+        val id = "imported"
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val background =
+            checkNotNull(
+                runBlocking {
+                    repository.importBackgroundImage(
+                        id,
+                        Uri.fromFile(file),
+                        context.contentResolver,
+                        canvasWidth,
+                        canvasHeight,
+                    )
+                },
+            ) { "the picture was not imported" }
+        return checkNotNull(BitmapFactory.decodeFile(File(files.projectDirectory(id), background.file).path))
+    }
+
+    private fun isRed(color: Int) = Color.red(color) > 200 && Color.blue(color) < 80
+
+    private fun isBlue(color: Int) = Color.blue(color) > 200 && Color.red(color) < 80
+
+    @Test
+    fun `a photo taken upright comes out upright, as its tag says it should`() {
+        val stored = import(pictureFile(ExifInterface.ORIENTATION_ROTATE_90))
+        assertEquals(40, stored.width)
+        assertEquals(80, stored.height)
+        assertTrue("a quarter turn clockwise puts the left half on top", isRed(stored.getPixel(20, 10)))
+        assertTrue(isBlue(stored.getPixel(20, 70)))
+    }
+
+    @Test
+    fun `a photo with the other turn in its tag comes out the other way`() {
+        val stored = import(pictureFile(ExifInterface.ORIENTATION_ROTATE_270))
+        assertEquals(40, stored.width)
+        assertTrue(isBlue(stored.getPixel(20, 10)))
+        assertTrue(isRed(stored.getPixel(20, 70)))
+    }
+
+    @Test
+    fun `a picture with no tag is stored as it is`() {
+        val stored = import(pictureFile(null))
+        assertEquals(80, stored.width)
+        assertEquals(40, stored.height)
+        assertTrue(isRed(stored.getPixel(10, 20)))
+    }
+
+    /** Red, with a green top left corner and a blue top right one, which between them show any of the eight ways. */
+    private fun markedPicture(): Bitmap {
+        val image = Bitmap.createBitmap(4, 2, Bitmap.Config.ARGB_8888)
+        image.eraseColor(Color.RED)
+        image.setPixel(0, 0, Color.GREEN)
+        image.setPixel(3, 0, Color.BLUE)
+        return image
+    }
+
+    /** Where the two corners end up, in the size that comes out. */
+    private fun assertTurned(orientation: Int, width: Int, height: Int, green: Pair<Int, Int>, blue: Pair<Int, Int>) {
+        val turned = upright(markedPicture(), orientation)
+        assertEquals("width for $orientation", width, turned.width)
+        assertEquals("height for $orientation", height, turned.height)
+        assertEquals("green for $orientation", Color.GREEN, turned.getPixel(green.first, green.second))
+        assertEquals("blue for $orientation", Color.BLUE, turned.getPixel(blue.first, blue.second))
+    }
+
+    @Test
+    fun `every tag turns and mirrors the picture as it says`() {
+        assertTurned(ExifInterface.ORIENTATION_NORMAL, 4, 2, 0 to 0, 3 to 0)
+        assertTurned(ExifInterface.ORIENTATION_UNDEFINED, 4, 2, 0 to 0, 3 to 0)
+        assertTurned(ExifInterface.ORIENTATION_FLIP_HORIZONTAL, 4, 2, 3 to 0, 0 to 0)
+        assertTurned(ExifInterface.ORIENTATION_ROTATE_180, 4, 2, 3 to 1, 0 to 1)
+        assertTurned(ExifInterface.ORIENTATION_FLIP_VERTICAL, 4, 2, 0 to 1, 3 to 1)
+        assertTurned(ExifInterface.ORIENTATION_TRANSPOSE, 2, 4, 0 to 0, 0 to 3)
+        assertTurned(ExifInterface.ORIENTATION_ROTATE_90, 2, 4, 1 to 0, 1 to 3)
+        assertTurned(ExifInterface.ORIENTATION_TRANSVERSE, 2, 4, 1 to 3, 1 to 0)
+        assertTurned(ExifInterface.ORIENTATION_ROTATE_270, 2, 4, 0 to 3, 0 to 0)
+    }
+
+    @Test
+    fun `a picture that cannot be decoded is reported, and leaves nothing behind`() {
+        val file = temp.newFile("not-a-picture.jpg").apply { writeText("not a picture") }
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        assertNull(runBlocking { repository.importBackgroundImage("imported", Uri.fromFile(file), context.contentResolver, 200, 200) })
+    }
+
+    @Test
+    fun `a cel too long for WebP is saved as PNG, under a name that says so`() {
+        val store = CelFileStore(temp.newFolder(), 1024L * 1024)
+        val long = Bitmap.createBitmap(16384, 1, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+        val name = store.write(long)
+        assertTrue(name, name.endsWith(".png"))
+        runBlocking { store.awaitWrites() }
+        store.trimMemory()
+        assertEquals(16384, store.read(name)?.width)
+        store.close()
+    }
+
+    @Test
+    fun `a cel WebP can hold stays WebP`() {
+        val store = CelFileStore(temp.newFolder(), 1024L * 1024)
+        val name = store.write(Bitmap.createBitmap(16383, 1, Bitmap.Config.ARGB_8888))
+        assertTrue(name, name.endsWith(".webp"))
+        runBlocking { store.awaitWrites() }
+        store.close()
     }
 
     @Test

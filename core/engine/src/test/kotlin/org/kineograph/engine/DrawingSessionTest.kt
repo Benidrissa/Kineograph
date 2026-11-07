@@ -1569,79 +1569,122 @@ class DrawingSessionTest {
         assertTrue(isInked(50, 50))
     }
 
-    @Test
-    fun `a canvas too large for memory after a resize refuses edits until it fits`() {
+    /** A drawing on a canvas, with the next allocation made to run out of memory unless the returned function says otherwise. */
+    private fun drawingWithNoRoomLeft(): () -> Unit {
         var allocationsAllowed = true
         marginlessSession { !allocationsAllowed }
         stroke()
         allocationsAllowed = false
-        session.resizeCanvas(400, 200)
-        await()
-        val cels = snapshot().cels
-        assertEquals(400, state.project.width)
-        stroke(y = 20f)
-        session.fill(5, 5, Color.RED, 0, 0, false)
-        await()
-        assertEquals("nothing may be painted on a surface of the wrong size", cels, snapshot().cels)
-        allocationsAllowed = true
-        stroke(fromX = 200f, toX = 260f, y = 20f)
-        assertTrue("the old art came back, moved with the resize", isInked(150, 100))
-        assertTrue(isInked(230, 20))
-    }
-
-    /** A drawing on a canvas that has just been resized to more than memory can hold. */
-    private fun canvasThatDoesNotFit(): () -> Unit {
-        var allocationsAllowed = true
-        marginlessSession { !allocationsAllowed }
-        stroke()
-        allocationsAllowed = false
-        session.resizeCanvas(400, 200)
-        await()
         return { allocationsAllowed = true }
     }
 
     @Test
-    fun `a canvas too large for memory has its own message, not the one for an unreadable drawing`() {
-        canvasThatDoesNotFit()
-        stroke(y = 20f)
-        val events = eventsSoFar()
-        assertTrue("$events", SessionEvent.CanvasDoesNotFit in events)
-        assertFalse("clearing is no way out of this, so it must not be suggested: $events", SessionEvent.CelNotLoaded in events)
-        assertFalse("work being safe does not say why drawing is refused: $events", SessionEvent.LowMemory in events)
+    fun `a resize that does not fit leaves the project, the history and the drawing as they were`() {
+        drawingWithNoRoomLeft()
+        val before = state.project
+        val canUndo = state.canUndo
+        val revision = state.revision
+        eventsSoFar()
+        session.resizeCanvas(400, 200)
+        await()
+        assertEquals(before, state.project)
+        assertEquals(canUndo, state.canUndo)
+        assertFalse(state.canRedo)
+        assertEquals("nothing is waiting to be saved", revision, state.revision)
+        assertEquals(listOf<SessionEvent>(SessionEvent.CanvasDoesNotFit), eventsSoFar())
+        assertTrue(isInked(50, 50))
+        session.undo()
+        await()
+        assertFalse("undo still takes off the stroke, not a resize that never was", isInked(50, 50))
     }
 
     @Test
-    fun `clearing a canvas too large for memory still says what is wrong`() {
-        canvasThatDoesNotFit()
-        eventsSoFar()
-        session.clearActiveCel()
+    fun `drawing carries on after a resize that does not fit`() {
+        drawingWithNoRoomLeft()
+        session.resizeCanvas(400, 200)
         await()
         stroke(y = 20f)
-        val events = eventsSoFar()
-        assertTrue("$events", events.isNotEmpty() && events.all { it == SessionEvent.CanvasDoesNotFit })
-        assertTrue(state.project.cels.isEmpty())
+        assertTrue(isInked(50, 50))
+        assertTrue(isInked(50, 20))
+        assertEquals(200, state.project.width)
     }
 
     @Test
-    fun `undoing a resize that did not fit brings the canvas and the drawing back`() {
-        canvasThatDoesNotFit()
+    fun `a lifted selection is not put down by a resize that does not fit`() {
+        var refused = false
+        marginlessSession { refused }
+        stroke(fromX = 20f, toX = 80f, y = 50f)
+        session.liftSelection(box)
+        await()
+        assertNotNull(state.selection)
+        refused = true
+        session.resizeCanvas(400, 200)
+        await()
+        assertNotNull("it stays in the user's hands", state.selection)
+    }
+
+    @Test
+    fun `redoing a resize that no longer fits stays where it is and says so`() {
+        var allocationsAllowed = true
+        marginlessSession { !allocationsAllowed }
+        stroke()
+        allocationsAllowed = true
+        session.resizeCanvas(400, 200)
+        await()
         session.undo()
         await()
         assertEquals(200, state.project.width)
+        allocationsAllowed = false
+        eventsSoFar()
+        session.redo()
+        await()
+        assertEquals(200, state.project.width)
+        assertTrue("the step is still there for when there is room", state.canRedo)
+        assertEquals(listOf<SessionEvent>(SessionEvent.CanvasDoesNotFit), eventsSoFar())
         assertTrue(isInked(50, 50))
-        stroke(y = 20f)
-        assertTrue(isInked(50, 20))
+        allocationsAllowed = true
+        session.redo()
+        await()
+        assertEquals(400, state.project.width)
+        assertTrue("the art moved with the resize", isInked(150, 100))
     }
 
     @Test
-    fun `choosing a smaller size after one that did not fit works`() {
-        canvasThatDoesNotFit()
-        session.resizeCanvas(200, 100)
+    fun `undoing a resize when even the old size no longer fits stays where it is and says so`() {
+        var fits = true
+        sessionThatCannotOpen { fits }
+        stroke()
+        session.resizeCanvas(400, 200)
         await()
-        assertEquals(200, state.project.width)
-        assertTrue(isInked(50, 50))
-        stroke(y = 20f)
-        assertTrue(isInked(50, 20))
+        fits = false
+        eventsSoFar()
+        session.undo()
+        await()
+        assertEquals(400, state.project.width)
+        assertTrue(state.canUndo)
+        assertEquals(listOf<SessionEvent>(SessionEvent.CanvasDoesNotFit), eventsSoFar())
+        assertTrue(isInked(150, 100))
+    }
+
+    @Test
+    fun `resizing to the size it already is needs no memory`() {
+        drawingWithNoRoomLeft()
+        eventsSoFar()
+        session.resizeCanvas(state.project.width, state.project.height)
+        await()
+        assertEquals(emptyList<SessionEvent>(), eventsSoFar())
+    }
+
+    @Test
+    fun `a translucent fill goes on, and filling it again replaces it instead of going under it`() {
+        val halfRed = Color.argb(128, 255, 0, 0)
+        session.fill(100, 50, halfRed, 32, 0, sampleAllLayers = false)
+        await()
+        val first = savedFrame(snapshot(), state.frameId).getPixel(100, 50)
+        assertEquals(128f, Color.alpha(first).toFloat(), 2f)
+        session.fill(100, 50, Color.BLUE, 32, 0, sampleAllLayers = false)
+        await()
+        assertEquals(Color.BLUE, savedFrame(snapshot(), state.frameId).getPixel(100, 50))
     }
 
     @Test

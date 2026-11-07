@@ -4,4 +4,9 @@
     <string name="color_recent">Recent colors</string>
     <string name="color_hue_ring">Color: hue ring around a saturation and brightness square</string>
     <string name="color_hex">Hex color</string>
+    <string name="canvas_size_invalid">Enter a width and height of at least 1.</string>
+    <string name="canvas_size_too_big">A canvas this size needs more memory than this device has free right now. Close other apps, or use a smaller size.</string>
+    <string name="canvas_size_too_big_for_android">A canvas this size is more than Android can hold as one picture, on any device. Use a smaller size.</string>
+    <string name="canvas_size_use">Use %1$d × %2$d</string>
+    <string name="canvas_size_large">A canvas this large needs a lot of memory and may run slowly on this device.</string>
 </resources>

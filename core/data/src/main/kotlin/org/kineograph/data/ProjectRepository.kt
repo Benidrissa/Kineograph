@@ -5,6 +5,8 @@ import android.database.SQLException
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
 import kotlinx.coroutines.CoroutineDispatcher
@@ -136,11 +138,16 @@ public class ProjectRepository(
                 if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
                 var sample = 1
                 val longest = max(canvasWidth, canvasHeight)
-                while (max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= longest) sample *= 2
+                val longestPicture = max(bounds.outWidth, bounds.outHeight)
+                while (longestPicture / (sample * 2) >= longest) sample *= 2
+                // A very long canvas can want more than the stored format can hold.
+                while (longestPicture / sample > WEBP_MAX_EDGE) sample *= 2
                 val options = BitmapFactory.Options().apply { inSampleSize = sample }
                 val image = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) } ?: return@withContext null
                 val output = ByteArrayOutputStream()
-                image.compress(lossyFormat(), BACKGROUND_QUALITY, output)
+                if (!upright(image, exifOrientation(resolver, uri)).compress(lossyFormat(), BACKGROUND_QUALITY, output)) {
+                    return@withContext null
+                }
                 val name = "media/background-${newId()}.webp"
                 AtomicFile.write(File(files.projectDirectory(projectId), name), output.toByteArray())
                 Background.Image(name)
@@ -151,6 +158,19 @@ public class ProjectRepository(
             } catch (_: OutOfMemoryError) {
                 null
             }
+        }
+
+    /**
+     * How a picture is meant to be turned, which many cameras only write down in a tag. A picture with no readable tag is taken
+     * to be upright, as losing a picture that decoded perfectly well would be worse.
+     */
+    private fun exifOrientation(resolver: ContentResolver, uri: Uri): Int =
+        try {
+            resolver.openInputStream(uri)?.use {
+                ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+            } ?: ExifInterface.ORIENTATION_NORMAL
+        } catch (_: IOException) {
+            ExifInterface.ORIENTATION_NORMAL
         }
 
     /** Reads a project for editing. Returns null if nothing usable is on disk. */
@@ -441,8 +461,57 @@ public class ProjectRepository(
         const val THUMBNAIL_EDGE = 480
         const val THUMBNAIL_QUALITY = 80
         const val BACKGROUND_QUALITY = 90
+
+        /** The WebP format has only 14 bits for each edge. */
+        const val WEBP_MAX_EDGE = 16383
         const val MIN_STORE_CACHE = 1024L * 1024
         const val TRASH_RETENTION_MS = 30L * 24 * 60 * 60 * 1000
         const val ORPHAN_AGE_MS = 60L * 60 * 1000
     }
+}
+
+/**
+ * Turns a picture the way its orientation tag says it should be seen, since the tag does not survive being stored again. All eight
+ * values matter: some cameras mirror selfies. For a moment this holds two full-size images, so the first goes as soon as it can.
+ */
+internal fun upright(image: Bitmap, orientation: Int): Bitmap {
+    val matrix = Matrix()
+    when (orientation) {
+        ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> {
+            matrix.setScale(-1f, 1f)
+        }
+
+        ExifInterface.ORIENTATION_ROTATE_180 -> {
+            matrix.setRotate(180f)
+        }
+
+        ExifInterface.ORIENTATION_FLIP_VERTICAL -> {
+            matrix.setScale(1f, -1f)
+        }
+
+        ExifInterface.ORIENTATION_TRANSPOSE -> {
+            matrix.setRotate(90f)
+            matrix.postScale(-1f, 1f)
+        }
+
+        ExifInterface.ORIENTATION_ROTATE_90 -> {
+            matrix.setRotate(90f)
+        }
+
+        ExifInterface.ORIENTATION_TRANSVERSE -> {
+            matrix.setRotate(-90f)
+            matrix.postScale(-1f, 1f)
+        }
+
+        ExifInterface.ORIENTATION_ROTATE_270 -> {
+            matrix.setRotate(-90f)
+        }
+
+        else -> {
+            return image
+        }
+    }
+    val turned = Bitmap.createBitmap(image, 0, 0, image.width, image.height, matrix, true)
+    if (turned !== image) image.recycle()
+    return turned
 }

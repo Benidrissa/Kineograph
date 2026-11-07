@@ -83,11 +83,11 @@ class EdgeGestureTest {
         show()
         val all = rects()
         val bottom = view.height
-        assertEquals("both bands reach the canvas's bottom edge", 2, all.count { it.bottom == bottom && it.height() == px(160) })
+        assertEquals("both bands reach the canvas's bottom edge", 2, all.count { it.bottom == bottom && it.height() == px(152) })
         val handle = all.single { it.bottom != bottom }
         assertEquals(px(48), handle.width())
-        assertEquals(px(32), handle.height())
-        assertTrue("the handle's rectangle clears the bands, so they do not overlap", handle.bottom <= bottom - px(160))
+        assertEquals(px(48), handle.height())
+        assertTrue("the handle's rectangle clears the bands, so they do not overlap", handle.bottom <= bottom - px(152))
     }
 
     @Test
@@ -98,6 +98,6 @@ class EdgeGestureTest {
         compose.waitForIdle()
         val all = rects()
         assertEquals("$all", 1, all.size)
-        assertEquals(px(32), all.single().height())
+        assertEquals(px(48), all.single().height())
     }
 }

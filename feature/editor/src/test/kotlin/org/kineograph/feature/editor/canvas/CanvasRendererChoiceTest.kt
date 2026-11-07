@@ -23,6 +23,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
+import org.kineograph.engine.ViewTransform
 import org.kineograph.engine.brush.BrushPresets
 import org.kineograph.engine.brush.BrushSpec
 import org.kineograph.engine.brush.PressureCurve
@@ -58,8 +59,13 @@ class CanvasRendererChoiceTest {
         var redraws = 0
         var released = false
         var commits = 0
+        var workspaceColor: Int? = null
 
         override val supportsHardwareBitmaps: Boolean get() = true
+
+        override fun setWorkspaceColor(color: Int) {
+            workspaceColor = color
+        }
 
         override fun setView(view: Affine) {
             shownView = view
@@ -346,6 +352,135 @@ class CanvasRendererChoiceTest {
     }
 
     @Test
+    fun `a canvas longer than a GPU can be relied on for draws in software, as far as the memory goes`() {
+        assertTrue(fitsHardwareCanvas(8000, 100))
+        assertFalse("100 MB is nowhere near, but this is too long", fitsHardwareCanvas(9000, 100))
+        assertFalse("the margin counts: its surface is over the limit", fitsHardwareCanvas(8192, 1000))
+        resize(9000, 100)
+        surfaceCreated()
+        assertTrue(view.renderer is SoftwareRenderer)
+        assertTrue(built.isEmpty())
+    }
+
+    @Test
+    fun `the workspace colour follows the theme, on the renderer there is and any that comes after`() {
+        surfaceCreated()
+        val first = built.single()
+        assertEquals(Color.GRAY, first.workspaceColor)
+        view.setWorkspaceColor(Color.BLACK)
+        assertEquals(Color.BLACK, first.workspaceColor)
+
+        surfaceDestroyed()
+        surfaceCreated()
+        assertEquals("not back to the colour the view started with", Color.BLACK, built[1].workspaceColor)
+    }
+
+    @Test
+    fun `setting the workspace colour it already has does nothing`() {
+        surfaceCreated()
+        val fake = built.single()
+        val redraws = fake.redraws
+        fake.workspaceColor = null
+        view.setWorkspaceColor(Color.GRAY)
+        assertNull(fake.workspaceColor)
+        assertEquals(redraws, fake.redraws)
+    }
+
+    /** Pinches the canvas to twice the size, and moves it, which is what happens before someone presses Play. */
+    private fun zoomAndPan() {
+        val down = clock
+        fun pointers(action: Int, first: Float, second: Float?): MotionEvent {
+            val xs = listOfNotNull(first, second)
+            val properties =
+                Array(xs.size) { i ->
+                    MotionEvent.PointerProperties().apply {
+                        id = i
+                        toolType = MotionEvent.TOOL_TYPE_FINGER
+                    }
+                }
+            val coords = Array(xs.size) { i ->
+                MotionEvent.PointerCoords().apply {
+                    x = xs[i]
+                    y = 100f
+                    pressure = 1f
+                    size = 1f
+                }
+            }
+            return MotionEvent.obtain(
+                down,
+                clock,
+                action,
+                xs.size,
+                properties,
+                coords,
+                0,
+                0,
+                1f,
+                1f,
+                0,
+                0,
+                InputDevice.SOURCE_TOUCHSCREEN,
+                0,
+            )
+        }
+        send(pointers(MotionEvent.ACTION_DOWN, 100f, null))
+        clock += 30
+        send(pointers(MotionEvent.ACTION_POINTER_DOWN or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT), 100f, 200f))
+        clock += 200
+        send(pointers(MotionEvent.ACTION_MOVE, 100f, 300f))
+        send(pointers(MotionEvent.ACTION_POINTER_UP or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT), 100f, 300f))
+        send(pointers(MotionEvent.ACTION_UP, 100f, null))
+        clock += 2000
+        idle()
+    }
+
+    private fun wholeCanvasFit(width: Int = VIEW_W, height: Int = VIEW_H): Affine {
+        val project = session.state.value.project
+        return ViewTransform.fit(width, height, project.width, project.height, 0f).toAffine(project.width, project.height)
+    }
+
+    @Test
+    fun `playback shows the whole canvas, and stopping goes back to where the user had it`() {
+        surfaceCreated()
+        val fake = built.single()
+        zoomAndPan()
+        val placed = checkNotNull(fake.shownView)
+        assertNotEquals("the premise: the canvas was moved", wholeCanvasFit(), placed)
+
+        val redraws = fake.redraws
+        view.isPlaying = true
+        assertEquals(wholeCanvasFit(), fake.shownView)
+        assertTrue("it has to show", fake.redraws > redraws)
+
+        view.isPlaying = false
+        assertEquals(placed, fake.shownView)
+    }
+
+    @Test
+    fun `a renderer that comes along during playback shows the whole canvas too`() {
+        surfaceCreated()
+        zoomAndPan()
+        view.isPlaying = true
+        surfaceDestroyed()
+        surfaceCreated()
+        assertEquals(wholeCanvasFit(), built[1].shownView)
+    }
+
+    @Test
+    fun `the bars going away during playback refit it, and do not move where the user had the canvas`() {
+        surfaceCreated()
+        val fake = built.single()
+        zoomAndPan()
+        val placed = checkNotNull(fake.shownView)
+        view.isPlaying = true
+        view.layout(0, 0, VIEW_W, VIEW_H + 100)
+        assertEquals(wholeCanvasFit(VIEW_W, VIEW_H + 100), fake.shownView)
+        view.layout(0, 0, VIEW_W, VIEW_H)
+        view.isPlaying = false
+        assertEquals("one change of size and back again leaves it where it was", placed, fake.shownView)
+    }
+
+    @Test
     fun `a canvas already too large never tries the low-latency path`() {
         session.resizeCanvas(OVER_LIMIT_W, OVER_LIMIT_H)
         idle()
@@ -518,7 +653,7 @@ class CanvasRendererChoiceTest {
         assertFalse(fitsHardwareCanvas(5000, 5000))
         assertFalse(fitsHardwareCanvas(OVER_LIMIT_W, OVER_LIMIT_H))
         val budget = MemoryBudget.forMemoryClass(256, false)
-        for ((width, height) in listOf(3619 to 3619, 7000 to 1870, 13000 to 1000)) {
+        for ((width, height) in listOf(3619 to 3619, 7000 to 1870, 7900 to 1000)) {
             assertTrue(fitsHardwareCanvas(width, height))
             val margin = budget.overscanFor(width, height)
             val surfaceBytes = (width + margin * 2L) * (height + margin * 2L) * 4

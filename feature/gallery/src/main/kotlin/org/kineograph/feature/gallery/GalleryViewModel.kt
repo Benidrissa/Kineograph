@@ -50,8 +50,15 @@ public data class GalleryUiState(
     val filter: GalleryFilter = GalleryFilter.ALL,
     val totalSizeBytes: Long = 0,
     val isLoaded: Boolean = false,
-    val nextDefaultNumber: Int = 1,
+    /** Every project's name, including the ones in the trash, which can come back. */
+    val allNames: Set<String> = emptySet(),
 )
+
+/** The smallest number whose default name no project has. This goes by the name, so the sample project takes no number. */
+internal fun nextDefaultNumber(names: Set<String>, nameFor: (Int) -> String): Int = generateSequence(1) { it + 1 }.first {
+    nameFor(it) !in
+        names
+}
 
 /** What a new project needs. An image [backgroundUri] takes priority over [background]. */
 public data class NewProjectRequest(
@@ -108,17 +115,24 @@ public class GalleryViewModel(private val repository: ProjectRepository) : ViewM
         controls.update { it.copy(filter = filter) }
     }
 
-    /** Creates a project and reports its id. */
-    public fun create(request: NewProjectRequest, layerName: String, resolver: ContentResolver, onCreated: (String) -> Unit) {
+    /**
+     * Creates a project and reports its id, and whether its picture could not be used, in which case it starts on white paper. The user
+     * has to hear that in the editor, where they end up, because this screen is about to go away.
+     */
+    public fun create(
+        request: NewProjectRequest,
+        layerName: String,
+        resolver: ContentResolver,
+        onCreated: (id: String, backgroundFailed: Boolean) -> Unit,
+    ) {
         launchChange {
             val id = newId()
             var background = request.background
             val uri = request.backgroundUri
-            if (uri != null) {
-                repository.importBackgroundImage(id, uri, resolver, request.width, request.height)?.let { background = it }
-            }
+            val imported = uri?.let { repository.importBackgroundImage(id, it, resolver, request.width, request.height) }
+            if (imported != null) background = imported
             repository.create(request.name, request.width, request.height, request.fps, background, layerName, id)
-            onCreated(id)
+            onCreated(id, uri != null && imported == null)
         }
     }
 
@@ -173,7 +187,7 @@ public class GalleryViewModel(private val repository: ProjectRepository) : ViewM
                 filter = control.filter,
                 totalSizeBytes = size,
                 isLoaded = true,
-                nextDefaultNumber = projects.size + 1,
+                allNames = projects.mapTo(HashSet()) { it.name },
             )
         }
     }

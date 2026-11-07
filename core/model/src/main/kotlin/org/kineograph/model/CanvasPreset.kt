@@ -20,8 +20,5 @@ public enum class CanvasPreset(
 
     public companion object {
         public val DEFAULT: CanvasPreset = HD
-
-        /** Largest custom edge. A bigger canvas is allowed by nothing but this safety limit on bitmap size. */
-        public const val MAX_CUSTOM_EDGE: Int = 8192
     }
 }

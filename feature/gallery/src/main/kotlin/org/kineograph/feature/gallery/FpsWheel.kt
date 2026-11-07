@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -51,7 +52,14 @@ import kotlin.math.roundToInt
 /** A scrolling wheel of frame rates that snaps to a value. TalkBack users can set it directly. */
 @Composable
 public fun FpsWheel(fps: Int, onFpsChange: (Int) -> Unit, modifier: Modifier = Modifier) {
-    val itemHeight = 40.dp
+    // A number has to fit in its slot at the largest font size too.
+    val itemHeight = with(LocalDensity.current) {
+        maxOf(
+            40.dp,
+            MaterialTheme.typography.titleLarge.lineHeight
+                .toDp(),
+        )
+    }
     val values = remember { (MIN_FPS..MAX_FPS).toList() }
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = (fps - MIN_FPS).coerceAtLeast(0))
     val scope = rememberCoroutineScope()

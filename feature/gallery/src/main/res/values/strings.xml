@@ -71,6 +71,5 @@
     <string name="preset_custom">Custom</string>
     <string name="size_width">Width</string>
     <string name="size_height">Height</string>
-    <string name="size_invalid">Enter a width and height from 1 to %1$d.</string>
-    <string name="size_large_warning">A canvas this large needs a lot of memory and may run slowly on this device.</string>
+    <string name="camera_unavailable">No camera app is available on this device. Choose a picture or another background.</string>
 </resources>

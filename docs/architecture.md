@@ -87,14 +87,16 @@ sign-ups, and every failure, in setting up or on the render thread, stays inside
 Playback talks to the view, which hands its current frame to each new renderer.
 
 Touches go through the same canvas-to-view transform the renderer has, so they land where the canvas is shown, even in the
-moment after the project changes size and before the view has caught up.
+moment after the project changes size and before the view has caught up. During playback the renderer is given the whole canvas,
+fitted and upright, worked out afresh each time, while the transform the user has placed stays as it is and goes on following
+changes of size, so stopping goes back to it.
 
 **Screen edges.** With gesture navigation, a stroke starting at a side edge could be taken as Back. The tool bar's handle and
 a band at the bottom of each edge are excluded from that gesture. Android grants 200 dp per edge, so the rest of each edge
 goes on working as Back. During playback the bands are off, so that Back stops it from anywhere along the edge.
 
 **`SoftwareRenderer`** (API 26–28, or any device where low latency cannot be set up, or canvases too large for the
-hardware canvas's 100 MB bitmap limit). It uses `lockCanvas(dirty)` on a `SurfaceView` and redraws only the changed
+hardware canvas's 100 MB bitmap limit, or longer than 8192 px, which not every GPU can take). It uses `lockCanvas(dirty)` on a `SurfaceView` and redraws only the changed
 rectangle. Users can also force it from Settings if low latency misbehaves on their device.
 
 Both draw through the same `SceneRenderer` from an immutable `Scene` published by the session, so a renderer on another
@@ -112,13 +114,14 @@ thread always sees a consistent set of layers.
   structural undo just restores an earlier `Project` value.
 - **Pixel undo** stores only the changed rectangle. Patches start raw, are deflated in the background, and spill to disk
   when the memory budget is reached. At least 100 steps are always kept, even when budgets are exceeded.
-- **Playback** decodes ahead of the playhead at display resolution into `HARDWARE` bitmaps, off the Java heap.
+- **Playback** decodes ahead of the playhead at display resolution into `HARDWARE` bitmaps, off the Java heap. Pausing holds
+  the frame and suspends decoding, so a held frame costs nothing.
 - **`OutOfMemoryError`** is caught on the engine thread and in background work: caches empty, history spills to disk, and
   the user is told. Pixels stay marked as unsaved until the project holds their new file, so the next attempt starts over.
   A surface whose load failed counts as holding nothing: it is neither shown nor saved, and edits are refused until a load
   works, so no stroke can land on the wrong drawing. Opening a canvas retries without the margin. If it still does not fit,
-  the user can try again or choose a smaller canvas. A canvas resized beyond what memory holds keeps its old surface,
-  refuses edits, and says to undo the resize or choose a smaller size.
+  the user can try again or choose a smaller canvas. A change of canvas size, by a resize, undo or redo, makes its surfaces
+  before anything else, so one that does not fit changes nothing and says so. The project and its surfaces are always the same size.
 - **A failed read is not a missing file.** A decode can also run out of memory by returning null, so `readCel` treats a
   null from a file that is still there like `OutOfMemoryError`. Only `CelStore.isGone` says a file has really gone, and it
   says no when it cannot tell. Saving a cel that lies partly past the surface needs the old file, so if that cannot be read

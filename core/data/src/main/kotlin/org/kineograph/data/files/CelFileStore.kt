@@ -28,7 +28,7 @@ import java.util.concurrent.Semaphore
  *    it is safely on disk. A failed write keeps the image in memory and is retried, so a full disk loses nothing.
  *  - **Reads** check, in order: images still being written, the compressed in-memory cache, then the disk.
  *    The cache holds encoded bytes rather than bitmaps, which is what lets many frames fit in little memory.
- *  - **Format** is lossless WebP where available (API 30+) and PNG before that.
+ *  - **Format** is lossless WebP where available (API 30+) and PNG before that. PNG also takes what is too long for WebP.
  */
 public class CelFileStore(
     private val projectDirectory: File,
@@ -49,7 +49,8 @@ public class CelFileStore(
         }
 
     override fun write(image: Bitmap): String {
-        val extension = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) "webp" else "png"
+        val canUseWebP = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && maxOf(image.width, image.height) <= WEBP_MAX_EDGE
+        val extension = if (canUseWebP) "webp" else "png"
         val name = "$CEL_DIRECTORY/${UUID.randomUUID()}.$extension"
         pending[name] = image
         queueSlots.acquireUninterruptibly()
@@ -184,6 +185,9 @@ public class CelFileStore(
         const val MAX_CONCURRENT_WRITES = 2
         const val MAX_QUEUED_IMAGES = 8
         const val MIN_CACHE_BYTES = 4L * 1024 * 1024
+
+        /** The WebP format has only 14 bits for each edge. An image past this could never be saved as one. */
+        const val WEBP_MAX_EDGE = 16383
 
         /** For lossless WebP, quality means effort. Low effort stays close to PNG's size at many times the speed. */
         const val WEBP_EFFORT = 20

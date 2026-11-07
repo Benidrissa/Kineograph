@@ -1,11 +1,19 @@
 package org.kineograph.app
 
 import android.content.Intent
+import android.content.res.Configuration
+import android.content.res.Resources
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
@@ -13,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.ViewModel
@@ -46,10 +55,22 @@ class MainActivity : ComponentActivity() {
     /** A project to go to, when a notification about its export was tapped. */
     private val requestedProject = MutableStateFlow<String?>(null)
 
+    /**
+     * What the theme came out as, going by the user's choice. The system's own light or dark says nothing about that. The bars' styles
+     * read this when applied, and the library goes on applying the first styles it was given at each configuration change, such as a
+     * rotation, so they cannot simply hold the answer.
+     */
+    private var appIsDark: Boolean? = null
+
     @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        val isDark: (Resources) -> Boolean = { resources ->
+            appIsDark ?: (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES)
+        }
+        val statusBars = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT, isDark)
+        val navigationBars = SystemBarStyle.auto(NAVIGATION_SCRIM_LIGHT, NAVIGATION_SCRIM_DARK, isDark)
+        enableEdgeToEdge(statusBars, navigationBars)
         val app = application as KineographApp
         // Only a fresh start counts. The system hands the same intent back when it recreates this screen, and when the app
         // is reopened from Recents, by which time the user may have moved on.
@@ -63,9 +84,17 @@ class MainActivity : ComponentActivity() {
                     ThemeMode.LIGHT -> false
                     ThemeMode.DARK -> true
                 }
+            DisposableEffect(dark) {
+                appIsDark = dark
+                enableEdgeToEdge(statusBars, navigationBars)
+                onDispose { }
+            }
             val windowSize = calculateWindowSizeClass(this)
             KineographTheme(darkTheme = dark, dynamicColor = settings.dynamicColor) {
-                KineographNavHost(app, settings, windowSize.widthSizeClass != WindowWidthSizeClass.Compact, requestedProject)
+                // The window's own background goes by the system's theme, and would otherwise show through as screens cross-fade.
+                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                    KineographNavHost(app, settings, windowSize.widthSizeClass != WindowWidthSizeClass.Compact, requestedProject)
+                }
             }
         }
     }
@@ -105,7 +134,9 @@ private fun KineographNavHost(app: KineographApp, settings: AppSettings, wideLay
                             if (nav.currentBackStackEntry?.destination?.route == ROUTE_GALLERY) nav.navigate("editor/$id")
                         },
                         onCreate = { request ->
-                            model.create(request, layerName, context.contentResolver) { id -> nav.navigate("editor/$id") }
+                            model.create(request, layerName, context.contentResolver) { id, backgroundFailed ->
+                                nav.navigate("editor/$id?$ARGUMENT_BACKGROUND_FAILED=$backgroundFailed")
+                            }
                         },
                         onRename = model::rename,
                         onDuplicate = model::duplicate,
@@ -119,7 +150,17 @@ private fun KineographNavHost(app: KineographApp, settings: AppSettings, wideLay
                     ),
             )
         }
-        composable(ROUTE_EDITOR, arguments = listOf(navArgument(ARGUMENT_ID) { type = NavType.StringType })) { entry ->
+        composable(
+            ROUTE_EDITOR,
+            arguments =
+                listOf(
+                    navArgument(ARGUMENT_ID) { type = NavType.StringType },
+                    navArgument(ARGUMENT_BACKGROUND_FAILED) {
+                        type = NavType.BoolType
+                        defaultValue = false
+                    },
+                ),
+        ) { entry ->
             val model: EditorViewModel = viewModel(factory = editorFactory(app, entry))
             DisposableEffect(model) {
                 val listener: () -> Unit = model::onLowMemory
@@ -171,6 +212,7 @@ private fun editorFactory(app: KineographApp, entry: NavBackStackEntry): ViewMod
                 { file, format -> GalleryWriter.save(app, file, format) },
             ),
             id,
+            backgroundFailed = entry.arguments?.getBoolean(ARGUMENT_BACKGROUND_FAILED) == true,
         )
     }
 }
@@ -183,6 +225,11 @@ private inline fun <reified T : ViewModel> factoryOf(crossinline create: () -> T
 
 private const val ROUTE_GALLERY = "gallery"
 private const val ARGUMENT_ID = "id"
-private const val ROUTE_EDITOR = "editor/{$ARGUMENT_ID}"
+private const val ARGUMENT_BACKGROUND_FAILED = "backgroundFailed"
+private const val ROUTE_EDITOR = "editor/{$ARGUMENT_ID}?$ARGUMENT_BACKGROUND_FAILED={$ARGUMENT_BACKGROUND_FAILED}"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_ABOUT = "about"
+
+/** What the library uses by default, so that the navigation bar looks as it does in other apps. */
+private val NAVIGATION_SCRIM_LIGHT = Color.argb(230, 255, 255, 255)
+private val NAVIGATION_SCRIM_DARK = Color.argb(128, 27, 27, 27)

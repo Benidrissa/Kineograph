@@ -1,8 +1,10 @@
 package org.kineograph.feature.editor
 
+import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.net.Uri
 import android.os.Looper
 import android.view.MotionEvent
 import android.view.SurfaceView
@@ -18,6 +20,8 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -25,6 +29,8 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.lifecycle.Lifecycle
@@ -49,6 +55,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -83,6 +90,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
+import java.util.concurrent.CopyOnWriteArrayList
 
 @RunWith(AndroidJUnit4::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -120,7 +128,7 @@ class EditorViewModelTest {
     private fun create(width: Int = 200, height: Int = 100): Project =
         runBlocking { repository.create("Test", width, height, 12, Background.Transparent, "Layer 1") }
 
-    private fun viewModelFor(id: String): EditorViewModel {
+    private fun viewModelFor(id: String, backgroundFailed: Boolean = false): EditorViewModel {
         val dependencies =
             EditorDependencies(
                 repository,
@@ -134,7 +142,7 @@ class EditorViewModelTest {
         val factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T = EditorViewModel(dependencies, id) as T
+                override fun <T : ViewModel> create(modelClass: Class<T>): T = EditorViewModel(dependencies, id, backgroundFailed) as T
             }
         return ViewModelProvider(store, factory)[EditorViewModel::class.java]
     }
@@ -419,6 +427,192 @@ class EditorViewModelTest {
         )
         assertTrue("the middle of the view is the middle of the new canvas: $bounds", 200 in bounds.left..bounds.right)
         assertTrue("the middle of the view is the middle of the new canvas: $bounds", 100 in bounds.top..bounds.bottom)
+    }
+
+    // ----- Colours -----
+
+    @Test
+    fun `many changes of colour on the way to one are one recent colour`() {
+        val viewModel = viewModelFor(create().id)
+        viewModel.awaitReady()
+        repeat(20) { viewModel.pickColor(0xFF000000.toInt() or it) }
+        assertTrue(
+            "nothing settled on yet",
+            viewModel.tools.value.recentColors
+                .isEmpty(),
+        )
+        viewModel.commitColor()
+        assertEquals(listOf(0xFF000000.toInt() or 19), viewModel.tools.value.recentColors)
+    }
+
+    @Test
+    fun `a colour is opaque however it arrives, as a tool's opacity is its own`() {
+        val viewModel = viewModelFor(create().id)
+        viewModel.awaitReady()
+        viewModel.pickColor(0x80123456.toInt())
+        assertEquals(0xFF123456.toInt(), viewModel.tools.value.colorArgb)
+    }
+
+    @Test
+    fun `tapping the active tool leads to its options, and from there to the colour`() {
+        val viewModel = viewModelFor(create().id)
+        viewModel.awaitReady()
+        compose.setContent {
+            KineographTheme(darkTheme = false) { EditorRoute(viewModel, wideLayout = false) { } }
+        }
+        compose.waitUntil(WAIT_MS) { compose.onAllNodesWithTag("canvas_host").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("tool_brush").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("options_color").performScrollTo().performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("options_color").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Color: hue ring", substring = true).assertExists()
+    }
+
+    // ----- Pictures that cannot be used -----
+
+    /** Nothing can decode this, as with a format the device does not know. */
+    private val notAPicture: Uri by lazy {
+        Uri.fromFile(temp.newFile("not-a-picture.jpg").apply { writeText("not a picture") })
+    }
+
+    /** Messages as the screen gets them, which leaves the main thread free for the work that leads to them. */
+    private fun messagesFrom(viewModel: EditorViewModel): List<EditorMessage> {
+        val messages = CopyOnWriteArrayList<EditorMessage>()
+        appScope.launch { viewModel.messages.collect { messages += it } }
+        return messages
+    }
+
+    @Test
+    fun `a picture that cannot be read leaves the background alone, and says so`() {
+        val project = create()
+        val viewModel = viewModelFor(project.id)
+        val ready = viewModel.awaitReady()
+        val messages = messagesFrom(viewModel)
+        viewModel.setBackgroundImage(notAPicture, context.contentResolver)
+        waitUntil("the message") { messages.isNotEmpty() }
+        assertEquals(listOf(EditorMessage.BACKGROUND_NOT_CHANGED), messages)
+        assertEquals(project.background, ready.session.state.value.project.background)
+    }
+
+    @Test
+    fun `a project created without its picture says so where the user ends up`() {
+        val viewModel = viewModelFor(create().id, backgroundFailed = true)
+        viewModel.awaitReady()
+        assertEquals(EditorMessage.BACKGROUND_NOT_USED, nextMessage(viewModel))
+    }
+
+    @Test
+    fun `that is only said about a project just created`() {
+        val viewModel = viewModelFor(create().id)
+        viewModel.awaitReady()
+        viewModel.notify(EditorMessage.LAYER_LOCKED)
+        assertEquals("the first message is not about any picture", EditorMessage.LAYER_LOCKED, nextMessage(viewModel))
+    }
+
+    // ----- Project settings -----
+
+    private fun showProjectSettings(viewModel: EditorViewModel) {
+        compose.setContent {
+            KineographTheme(darkTheme = false) { EditorRoute(viewModel, wideLayout = false) { } }
+        }
+        compose.waitUntil(WAIT_MS) { compose.onAllNodesWithTag("canvas_host").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription("Project settings").performClick()
+        compose.waitForIdle()
+    }
+
+    private fun typeSize(width: String, height: String) {
+        compose.onNodeWithTag("project_width").performTextReplacement(width)
+        compose.onNodeWithTag("project_height").performTextReplacement(height)
+        compose.waitForIdle()
+    }
+
+    private fun applySize() = compose.onNodeWithTag("project_apply_size").performScrollTo()
+
+    private fun availableMemoryIs(bytes: Long) {
+        val info = ActivityManager.MemoryInfo().apply { availMem = bytes }
+        shadowOf(context.getSystemService(ActivityManager::class.java)).setMemoryInfo(info)
+    }
+
+    @Test
+    fun `a size past the old limit of 8192 can be applied`() {
+        val viewModel = viewModelFor(create().id)
+        val session = viewModel.awaitReady().session
+        showProjectSettings(viewModel)
+        typeSize("9000", "10")
+        compose.onNodeWithTag("canvas_size_note").assertDoesNotExist()
+        applySize().assertIsEnabled().performClick()
+        waitUntil("the resize") { session.state.value.project.width == 9000 }
+    }
+
+    @Test
+    fun `a size that is no size says why Apply is off`() {
+        val viewModel = viewModelFor(create().id)
+        viewModel.awaitReady()
+        showProjectSettings(viewModel)
+        for ((width, height) in listOf("0" to "100", "" to "100", "100" to "")) {
+            typeSize(width, height)
+            applySize().assertIsNotEnabled()
+            compose.onNodeWithText("Enter a width and height of at least 1.").assertExists()
+        }
+    }
+
+    @Test
+    fun `the size it already is has nothing to apply and nothing wrong with it`() {
+        availableMemoryIs(1)
+        val viewModel = viewModelFor(create().id)
+        viewModel.awaitReady()
+        showProjectSettings(viewModel)
+        applySize().assertIsNotEnabled()
+        compose.onNodeWithTag("canvas_size_note").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a size too big for what is free says why and offers one that fits`() {
+        availableMemoryIs(64L * 1024 * 1024)
+        val viewModel = viewModelFor(create().id)
+        val session = viewModel.awaitReady().session
+        showProjectSettings(viewModel)
+        typeSize("20000", "10000")
+        applySize().assertIsNotEnabled()
+        compose.onNodeWithTag("canvas_size_note").assertExists()
+        compose.onNodeWithTag("canvas_size_use").performScrollTo().performClick()
+        compose.waitForIdle()
+        applySize().assertIsEnabled().performClick()
+        waitUntil("the resize") { session.state.value.project.width != 200 }
+        val project = session.state.value.project
+        assertEquals("the same shape", 2.0, project.width.toDouble() / project.height, 0.01)
+        assertTrue("$project", project.width.toLong() * project.height * 8 <= 64L * 1024 * 1024)
+    }
+
+    @Test
+    fun `a large size warns, and still applies`() {
+        availableMemoryIs(1024L * 1024)
+        val viewModel = viewModelFor(create().id)
+        viewModel.awaitReady()
+        showProjectSettings(viewModel)
+        typeSize("300", "300")
+        applySize().assertIsEnabled()
+        compose.onNodeWithText("A canvas this large needs a lot of memory and may run slowly on this device.").assertExists()
+    }
+
+    @Test
+    fun `a resize that cannot be allocated changes nothing, and the message shows over the open sheet`() {
+        val project = create()
+        val viewModel = viewModelFor(project.id)
+        val session = viewModel.awaitReady().session
+        showProjectSettings(viewModel)
+        session.resizeCanvas(HUGE, HUGE)
+        runBlocking { session.awaitIdle() }
+        compose.waitUntil(WAIT_MS) {
+            compose.onAllNodesWithText("size was not changed", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        assertEquals(200, session.state.value.project.width)
+        assertFalse(session.state.value.canUndo)
+        // Still on the sheet, and the drawing can go on.
+        applySize().assertExists()
+        assertTrue(session.state.value.ready)
+        assertFalse(session.state.value.openFailed)
     }
 
     @Test

@@ -11,11 +11,14 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -25,12 +28,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.systemGestureExclusion
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -47,8 +53,10 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,13 +68,20 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LocalPinnableContainer
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -76,6 +91,9 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import org.kineograph.data.ToolbarSide
 import org.kineograph.engine.session.DrawingSession
 import org.kineograph.engine.session.SessionState
@@ -174,11 +192,11 @@ private fun OnionButton(enabled: Boolean, onToggle: () -> Unit, onSettings: () -
 /**
  * Keeps strokes that start at a side edge of the screen from being taken as the system's Back gesture. Android only grants this
  * for 200 dp of each edge, counted up from the bottom, so the bands stay at the bottom and leave room for the tool bar's handle,
- * which can dock to either side and is 32 dp tall. The rest of each edge goes on working as Back, as does the top bar's button.
+ * which can dock to either side and is 48 dp tall. The rest of each edge goes on working as Back, as does the top bar's button.
  */
 internal fun Modifier.canvasEdgeBands(density: Density): Modifier {
     val bandWidth = with(density) { 48.dp.toPx() }
-    val bandHeight = with(density) { 160.dp.toPx() }
+    val bandHeight = with(density) { 152.dp.toPx() }
     return systemGestureExclusion { box ->
         val height = box.size.height.toFloat()
         Rect(0f, (height - bandHeight).coerceAtLeast(0f), bandWidth, height)
@@ -202,6 +220,7 @@ internal fun BoxScope.EditorToolBar(
     var dragX by remember { mutableFloatStateOf(0f) }
     val latestSide by rememberUpdatedState(side)
     val flipDistance = with(LocalDensity.current) { 96.dp.toPx() }
+    val moveLabel = stringResource(R.string.toolbar_move_side)
     Surface(
         shape = RoundedCornerShape(24.dp),
         tonalElevation = 3.dp,
@@ -216,7 +235,7 @@ internal fun BoxScope.EditorToolBar(
             val handleLabel = stringResource(if (collapsed) R.string.toolbar_expand else R.string.toolbar_collapse)
             Box(
                 Modifier
-                    .size(48.dp, 32.dp)
+                    .size(48.dp)
                     // Dragging this away from the edge is the very motion of the system's Back gesture.
                     .systemGestureExclusion()
                     .pointerInput(Unit) {
@@ -233,58 +252,69 @@ internal fun BoxScope.EditorToolBar(
                             dragX += amount
                         }
                     }.clickable(onClickLabel = handleLabel) { collapsed = !collapsed }
-                    .semantics { contentDescription = handleLabel },
+                    .semantics {
+                        contentDescription = handleLabel
+                        // Dragging is no use to TalkBack.
+                        customActions =
+                            listOf(
+                                CustomAccessibilityAction(moveLabel) {
+                                    onSideChange(if (side == ToolbarSide.LEFT) ToolbarSide.RIGHT else ToolbarSide.LEFT)
+                                    true
+                                },
+                            )
+                    }.testTag("toolbar_handle"),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(KgIcons.Handle, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (!collapsed) {
-                ToolButton(
-                    KgIcons.Brush,
-                    stringResource(R.string.tool_brush),
-                    tools.tool == CanvasTool.BRUSH,
-                    "tool_brush",
-                ) { onSelect(CanvasTool.BRUSH) }
-                ToolButton(KgIcons.Eraser, stringResource(R.string.tool_eraser), tools.tool == CanvasTool.ERASER, "tool_eraser") {
-                    onSelect(CanvasTool.ERASER)
-                }
-                ToolButton(
-                    KgIcons.Lasso,
-                    stringResource(R.string.tool_lasso),
-                    tools.tool == CanvasTool.LASSO,
-                    "tool_lasso",
-                ) { onSelect(CanvasTool.LASSO) }
-                ToolButton(
-                    KgIcons.Fill,
-                    stringResource(R.string.tool_fill),
-                    tools.tool == CanvasTool.FILL,
-                    "tool_fill",
-                ) { onSelect(CanvasTool.FILL) }
-                val colorLabel = stringResource(R.string.tool_color)
-                Box(
-                    Modifier
-                        .size(48.dp)
-                        .clickable(onClickLabel = colorLabel, onClick = onOpenColor)
-                        .semantics { contentDescription = colorLabel }
-                        .testTag("tool_color"),
-                    contentAlignment = Alignment.Center,
+                // On a phone in landscape the tools are taller than the canvas. They scroll rather than get squeezed, and the handle
+                // stays put, so the bar can still be collapsed or moved however far they have been scrolled.
+                Column(
+                    Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    ToolButton(KgIcons.Brush, stringResource(R.string.tool_brush), CanvasTool.BRUSH, tools.tool, "tool_brush", onSelect)
+                    ToolButton(KgIcons.Eraser, stringResource(R.string.tool_eraser), CanvasTool.ERASER, tools.tool, "tool_eraser", onSelect)
+                    ToolButton(KgIcons.Lasso, stringResource(R.string.tool_lasso), CanvasTool.LASSO, tools.tool, "tool_lasso", onSelect)
+                    ToolButton(KgIcons.Fill, stringResource(R.string.tool_fill), CanvasTool.FILL, tools.tool, "tool_fill", onSelect)
+                    val colorLabel = stringResource(R.string.tool_color)
                     Box(
                         Modifier
-                            .size(30.dp)
-                            .clip(CircleShape)
-                            .background(Color(tools.colorArgb))
-                            .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape),
-                    )
+                            .size(48.dp)
+                            .clickable(role = Role.Button, onClickLabel = colorLabel, onClick = onOpenColor)
+                            .semantics { contentDescription = colorLabel }
+                            .testTag("tool_color"),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(30.dp)
+                                .clip(CircleShape)
+                                .background(Color(tools.colorArgb))
+                                .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+/** A tool is a choice among the others. Tapping the one already chosen opens its options, and TalkBack says that before the tap. */
 @Composable
-private fun ToolButton(icon: ImageVector, label: String, selected: Boolean, tag: String, onClick: () -> Unit) {
-    KgIconButton(icon, label, onClick, selected = selected, modifier = Modifier.testTag(tag))
+private fun ToolButton(
+    icon: ImageVector,
+    label: String,
+    tool: CanvasTool,
+    active: CanvasTool,
+    tag: String,
+    onSelect: (CanvasTool) -> Unit,
+) {
+    val selected = tool == active
+    val optionsLabel = stringResource(R.string.tool_options)
+    val hint = if (selected && tool.hasOptions()) Modifier.semantics { onClick(label = optionsLabel, action = null) } else Modifier
+    KgIconButton(icon, label, { onSelect(tool) }, selected = selected, modifier = Modifier.testTag(tag).then(hint))
 }
 
 /** Quick size and opacity sliders on the free edge of the canvas. */
@@ -296,8 +326,9 @@ internal fun BoxScope.QuickSliders(tools: ToolState, side: ToolbarSide, onSize: 
     Column(
         Modifier
             .align(if (side == ToolbarSide.LEFT) Alignment.CenterEnd else Alignment.CenterStart)
-            .fillMaxHeight()
+            // In this order: filling the height first would leave nothing for the limit to limit. Above and below them, strokes can start.
             .heightIn(max = 400.dp)
+            .fillMaxHeight()
             .padding(vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -334,15 +365,32 @@ internal fun SelectionBar(onDone: () -> Unit, onCancel: () -> Unit, onDelete: ()
     }
 }
 
-/** The controls left on screen during playback. */
+/** The controls left on screen during playback. They wrap, because at the largest font size they are wider than a small phone. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun PlaybackBar(project: Project, onStop: () -> Unit, onMode: (PlaybackMode) -> Unit, onFps: (Int) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+internal fun PlaybackBar(
+    project: Project,
+    playback: PlaybackState,
+    onStop: () -> Unit,
+    onTogglePause: () -> Unit,
+    onMode: (PlaybackMode) -> Unit,
+    onFps: (Int) -> Unit,
+) {
+    FlowRow(
+        Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
+        verticalArrangement = Arrangement.Center,
+        itemVerticalAlignment = Alignment.CenterVertically,
     ) {
         KgIconButton(KgIcons.Stop, stringResource(R.string.playback_stop), onStop, modifier = Modifier.testTag("stop_button"))
+        // Until the first frame is up there is nothing to hold on.
+        KgIconButton(
+            if (playback.isPaused) KgIcons.Play else KgIcons.Pause,
+            stringResource(if (playback.isPaused) R.string.playback_resume else R.string.playback_pause),
+            onTogglePause,
+            enabled = !playback.isPreparing,
+            modifier = Modifier.testTag("pause_button"),
+        )
         val mode = project.settings.playbackMode
         KgIconButton(
             icon =
@@ -370,22 +418,32 @@ internal fun PlaybackBar(project: Project, onStop: () -> Unit, onMode: (Playback
             },
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = {
+            FpsButton("−", stringResource(R.string.playback_fps_decrease), project.fps > MIN_FPS, "fps_down") {
                 onFps((project.fps - 1).coerceAtLeast(MIN_FPS))
-            }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(48.dp)) {
-                Text("−")
             }
+            // Pressing a button says nothing by itself about where that got to.
             Text(
                 stringResource(R.string.fps_value, project.fps),
-                Modifier.padding(horizontal = 12.dp),
+                Modifier.padding(horizontal = 12.dp).semantics { liveRegion = LiveRegionMode.Polite },
                 style = MaterialTheme.typography.titleMedium,
             )
-            OutlinedButton(onClick = {
+            FpsButton("+", stringResource(R.string.playback_fps_increase), project.fps < MAX_FPS, "fps_up") {
                 onFps((project.fps + 1).coerceAtMost(MAX_FPS))
-            }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(48.dp)) {
-                Text("+")
             }
         }
+    }
+}
+
+@Composable
+private fun FpsButton(symbol: String, description: String, enabled: Boolean, tag: String, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        contentPadding = PaddingValues(0.dp),
+        modifier = Modifier.size(48.dp).semantics { contentDescription = description }.testTag(tag),
+    ) {
+        // A symbol to look at. Read out, it would say nothing about what it changes.
+        Text(symbol, Modifier.clearAndSetSemantics { })
     }
 }
 
@@ -558,8 +616,9 @@ private fun rememberFrameActions(session: DrawingSession): FrameActions =
 internal fun FrameStrip(state: SessionState, thumbnails: ThumbnailLoader, actions: FrameActions, modifier: Modifier = Modifier) {
     val project = state.project
     val listState = rememberLazyListState()
-    val current = project.frameIndex(state.frameId)
-    LaunchedEffect(current) {
+    // Follows the selection, not its position: a frame dragged across the current one should not pull the strip away from where it landed.
+    LaunchedEffect(state.frameId) {
+        val current = project.frameIndex(state.frameId)
         if (current >= 0) {
             val visible = listState.layoutInfo.visibleItemsInfo
             val shown = visible.any {
@@ -570,7 +629,7 @@ internal fun FrameStrip(state: SessionState, thumbnails: ThumbnailLoader, action
     }
     val aspect = project.width.toFloat() / project.height
     val cellHeight = 56.dp
-    val cellWidth = (cellHeight * aspect).coerceIn(44.dp, 100.dp)
+    val cellWidth = (cellHeight * aspect).coerceIn(48.dp, 100.dp)
     LazyRow(
         state = listState,
         modifier = modifier.height(64.dp).testTag("frame_strip"),
@@ -579,10 +638,21 @@ internal fun FrameStrip(state: SessionState, thumbnails: ThumbnailLoader, action
         verticalAlignment = Alignment.CenterVertically,
     ) {
         itemsIndexed(project.frames, key = { _, slot -> slot.id }) { index, slot ->
-            FrameCell(state, index, slot.id, slot.hold, thumbnails, actions, cellWidth, cellHeight)
+            FrameCell(state, index, slot.id, slot.hold, thumbnails, actions, listState, cellWidth, cellHeight)
         }
     }
 }
+
+/**
+ * How fast to scroll the strip, in pixels a second, with a finger at [x] in it. It starts within [zone] of either end, and is at
+ * [maxSpeed] by the time the finger reaches the end. Past the end is no faster, since the strip often ends well before the screen does.
+ */
+internal fun autoScrollSpeed(x: Float, viewportWidth: Int, zone: Float, maxSpeed: Float): Float =
+    when {
+        x < zone -> -maxSpeed * ((zone - x) / zone).coerceAtMost(1f)
+        x > viewportWidth - zone -> maxSpeed * ((x - (viewportWidth - zone)) / zone).coerceAtMost(1f)
+        else -> 0f
+    }
 
 @Composable
 private fun FrameCell(
@@ -592,22 +662,37 @@ private fun FrameCell(
     hold: Int,
     thumbnails: ThumbnailLoader,
     actions: FrameActions,
+    listState: LazyListState,
     width: Dp,
     height: Dp,
 ) {
     val project = state.project
     val isCurrent = frameId == state.frameId
-    var dragOffset by remember { mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
+    var dragTravel by remember { mutableFloatStateOf(0f) }
+    var dragStartX by remember { mutableFloatStateOf(0f) }
+    var placedX by remember { mutableFloatStateOf(0f) }
     var menuOpen by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
     val density = LocalDensity.current
-    val stepPx = with(density) { (width + 4.dp).toPx() }
     val menuSlop = with(density) { 12.dp.toPx() }
-    val latestIndex by rememberUpdatedState(index)
+    val scrollZone = with(density) { AUTO_SCROLL_ZONE_DP.dp.toPx() }
+    val scrollSpeed = with(density) { AUTO_SCROLL_DP_PER_SECOND.dp.toPx() }
     val lastIndex = project.frames.lastIndex
+    // The gesture below keeps running from the first touch on, and restarting it for each change would cut a drag short. So it reads these.
+    val latestIndex by rememberUpdatedState(index)
+    val latestLastIndex by rememberUpdatedState(lastIndex)
+    val latestStepPx by rememberUpdatedState(with(density) { (width + 4.dp).toPx() })
     val latestActions by rememberUpdatedState(actions)
-    val description = stringResource(R.string.frame_cell_description, index + 1, project.frames.size)
+    val pinnable = LocalPinnableContainer.current
+    val scope = rememberCoroutineScope()
+    val description =
+        if (hold > 1) {
+            stringResource(R.string.frame_cell_description_held, index + 1, project.frames.size, hold)
+        } else {
+            stringResource(R.string.frame_cell_description, index + 1, project.frames.size)
+        }
+    val selectLabel = stringResource(R.string.frame_select)
     val menuLabel = stringResource(R.string.frame_menu)
     val moveEarlier = stringResource(R.string.frame_move_earlier)
     val moveLater = stringResource(R.string.frame_move_later)
@@ -616,8 +701,70 @@ private fun FrameCell(
     Box(
         Modifier
             .zIndex(if (dragging) 1f else 0f)
-            .graphicsLayer {
-                translationX = dragOffset
+            .onPlaced { placedX = it.positionInParent().x }
+            // Outside the layer below, so that distances are the finger's and not scaled down by the lifted look.
+            .pointerInput(frameId) {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    val longPress = awaitLongPressOrCancellation(down.id)
+                    if (longPress == null) {
+                        // A short press that lifts cleanly is a tap. A press that turned into a scroll is consumed by the list.
+                        val up = currentEvent.changes.firstOrNull { it.id == down.id }
+                        if (up != null && !up.pressed && !up.isConsumed) latestActions.onSelect(frameId)
+                        return@awaitEachGesture
+                    }
+                    dragStartX = placedX
+                    dragTravel = 0f
+                    dragging = true
+                    // Scrolling can carry this cell far out of view, and the list must not throw it away with the gesture still in it.
+                    val pinned = pinnable?.pin()
+                    val fingerStartX = placedX + longPress.position.x
+                    var moved = false
+                    var scrolled = 0f
+                    var autoScroll: Job? = null
+                    val lifted =
+                        try {
+                            drag(longPress.id) { change ->
+                                dragTravel += change.positionChange().x
+                                // A long press with no movement is asking for the menu, wherever on the strip it happens.
+                                if (!moved && kotlin.math.abs(dragTravel) >= menuSlop) {
+                                    moved = true
+                                    // A finger held still sends no events, so the strip has its own clock.
+                                    autoScroll =
+                                        scope.launch {
+                                            var lastFrame = withFrameNanos { it }
+                                            while (isActive) {
+                                                val now = withFrameNanos { it }
+                                                val seconds = (now - lastFrame) / NANOS_PER_SECOND
+                                                lastFrame = now
+                                                val viewport = listState.layoutInfo.viewportSize.width
+                                                val speed = autoScrollSpeed(fingerStartX + dragTravel, viewport, scrollZone, scrollSpeed)
+                                                if (speed != 0f) scrolled += listState.scrollBy(speed * seconds)
+                                            }
+                                        }
+                                }
+                                change.consume()
+                            }
+                        } finally {
+                            autoScroll?.cancel()
+                            pinned?.release()
+                            dragging = false
+                        }
+                    val travelled = dragTravel + scrolled
+                    dragTravel = 0f
+                    // Taken away by the system or another gesture, which is no decision by the user.
+                    if (!lifted) return@awaitEachGesture
+                    if (moved) {
+                        val target = (latestIndex + (travelled / latestStepPx).roundToInt()).coerceIn(0, latestLastIndex)
+                        if (target != latestIndex) latestActions.onMove(latestIndex, target)
+                    } else {
+                        menuOpen = true
+                    }
+                }
+            }.graphicsLayer {
+                // Where the list places a cell it has only kept for the gesture says nothing of where it would be, so this goes by
+                // where the cell is compared with where the finger wants it, which also takes care of any scrolling.
+                translationX = if (dragging) dragStartX + dragTravel - placedX else 0f
                 if (dragging) {
                     scaleX = 1.08f
                     scaleY = 1.08f
@@ -627,10 +774,15 @@ private fun FrameCell(
             .background(colors.surfaceVariant)
             .border(if (isCurrent) 3.dp else 1.dp, if (isCurrent) colors.primary else colors.outlineVariant, RoundedCornerShape(6.dp))
             .testTag("frame_$index")
-            .semantics {
+            // All one thing to TalkBack, with what is in it in the description, and selecting it an action that works without touch.
+            .semantics(mergeDescendants = true) {
                 contentDescription = description
                 role = Role.Button
                 selected = isCurrent
+                onClick(label = selectLabel) {
+                    actions.onSelect(frameId)
+                    true
+                }
                 customActions =
                     buildList {
                         add(
@@ -656,32 +808,6 @@ private fun FrameCell(
                             )
                         }
                     }
-            }.pointerInput(frameId) {
-                awaitEachGesture {
-                    val down = awaitFirstDown()
-                    val longPress = awaitLongPressOrCancellation(down.id)
-                    if (longPress == null) {
-                        // A short press that lifts cleanly is a tap. A press that turned into a scroll is consumed by the list.
-                        val up = currentEvent.changes.firstOrNull { it.id == down.id }
-                        if (up != null && !up.pressed && !up.isConsumed) latestActions.onSelect(frameId)
-                        return@awaitEachGesture
-                    }
-                    dragging = true
-                    var total = 0f
-                    drag(longPress.id) { change ->
-                        total += change.positionChange().x
-                        dragOffset = total
-                        change.consume()
-                    }
-                    dragging = false
-                    dragOffset = 0f
-                    if (kotlin.math.abs(total) < menuSlop) {
-                        menuOpen = true
-                    } else {
-                        val target = (latestIndex + (total / stepPx).roundToInt()).coerceIn(0, lastIndex)
-                        if (target != latestIndex) latestActions.onMove(latestIndex, target)
-                    }
-                }
             },
     ) {
         thumbnail?.let { Image(it, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()) }
@@ -759,6 +885,9 @@ internal fun rememberLayerThumbnail(loader: ThumbnailLoader, project: Project, f
 }
 
 private const val THUMBNAIL_EDGE_DP = 96
+private const val AUTO_SCROLL_ZONE_DP = 48
+private const val AUTO_SCROLL_DP_PER_SECOND = 600
+private const val NANOS_PER_SECOND = 1_000_000_000f
 
 /** Simple button for sheets. */
 @Composable

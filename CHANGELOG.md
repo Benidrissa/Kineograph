@@ -45,8 +45,40 @@ The bouncing ball works from start to finish.
 - Running out of memory no longer crashes the app or loses strokes, and a drawing that cannot be loaded is no longer
   overwritten by the next stroke
 - A canvas too large for memory now offers to try again or use a smaller size, instead of showing a dead canvas
-- Resizing the canvas beyond what memory can hold now says to undo the resize or choose a smaller size, instead of suggesting
-  you clear your drawing
+- A canvas can be any size the device can hold, with no fixed limit. Both size boxes say why a size cannot be used, warn when one
+  will be slow, and offer one that fits when it is more than the device has free
+- Resizing the canvas beyond what memory can hold now changes nothing and says so, and so does an undo or redo of a resize that
+  no longer fits, so the canvas and the drawing on it can never end up at different sizes
+- Canvases too long for WebP are saved as PNG, and canvases too long for some GPUs use the slower drawing path
+- Recent colours now fill up with colours you settled on, instead of every shade a drag went through, and picking a colour no
+  longer takes away the other swatches
+- Tapping a colour swatch no longer resets the brush to full opacity, and the chosen swatch stays marked below full opacity
+- Tapping back to the colour the picker opened on now works
+- Opacity in the picker now applies to Fill, instead of quietly changing the brush, and a translucent fill tints what it lands on.
+  Filling a translucent fill again replaces it, instead of going underneath it
+- The tool options now lead to the colour picker, and Fill's have an opacity slider
+- On a phone in landscape every tool can be reached, at full size, and the tool bar's handle stays in place
+- The tool bar's handle, the layer handle and frame cells are now all at least 48 dp, and switch labels, the hex field and the
+  playback controls fit at the largest font size
+- Dragging a frame no longer stops short or goes the wrong way after frames were added or removed, and holding it at the end of
+  the strip scrolls, so a frame can go any distance in one drag
+- Dragging a layer now lands on the row it was let go over
+- Playback is a full-screen preview: the whole canvas, upright, with the system bars out of the way, whatever the zoom and
+  rotation were. Stopping goes back to them
+- Playback can be paused and resumed, and holding a frame costs no work
+- TalkBack now hears whether a switch is on, which tool is active and that tapping it again opens its options, and what the frame
+  rate buttons change. It can select a frame, reorder layers and move the tool bar without dragging
+- Photos now come out the way up they were taken, including mirrored ones, whichever way the camera stores that
+- A phone with no camera app now gets an explanation instead of a crash, and a picture that cannot be used now says so, in the
+  editor or over the sheet that is open. Messages in general now show over an open sheet
+- The New Project sheet, its background and its camera photo now survive the system closing the app while the camera is open
+- Long-pressing a project with a picture background now plays it on that picture, not on white
+- Tapping anywhere on a project's card opens it, not only its picture
+- Closing search now ends it, and a search in force always shows its box, so projects no longer seem to go missing
+- The default project name now uses the first number not in use, so the first one is "My animation 1" and a name is never repeated
+- The status bar's icons now follow the app's theme rather than the system's, and the area around the canvas follows the theme
+  when it changes with a project open
+- The quick sliders no longer take up the whole edge of a tall canvas, so strokes can start above and below them
 - A layer that cannot be loaded now says so instead of quietly vanishing, and tapping the frame brings it back
 - Moving a layer's opacity slider no longer risks losing the stroke you just drew
 - Editing a drawing after shrinking the canvas no longer crops what lies past the edge, even if the old drawing could not be
