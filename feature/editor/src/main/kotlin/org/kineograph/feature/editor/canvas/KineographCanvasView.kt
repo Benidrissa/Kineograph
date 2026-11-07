@@ -141,7 +141,7 @@ internal class KineographCanvasView(
     private var publishedView = Affine.IDENTITY
     private var publishedInverse: Affine? = null
 
-    private enum class Mode { IDLE, STROKE, LASSO, FILL_TAP, SELECTION_DRAG, GESTURE, IGNORED }
+    private enum class Mode { IDLE, STROKE, PEN_WAITING, LASSO, FILL_TAP, SELECTION_DRAG, GESTURE, IGNORED }
 
     private var mode = Mode.IDLE
     private var activePointerId = MotionEvent.INVALID_POINTER_ID
@@ -151,7 +151,22 @@ internal class KineographCanvasView(
     private var strokeTravel = 0f
 
     private var stroke: StrokeBuilder? = null
+    private var strokeErases = false
     private val coordinates = FloatArray(2)
+
+    /** Whether the pen asked to erase, by its button or by being its eraser end, as of the last event of this touch. */
+    private var penErasing = false
+
+    /** The event being handled came with one of Samsung's own actions, which mean the pen's button is held. */
+    private var sPenActionHeld = false
+
+    // The latest sample of this touch. Every stroke starts from here, which is what joins one up with the stroke it carries on from.
+    private var sampleX = 0f
+    private var sampleY = 0f
+    private var samplePressure = 0f
+    private var sampleTilt = 0f
+    private var sampleOrientation = 0f
+    private var sampleTimeMs = 0L
 
     private var selectionHandle: SelectionHandle? = null
     private var selectionTransform: SelectionTransform? = null
@@ -405,9 +420,24 @@ internal class KineographCanvasView(
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        val standardAction = standardActionOfSPen(event.actionMasked, event.pointerCount, mode != Mode.IDLE)
+        sPenActionHeld = standardAction != null
+        if (standardAction == null) {
+            handleTouch(event)
+        } else {
+            // A copy, so that everything from here on, the predictor included, only ever sees the usual actions.
+            val standard = MotionEvent.obtain(event)
+            standard.action = standardAction or (event.action and MotionEvent.ACTION_POINTER_INDEX_MASK)
+            handleTouch(standard)
+            standard.recycle()
+        }
+        return true
+    }
+
+    private fun handleTouch(event: MotionEvent) {
         if (isPlaying) {
             onPlaybackTouch(event)
-            return true
+            return
         }
         predictor?.record(event)
         when (event.actionMasked) {
@@ -418,7 +448,6 @@ internal class KineographCanvasView(
             MotionEvent.ACTION_UP -> onUp(event)
             MotionEvent.ACTION_CANCEL -> onCancel()
         }
-        return true
     }
 
     /**
@@ -459,6 +488,8 @@ internal class KineographCanvasView(
         downX = event.x
         downY = event.y
         strokeTravel = 0f
+        rememberSample(event, 0)
+        penErasing = penErases(event, 0)
         val config = toolConfig()
         toCanvas(event.x, event.y)
         lastCanvasX = coordinates[0]
@@ -484,11 +515,12 @@ internal class KineographCanvasView(
             session.commitSelection()
         }
 
-        val toolType = event.getToolType(0)
-        when (config.tool) {
+        val tool = if (penErasing) CanvasTool.ERASER else config.tool
+        when (tool) {
             CanvasTool.BRUSH, CanvasTool.ERASER -> {
                 if (state.canDrawOnActiveLayer) {
-                    startStroke(event, config, toolType)
+                    val spec = if (tool == CanvasTool.ERASER) config.eraser else config.brush
+                    startStroke(config, spec, isFinger = event.getToolType(0) == MotionEvent.TOOL_TYPE_FINGER)
                 } else {
                     listener.onLayerNotDrawable()
                     mode = Mode.IGNORED
@@ -511,11 +543,9 @@ internal class KineographCanvasView(
         }
     }
 
-    private fun startStroke(event: MotionEvent, config: CanvasToolConfig, toolType: Int) {
+    /** Starts a stroke at the latest sample, which is where the pen landed, or where it had got to when its button changed. */
+    private fun startStroke(config: CanvasToolConfig, spec: BrushSpec, isFinger: Boolean) {
         val currentRenderer = renderer ?: return
-        val invertedStylus = toolType == MotionEvent.TOOL_TYPE_ERASER
-        val spec = if (config.tool == CanvasTool.ERASER || invertedStylus) config.eraser else config.brush
-        val isFinger = toolType == MotionEvent.TOOL_TYPE_FINGER
         val options =
             StrokeOptions(
                 smoothing = config.smoothing,
@@ -524,24 +554,109 @@ internal class KineographCanvasView(
                 simulatePressure = isFinger && config.simulateFingerPressure,
                 fastSpeedPxPerMs = FAST_SPEED_DP_PER_MS * density,
             )
-        val builder = StrokeBuilder(spec, options, event.eventTime)
+        val builder = StrokeBuilder(spec, options, sampleTimeMs)
         stroke = builder
+        strokeErases = spec.isEraser
         mode = Mode.STROKE
-        toCanvas(event.x, event.y)
-        builder.begin(
-            coordinates[0],
-            coordinates[1],
-            event.x,
-            event.y,
-            pressureOf(event, 0, isFinger),
-            event.getAxisValue(MotionEvent.AXIS_TILT, 0),
-            event.getAxisValue(MotionEvent.AXIS_ORIENTATION, 0),
-            event.eventTime,
-        )
+        downX = sampleX
+        downY = sampleY
+        strokeTravel = 0f
+        toCanvas(sampleX, sampleY)
+        builder.begin(coordinates[0], coordinates[1], sampleX, sampleY, samplePressure, sampleTilt, sampleOrientation, sampleTimeMs)
         val state = session.state.value
         val opacity = state.project.layer(state.layerId)?.opacity ?: 1f
         currentRenderer.beginWet(spec, config.colorArgb, opacity)
         flushStroke(builder, null)
+    }
+
+    private fun rememberSample(event: MotionEvent, pointerIndex: Int) {
+        sampleX = event.getX(pointerIndex)
+        sampleY = event.getY(pointerIndex)
+        samplePressure = pressureOf(event, pointerIndex, event.getToolType(pointerIndex) == MotionEvent.TOOL_TYPE_FINGER)
+        sampleTilt = event.getAxisValue(MotionEvent.AXIS_TILT, pointerIndex)
+        sampleOrientation = event.getAxisValue(MotionEvent.AXIS_ORIENTATION, pointerIndex)
+        sampleTimeMs = event.eventTime
+    }
+
+    private fun penErases(event: MotionEvent, pointerIndex: Int): Boolean {
+        val buttons = if (sPenActionHeld) event.buttonState or MotionEvent.BUTTON_STYLUS_PRIMARY else event.buttonState
+        return penAsksToErase(event.getToolType(pointerIndex), buttons)
+    }
+
+    /**
+     * Keeps up with the pen while it is on the screen. People press the button after touching, because on Samsung phones pressing it
+     * during a hover can open Air Command. An event has one button state for all of its samples, so the change counts from where
+     * the last event left off, and all of this event goes to the new mode.
+     */
+    private fun followPenButton(event: MotionEvent, pointerIndex: Int) {
+        val erasing = penErases(event, pointerIndex)
+        if (erasing == penErasing) return
+        penErasing = erasing
+        if (erasing) startPenErasing() else stopPenErasing()
+    }
+
+    private fun startPenErasing() {
+        when (mode) {
+            Mode.STROKE -> {
+                if (strokeErases) return
+                // A touch that has not left its spot yet is the start of erasing, not a drawing, so it leaves no dot and no undo step.
+                endPenStroke(keep = strokeTravel > tapSlop)
+            }
+
+            Mode.LASSO -> {
+                overlay.clear()
+            }
+
+            Mode.FILL_TAP, Mode.PEN_WAITING -> {
+                Unit
+            }
+
+            // A selection's handles and a pinch keep the touch they already have, and a refused touch has had its message.
+            Mode.IDLE, Mode.SELECTION_DRAG, Mode.GESTURE, Mode.IGNORED -> {
+                return
+            }
+        }
+        val config = toolConfig()
+        startPenStroke(config, config.eraser)
+    }
+
+    private fun stopPenErasing() {
+        if (mode == Mode.STROKE && toolConfig().tool != CanvasTool.ERASER) endPenStroke(keep = true)
+    }
+
+    /** Ends the part of the touch that was drawing. The renderer is free from here on, so anything that waited for it can go ahead. */
+    private fun endPenStroke(keep: Boolean) {
+        val builder = stroke ?: return
+        stroke = null
+        if (keep) commitStroke(builder) else renderer?.cancelWet()
+        mode = Mode.PEN_WAITING
+        afterStroke()
+    }
+
+    private fun startPenStroke(config: CanvasToolConfig, spec: BrushSpec) {
+        if (session.state.value.canDrawOnActiveLayer) {
+            startStroke(config, spec, isFinger = false)
+        } else {
+            listener.onLayerNotDrawable()
+            mode = Mode.IGNORED
+        }
+    }
+
+    /**
+     * The button has been let go, and drawing only comes back once the pen goes somewhere, starting from where erasing stopped. Letting
+     * go a moment before lifting would otherwise leave a dot of ink at the end of what was just erased. The lasso and fill take a whole
+     * touch from landing to lifting, and what is left of this one is not that, so they wait for the next.
+     */
+    private fun resumeDrawing(event: MotionEvent, pointerIndex: Int) {
+        if (hypot(event.getX(pointerIndex) - sampleX, event.getY(pointerIndex) - sampleY) <= tapSlop) return
+        val config = toolConfig()
+        if (config.tool == CanvasTool.BRUSH) {
+            startPenStroke(config, config.brush)
+            if (mode == Mode.STROKE) moveStroke(event)
+        } else {
+            // Nothing is left to join up with, and pressing the button again has to erase from where the pen has got to.
+            rememberSample(event, pointerIndex)
+        }
     }
 
     private fun pressureOf(event: MotionEvent, pointerIndex: Int, isFinger: Boolean): Float = if (isFinger) {
@@ -586,6 +701,11 @@ internal class KineographCanvasView(
 
             Mode.IDLE -> {
                 beginGesture(event)
+            }
+
+            // As in a stroke, a stylus never turns into a gesture.
+            Mode.PEN_WAITING -> {
+                Unit
             }
         }
     }
@@ -640,13 +760,18 @@ internal class KineographCanvasView(
     }
 
     private fun onMove(event: MotionEvent) {
+        val index = event.findPointerIndex(activePointerId)
+        if (index >= 0) followPenButton(event, index)
         when (mode) {
             Mode.STROKE -> {
                 moveStroke(event)
             }
 
+            Mode.PEN_WAITING -> {
+                if (index >= 0) resumeDrawing(event, index)
+            }
+
             Mode.LASSO -> {
-                val index = event.findPointerIndex(activePointerId)
                 if (index < 0) return
                 for (h in 0 until event.historySize) overlay.add(event.getHistoricalX(index, h), event.getHistoricalY(index, h))
                 overlay.add(event.getX(index), event.getY(index))
@@ -664,6 +789,8 @@ internal class KineographCanvasView(
                 Unit
             }
         }
+        // While the pen waits, this stays where erasing stopped, which is where drawing has to join up.
+        if (index >= 0 && (mode == Mode.STROKE || mode == Mode.LASSO || mode == Mode.FILL_TAP)) rememberSample(event, index)
     }
 
     private fun moveStroke(event: MotionEvent) {
@@ -779,7 +906,13 @@ internal class KineographCanvasView(
     private fun onPointerUp(event: MotionEvent) {
         if (mode != Mode.GESTURE) {
             // In a stroke, the drawing finger lifting while another stays down still ends the stroke.
-            if (event.getPointerId(event.actionIndex) == activePointerId && mode == Mode.STROKE) finishStroke(event, event.actionIndex)
+            if (event.getPointerId(event.actionIndex) == activePointerId) {
+                if (mode == Mode.STROKE) {
+                    finishStroke(event, event.actionIndex)
+                } else if (mode == Mode.PEN_WAITING) {
+                    mode = Mode.IDLE
+                }
+            }
             return
         }
         anchorGesture(event, event.actionIndex)
@@ -793,7 +926,7 @@ internal class KineographCanvasView(
             Mode.FILL_TAP -> finishFill(event)
             Mode.SELECTION_DRAG -> selectionHandle = null
             Mode.GESTURE -> finishGesture(event)
-            Mode.IGNORED, Mode.IDLE -> Unit
+            Mode.PEN_WAITING, Mode.IGNORED, Mode.IDLE -> Unit
         }
         mode = Mode.IDLE
         activePointerId = MotionEvent.INVALID_POINTER_ID
@@ -824,13 +957,18 @@ internal class KineographCanvasView(
             event.getAxisValue(MotionEvent.AXIS_ORIENTATION, pointerIndex),
             event.eventTime,
         )
+        commitStroke(builder)
+        mode = Mode.IDLE
+        afterStroke()
+    }
+
+    /** Takes the stroke up to its last sample. The final stamps replace what was predicted, so no guess outlives the stroke. */
+    private fun commitStroke(builder: StrokeBuilder) {
         builder.finish()
         val real = if (builder.stamps.count == 0) StampRun.EMPTY else builder.stamps.snapshot()
         builder.stamps.clear()
         renderer?.drawWet(real, StampRun.EMPTY)
         renderer?.commitWet()
-        mode = Mode.IDLE
-        afterStroke()
     }
 
     private fun finishLasso() {

@@ -322,6 +322,51 @@ class WetStrokeSequencerTest {
         assertEquals(stamps, library.front)
     }
 
+    /** The pen's button: the ink's commit goes to the engine, and the eraser's stamps follow it there, all from one touch event. */
+    @Test
+    fun `ink split by the pen's button stays until it is merged, then the erasing appears whole and alone`() {
+        val ink = sequencer.beginStroke()
+        val inkStamps = listOf(stamp(ink))
+        runRenderThread()
+        penUp(ink)
+        val erasing = sequencer.beginStroke()
+        val erased = listOf(eraserStamp(erasing), eraserStamp(erasing))
+        runRenderThread()
+        assertEquals("nothing vanishes before the merge", inkStamps, library.front)
+        assertEquals(0, library.scenesDrawn)
+        settle()
+        assertEquals(1, library.scenesDrawn)
+        assertEquals(erased, library.front)
+        assertTrue(library.frontVisible)
+    }
+
+    @Test
+    fun `erasing split by the pen's button lets the ink through once its commit is out`() {
+        val erasing = sequencer.beginStroke()
+        eraserStamp(erasing)
+        penUp(erasing)
+        val ink = sequencer.beginStroke()
+        val inkStamps = listOf(stamp(ink), stamp(ink))
+        runRenderThread()
+        assertTrue("the ink waits behind the erasing, whose stamps are still on the engine", library.front.isEmpty())
+        settle()
+        assertEquals(inkStamps, library.front)
+        assertTrue(library.frontVisible)
+    }
+
+    @Test
+    fun `a touch dropped for the pen's button clears the front layer, and the erasing still shows`() {
+        val touch = sequencer.beginStroke()
+        stamp(touch)
+        runRenderThread()
+        cancel(touch)
+        val erasing = sequencer.beginStroke()
+        val erased = listOf(eraserStamp(erasing))
+        settle()
+        assertEquals(erased, library.front)
+        assertTrue(library.frontVisible)
+    }
+
     @Test
     fun `a fetch left over from a finished stroke finds nothing`() {
         val id = sequencer.beginStroke()

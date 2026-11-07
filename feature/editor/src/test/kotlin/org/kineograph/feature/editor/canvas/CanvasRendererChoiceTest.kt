@@ -62,6 +62,9 @@ class CanvasRendererChoiceTest {
         var commits = 0
         var workspaceColor: Int? = null
 
+        /** What the view asked for, in order, for the tests that care about the order. */
+        val calls = ArrayList<String>()
+
         override val supportsHardwareBitmaps: Boolean get() = true
 
         override fun setWorkspaceColor(color: Int) {
@@ -82,22 +85,26 @@ class CanvasRendererChoiceTest {
 
         override fun beginWet(spec: BrushSpec, colorArgb: Int, layerOpacity: Float) {
             assertFalse(released)
+            calls += "begin ${spec.id}"
             session.beginStroke(spec, colorArgb)
         }
 
         override fun drawWet(real: StampRun, predicted: StampRun) {
             assertFalse(released)
+            calls += if (predicted.isEmpty) "draw" else "draw with a guess"
             session.addStamps(real)
         }
 
         override fun commitWet() {
             assertFalse(released)
+            calls += "commit"
             commits++
             session.endStroke { }
         }
 
         override fun cancelWet() {
             assertFalse(released)
+            calls += "cancel"
             session.cancelStroke()
         }
 
@@ -113,6 +120,7 @@ class CanvasRendererChoiceTest {
     private val store = TestStore()
     private val built = ArrayList<FakeLowLatency>()
     private var failure: Throwable? = null
+    private var realLowLatency = false
     private var clock = 1000L
 
     @Before
@@ -154,7 +162,11 @@ class CanvasRendererChoiceTest {
                     },
                 lowLatencyFactory = { _, initialView, onFailure ->
                     failure?.let { throw it }
-                    FakeLowLatency(session, initialView, onFailure).also { built += it }
+                    if (realLowLatency) {
+                        FrontBufferRenderer(surface, session, Color.GRAY, initialView, onFailure)
+                    } else {
+                        FakeLowLatency(session, initialView, onFailure).also { built += it }
+                    }
                 },
             )
         activity.setContentView(view, FrameLayout.LayoutParams(VIEW_W, VIEW_H))
@@ -208,6 +220,56 @@ class CanvasRendererChoiceTest {
     private fun penUp(down: Long) {
         clock += 8
         send(touch(MotionEvent.ACTION_UP, 150f, 100f, down))
+        clock += 2000
+        idle()
+    }
+
+    private fun stylus(action: Int, x: Float, down: Long, buttons: Int = 0): MotionEvent {
+        val properties =
+            MotionEvent.PointerProperties().apply {
+                id = 0
+                toolType = MotionEvent.TOOL_TYPE_STYLUS
+            }
+        val coords =
+            MotionEvent.PointerCoords().apply {
+                this.x = x
+                y = 100f
+                pressure = 1f
+                size = 1f
+            }
+        return MotionEvent.obtain(
+            down,
+            clock,
+            action,
+            1,
+            arrayOf(properties),
+            arrayOf(coords),
+            0,
+            buttons,
+            1f,
+            1f,
+            0,
+            0,
+            InputDevice.SOURCE_STYLUS,
+            0,
+        )
+    }
+
+    /** Draws, erases and draws again on one touch, moving along by [step] between events. */
+    private fun penThroughTheButton(step: Float) {
+        val button = MotionEvent.BUTTON_STYLUS_PRIMARY
+        val down = clock
+        var x = 50f
+        send(stylus(MotionEvent.ACTION_DOWN, x, down))
+        for (buttons in listOf(0, button, 0)) {
+            repeat(4) {
+                x += step
+                clock += 8
+                send(stylus(MotionEvent.ACTION_MOVE, x, down, buttons))
+            }
+        }
+        clock += 8
+        send(stylus(MotionEvent.ACTION_UP, x, down))
         clock += 2000
         idle()
     }
@@ -646,6 +708,71 @@ class CanvasRendererChoiceTest {
         software.requestRedraw()
         val elapsedMs = (System.nanoTime() - start) / 1_000_000
         assertTrue("took $elapsedMs ms", elapsedMs < 400)
+    }
+
+    @Test
+    fun `the pen's button ends each part through the renderer and starts the next, with no guess left over`() {
+        surfaceCreated()
+        val fake = built.single()
+        penThroughTheButton(step = 20f)
+        val pen = BrushPresets.PEN.id
+        val eraser = BrushPresets.ERASER.id
+        val parts = fake.calls.joinToString().replace(Regex("(draw( with a guess)?, )+"), "draw, ")
+        assertEquals("begin $pen, draw, commit, begin $eraser, draw, commit, begin $pen, draw, commit", parts)
+        val partsWithGuesses = fake.calls
+            .joinToString()
+            .split("commit")
+            .count { "draw with a guess" in it }
+        assertEquals("prediction carries on in every part", 3, partsWithGuesses)
+        fake.calls.forEachIndexed { i, call ->
+            if (call == "commit") assertEquals("the last thing before a commit is final stamps alone", "draw", fake.calls[i - 1])
+        }
+    }
+
+    @Test
+    fun `a new shape during a stroke is caught up with when the pen's button ends it, and the next part goes on the new renderer`() {
+        surfaceCreated()
+        val first = built.single()
+        val down = clock
+        send(stylus(MotionEvent.ACTION_DOWN, 100f, down))
+        clock += 8
+        send(stylus(MotionEvent.ACTION_MOVE, 160f, down))
+        surfaceChanged(VIEW_W, VIEW_H / 2)
+        assertSame("the stroke keeps its renderer", first, view.renderer)
+        clock += 8
+        send(stylus(MotionEvent.ACTION_MOVE, 200f, down, MotionEvent.BUTTON_STYLUS_PRIMARY))
+        assertEquals("begin ${BrushPresets.PEN.id}", first.calls.first())
+        assertEquals("commit", first.calls.last())
+        assertTrue(first.released)
+        val second = built[1]
+        assertSame(second, view.renderer)
+        assertEquals("begin ${BrushPresets.ERASER.id}", second.calls.first())
+        clock += 8
+        send(stylus(MotionEvent.ACTION_UP, 200f, down, MotionEvent.BUTTON_STYLUS_PRIMARY))
+        idle()
+        assertEquals("commit", second.calls.last())
+    }
+
+    /** With no real surface the library draws nothing, but everything up to it still runs, and strokes must still reach the layer. */
+    @Test
+    fun `the pen's button goes through the real low-latency renderer into the layer, and the session is left free`() {
+        realLowLatency = true
+        surfaceCreated()
+        assertTrue(view.renderer is FrontBufferRenderer)
+        penThroughTheButton(step = 20f)
+        assertEquals("ink, erasing and ink", 1, runBlocking { session.snapshot() }.cels.size)
+        var steps = 0
+        while (session.state.value.canUndo && steps < 50) {
+            session.undo()
+            idle()
+            steps++
+        }
+        assertEquals("three parts, three steps", 3, steps)
+        session.addFrame()
+        idle()
+        assertEquals("a stroke that never ended would have the session ignore this", 2, session.state.value.project.frames.size)
+        surfaceDestroyed()
+        assertFalse(session.wantsRevealImage)
     }
 
     /** With no real surface the library draws nothing, but everything up to it still runs, and strokes must still reach the layer. */

@@ -1,7 +1,9 @@
 package org.kineograph.feature.editor
 
+import android.view.MotionEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.kineograph.engine.brush.BrushPresets
@@ -9,7 +11,9 @@ import org.kineograph.feature.editor.canvas.CanvasTool
 import org.kineograph.feature.editor.canvas.DoubleTapResolver
 import org.kineograph.feature.editor.canvas.TapClassifier
 import org.kineograph.feature.editor.canvas.TapGesture
+import org.kineograph.feature.editor.canvas.penAsksToErase
 import org.kineograph.feature.editor.canvas.secondFingerStartsGesture
+import org.kineograph.feature.editor.canvas.standardActionOfSPen
 
 class TouchRulesTest {
     @Test
@@ -174,6 +178,42 @@ class TouchRulesTest {
     fun `the strip is no faster with the finger far past its end`() {
         assertEquals(-100f, autoScrollSpeed(-500f, 300, 50f, 100f), 0f)
         assertEquals(100f, autoScrollSpeed(900f, 300, 50f, 100f), 0f)
+    }
+
+    @Test
+    fun `a pen asks to erase with any of its buttons, or with its eraser end`() {
+        val stylus = MotionEvent.TOOL_TYPE_STYLUS
+        assertFalse(penAsksToErase(stylus, 0))
+        assertTrue(penAsksToErase(stylus, MotionEvent.BUTTON_STYLUS_PRIMARY))
+        assertTrue(penAsksToErase(stylus, MotionEvent.BUTTON_STYLUS_SECONDARY))
+        assertTrue(penAsksToErase(stylus, MotionEvent.BUTTON_SECONDARY))
+        assertFalse("not a button that has anything to do with this", penAsksToErase(stylus, MotionEvent.BUTTON_BACK))
+        assertTrue(penAsksToErase(MotionEvent.TOOL_TYPE_ERASER, 0))
+        assertTrue(penAsksToErase(MotionEvent.TOOL_TYPE_ERASER, MotionEvent.BUTTON_STYLUS_PRIMARY))
+    }
+
+    @Test
+    fun `nothing but a pen asks to erase, whatever buttons the event reports`() {
+        val buttons = MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_STYLUS_SECONDARY or MotionEvent.BUTTON_SECONDARY
+        assertFalse(penAsksToErase(MotionEvent.TOOL_TYPE_FINGER, buttons))
+        assertFalse(penAsksToErase(MotionEvent.TOOL_TYPE_MOUSE, buttons))
+        assertFalse(penAsksToErase(MotionEvent.TOOL_TYPE_UNKNOWN, buttons))
+    }
+
+    @Test
+    fun `Samsung's own pen actions turn into the usual ones, and nothing else is touched`() {
+        assertEquals(MotionEvent.ACTION_DOWN, standardActionOfSPen(211, 1, touchUnderWay = false))
+        assertEquals(MotionEvent.ACTION_UP, standardActionOfSPen(212, 1, touchUnderWay = true))
+        assertEquals(MotionEvent.ACTION_MOVE, standardActionOfSPen(213, 1, touchUnderWay = true))
+        assertEquals(MotionEvent.ACTION_CANCEL, standardActionOfSPen(214, 1, touchUnderWay = true))
+        for (action in 0..12) assertNull("action $action", standardActionOfSPen(action, 1, touchUnderWay = true))
+    }
+
+    @Test
+    fun `Samsung's own down during a touch carries it on, and with another pointer about means that pointer`() {
+        assertEquals(MotionEvent.ACTION_MOVE, standardActionOfSPen(211, 1, touchUnderWay = true))
+        assertEquals(MotionEvent.ACTION_POINTER_DOWN, standardActionOfSPen(211, 2, touchUnderWay = true))
+        assertEquals(MotionEvent.ACTION_POINTER_UP, standardActionOfSPen(212, 2, touchUnderWay = true))
     }
 
     @Test

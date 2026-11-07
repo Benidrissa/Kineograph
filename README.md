@@ -13,6 +13,7 @@ A free, open-source, ad-free frame-by-frame animation app for Android. Named aft
 
 - Low-latency drawing with pressure support, plus simulated pressure for fingers
 - Pen, Pencil and Marker brushes, an eraser, and stroke smoothing
+- Holding a stylus's button erases, even if pressed mid-stroke, and so does its eraser end, without changing the selected tool
 - Fill with gap closing, so small breaks in an outline do not leak
 - Lasso to move, scale and rotate parts of a drawing
 - Frames: add, insert, duplicate, delete, reorder, copy, paste

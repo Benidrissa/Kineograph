@@ -49,6 +49,10 @@ recomposition can never delay a stroke.
    stamp placer, which walks a chain of quadratic curves through the midpoints of the samples.
 3. Final stamps, plus throw-away predicted stamps for the unfinished tail, go to the renderer. No pixels are touched.
 
+A pen's button changing partway through a touch ends the stroke and starts another from the same point, through the renderer's
+usual calls. To the renderers that is one stroke following another straight away, which they already handle. See
+[decisions.md](decisions.md).
+
 **`FrontBufferRenderer`** (API 29+, using `CanvasFrontBufferedRenderer`). Finished content sits in a normal buffered layer,
 and the stroke being drawn goes to a single-buffered layer above it, whose buffer the display is reading.
 

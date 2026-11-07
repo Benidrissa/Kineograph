@@ -60,7 +60,9 @@ class CanvasInputTest {
     private var tool = CanvasTool.BRUSH
     private var blockedCount = 0
     private var playbackTaps = 0
-    private val spec = BrushPresets.PEN.copy(sizePx = 8f, sizeCurve = PressureCurve.FLAT)
+    private var spec = BrushPresets.PEN.copy(sizePx = 8f, sizeCurve = PressureCurve.FLAT)
+    private var eraser = BrushPresets.ERASER.copy(sizePx = 30f, sizeCurve = PressureCurve.FLAT, hardness = 1f)
+    private var smoothing = 0
 
     @Before
     fun setUp() {
@@ -78,9 +80,9 @@ class CanvasInputTest {
                     CanvasToolConfig(
                         tool = tool,
                         brush = spec,
-                        eraser = BrushPresets.ERASER.copy(sizePx = 30f, sizeCurve = PressureCurve.FLAT, hardness = 1f),
+                        eraser = eraser,
                         colorArgb = Color.BLACK,
-                        smoothing = 0,
+                        smoothing = smoothing,
                         simulateFingerPressure = false,
                         fillColorArgb = Color.RED,
                         fillTolerance = 32,
@@ -146,12 +148,16 @@ class CanvasInputTest {
         actionIndex: Int = 0,
         flags: Int = 0,
         at: Long = clock,
+        buttonState: Int = 0,
+        pressure: Float = 1f,
+        otherToolType: Int = toolType,
+        firstPointerId: Int = 0,
     ): MotionEvent {
         val properties =
             Array(points.size) { i ->
                 MotionEvent.PointerProperties().apply {
-                    id = i
-                    this.toolType = toolType
+                    id = firstPointerId + i
+                    this.toolType = if (i == 0) toolType else otherToolType
                 }
             }
         val coords =
@@ -159,7 +165,7 @@ class CanvasInputTest {
                 MotionEvent.PointerCoords().apply {
                     x = points[i].first
                     y = points[i].second
-                    pressure = 1f
+                    this.pressure = pressure
                     size = 1f
                 }
             }
@@ -172,7 +178,7 @@ class CanvasInputTest {
             properties,
             coords,
             0,
-            0,
+            buttonState,
             1f,
             1f,
             0,
@@ -818,8 +824,804 @@ class CanvasInputTest {
         )
     }
 
+    // ----- The pen's button -----
+
+    /** A pen event at a point on the canvas. */
+    private fun pen(
+        action: Int,
+        x: Float,
+        y: Float,
+        down: Long,
+        buttons: Int = 0,
+        toolType: Int = MotionEvent.TOOL_TYPE_STYLUS,
+        pressure: Float = 1f,
+    ): MotionEvent = touch(
+        action,
+        toView(x) to toViewY(y),
+        toolType = toolType,
+        downTime = down,
+        buttonState = buttons,
+        pressure = pressure,
+    )
+
+    private fun penDown(x: Float, y: Float, buttons: Int = 0, toolType: Int = MotionEvent.TOOL_TYPE_STYLUS): Long {
+        val down = clock
+        send(pen(MotionEvent.ACTION_DOWN, x, y, down, buttons, toolType))
+        return down
+    }
+
+    /** Moves along a line in steps of 5 canvas pixels, as several events. */
+    private fun penMove(
+        fromX: Float,
+        toX: Float,
+        y: Float,
+        down: Long,
+        buttons: Int = 0,
+        toolType: Int = MotionEvent.TOOL_TYPE_STYLUS,
+        pressure: Float = 1f,
+    ) {
+        var x = fromX
+        while (x < toX) {
+            x = minOf(x + 5f, toX)
+            clock += 8
+            send(pen(MotionEvent.ACTION_MOVE, x, y, down, buttons, toolType, pressure))
+        }
+    }
+
+    private fun penUp(x: Float, y: Float, down: Long, buttons: Int = 0, toolType: Int = MotionEvent.TOOL_TYPE_STYLUS) {
+        clock += 8
+        send(pen(MotionEvent.ACTION_UP, x, y, down, buttons, toolType))
+        clock += 2000
+        idle()
+    }
+
+    private fun penLine(
+        fromX: Float,
+        toX: Float,
+        y: Float,
+        buttons: Int = 0,
+        toolType: Int = MotionEvent.TOOL_TYPE_STYLUS,
+        pressure: Float = 1f,
+    ) {
+        val down = clock
+        send(pen(MotionEvent.ACTION_DOWN, fromX, y, down, buttons, toolType, pressure))
+        penMove(fromX, toX, y, down, buttons, toolType, pressure)
+        penUp(toX, y, down, buttons, toolType)
+    }
+
+    private fun undo() {
+        session.undo()
+        idle()
+    }
+
+    /** Undoes everything and says how many steps that took, because "nothing left after three" would also pass with one. */
+    private fun undoStepsLeft(): Int {
+        var steps = 0
+        while (session.state.value.canUndo && steps < 50) {
+            undo()
+            steps++
+        }
+        return steps
+    }
+
+    private fun lassoAround(left: Float, top: Float, right: Float, bottom: Float) {
+        tool = CanvasTool.LASSO
+        val down = clock
+        send(touch(MotionEvent.ACTION_DOWN, toView(left) to toViewY(top), downTime = down))
+        for (corner in listOf(right to top, right to bottom, left to bottom, left to top)) {
+            clock += 8
+            send(touch(MotionEvent.ACTION_MOVE, toView(corner.first) to toViewY(corner.second), downTime = down))
+        }
+        clock += 8
+        send(touch(MotionEvent.ACTION_UP, toView(left) to toViewY(top), downTime = down))
+        clock += 2000
+        idle()
+        assertNotNull(session.state.value.selection)
+    }
+
+    @Test
+    fun `holding the stylus button while touching erases, whichever way the device reports it`() {
+        val buttons = listOf(MotionEvent.BUTTON_STYLUS_PRIMARY, MotionEvent.BUTTON_STYLUS_SECONDARY, MotionEvent.BUTTON_SECONDARY)
+        buttons.forEachIndexed { i, button ->
+            val y = 100f + i * 100f
+            drawLine(100f, 300f, y)
+            penLine(180f, 220f, y, button)
+            assertFalse("button $button", inkAt(200, y.toInt()))
+            assertTrue("button $button", inkAt(120, y.toInt()))
+        }
+    }
+
+    @Test
+    fun `the selected tool comes back after the button without anyone choosing it again`() {
+        penLine(100f, 200f, 100f, BUTTON)
+        assertFalse("the first stroke only erased", inkAt(150, 100))
+        penLine(100f, 200f, 100f)
+        assertTrue(inkAt(150, 100))
+        assertEquals(CanvasTool.BRUSH, tool)
+    }
+
+    @Test
+    fun `the button erases with the pen's pressure, the same as the eraser end`() {
+        eraser = BrushPresets.ERASER.copy(sizePx = 30f, sizeCurve = PressureCurve.ramp(0.1f), hardness = 1f)
+        drawLine(100f, 300f, 200f)
+        // The line is 8 pixels thick and this passes 12 pixels below its middle, which only a wide stamp reaches.
+        penLine(120f, 180f, 212f, BUTTON, pressure = 0.05f)
+        assertTrue("a light touch makes a narrow stamp", inkAt(150, 200))
+        penLine(220f, 280f, 212f, BUTTON, pressure = 1f)
+        assertFalse("a firm one makes a wide stamp", inkAt(250, 200))
+    }
+
+    @Test
+    fun `pressing the button mid-stroke ends the ink there and erases from that point, as a separate undo step`() {
+        drawLine(400f, 700f, 200f)
+        val down = penDown(100f, 200f)
+        penMove(100f, 300f, 200f, down)
+        penMove(300f, 550f, 200f, down, BUTTON)
+        penUp(550f, 200f, down, BUTTON)
+
+        val image = saved()
+        assertTrue("the ink stays", Color.alpha(image.getPixel(150, 200)) > 128)
+        assertTrue("right up to the eraser's edge", Color.alpha(image.getPixel(284, 200)) > 128)
+        assertEquals("the eraser starts where the ink stopped, and not a sample later", 0, Color.alpha(image.getPixel(287, 200)))
+        assertEquals("erased all the way along", 0, Color.alpha(image.getPixel(450, 200)))
+        assertTrue("and no further", Color.alpha(image.getPixel(650, 200)) > 128)
+
+        undo()
+        assertTrue("undo takes back the erasing alone", inkAt(450, 200))
+        assertTrue(inkAt(150, 200))
+        undo()
+        assertFalse("then the ink", inkAt(150, 200))
+        assertTrue(inkAt(450, 200))
+        undo()
+        assertFalse("and that was all", session.state.value.canUndo)
+    }
+
+    @Test
+    fun `letting go of the button mid-stroke goes back to drawing from where erasing stopped, with no gap`() {
+        drawLine(100f, 300f, 200f)
+        val down = penDown(120f, 200f, BUTTON)
+        penMove(120f, 280f, 200f, down, BUTTON)
+        penMove(280f, 500f, 200f, down)
+        penUp(500f, 200f, down)
+
+        val image = saved()
+        assertEquals("the erasing happened", 0, Color.alpha(image.getPixel(200, 200)))
+        for (x in 280..495) assertTrue("a gap at $x", Color.alpha(image.getPixel(x, 200)) > 128)
+        assertEquals("and only from there on", 0, Color.alpha(image.getPixel(270, 200)))
+
+        undo()
+        assertFalse("undo takes back the new ink alone", inkAt(450, 200))
+        assertFalse("the erasing is still there", inkAt(200, 200))
+        undo()
+        assertTrue("then the erasing", inkAt(200, 200))
+        undo()
+        assertFalse("and that was all", session.state.value.canUndo)
+    }
+
+    @Test
+    fun `the pen can go back and forth on one touch, each part its own undo step`() {
+        val down = penDown(100f, 200f)
+        penMove(100f, 200f, 200f, down)
+        penMove(200f, 230f, 200f, down, BUTTON)
+        penMove(230f, 400f, 200f, down)
+        penUp(400f, 200f, down)
+        val image = saved()
+        assertTrue(Color.alpha(image.getPixel(150, 200)) > 128)
+        assertEquals(0, Color.alpha(image.getPixel(215, 200)))
+        assertTrue(Color.alpha(image.getPixel(300, 200)) > 128)
+        assertEquals(3, undoStepsLeft())
+    }
+
+    /** A smoothed stroke trails behind the pen, so it only meets the next part if it catches up as it ends. */
+    @Test
+    fun `with smoothing on, the parts still meet at the point the button changed`() {
+        smoothing = 80
+        drawLine(320f, 400f, 300f)
+        val down = penDown(100f, 300f)
+        penMove(100f, 300f, 300f, down)
+        penMove(300f, 500f, 300f, down, BUTTON)
+        penMove(500f, 700f, 300f, down)
+        penUp(700f, 300f, down)
+        val image = saved()
+        assertTrue("the ink reaches the eraser's edge", Color.alpha(image.getPixel(284, 300)) > 128)
+        assertEquals("the eraser starts at the pen, not where the ink had trailed to", 0, Color.alpha(image.getPixel(287, 300)))
+        assertEquals("the line it passed over", 0, Color.alpha(image.getPixel(360, 300)))
+        for (x in 500..695) assertTrue("a gap at $x", Color.alpha(image.getPixel(x, 300)) > 128)
+    }
+
+    @Test
+    fun `letting go in a fast batched event starts drawing at once and keeps every sample`() {
+        val down = penDown(100f, 200f, BUTTON)
+        penMove(100f, 200f, 200f, down, BUTTON)
+        val vy = toViewY(200f)
+        clock += 8
+        val batch = pen(MotionEvent.ACTION_MOVE, 220f, 200f, down)
+        for (i in 1..30) {
+            val coords = MotionEvent.PointerCoords().apply {
+                x = toView(220f + i * 10f)
+                y = vy
+                pressure = 1f
+                size = 1f
+            }
+            batch.addBatch(clock + i * 2, arrayOf(coords), 0)
+        }
+        send(batch)
+        clock += 100
+        penUp(520f, 200f, down)
+        val image = saved()
+        for (x in 200..515) assertTrue("a gap at $x", Color.alpha(image.getPixel(x, 200)) > 128)
+    }
+
+    @Test
+    fun `a finger is never affected by the button state`() {
+        val down = clock
+        val finger = MotionEvent.TOOL_TYPE_FINGER
+        send(pen(MotionEvent.ACTION_DOWN, 100f, 200f, down, BUTTON, finger))
+        penMove(100f, 200f, 200f, down, BUTTON, finger)
+        penMove(200f, 300f, 200f, down, 0, finger)
+        penMove(300f, 400f, 200f, down, BUTTON, finger)
+        penUp(400f, 200f, down, BUTTON, finger)
+        val image = saved()
+        for (x in 110..390 step 10) assertTrue("ink at $x", Color.alpha(image.getPixel(x, 200)) > 128)
+        undo()
+        assertFalse("one stroke, one undo step", session.state.value.canUndo)
+    }
+
+    @Test
+    fun `a finger drawing beside a pen with its button held goes on drawing`() {
+        val down = clock
+        val finger = MotionEvent.TOOL_TYPE_FINGER
+        val stylus = MotionEvent.TOOL_TYPE_STYLUS
+        val other = toView(600f) to toViewY(400f)
+        send(pen(MotionEvent.ACTION_DOWN, 100f, 200f, down, 0, finger))
+        penMove(100f, 200f, 200f, down, 0, finger)
+        clock += 8
+        send(
+            touch(
+                MotionEvent.ACTION_POINTER_DOWN,
+                toView(200f) to toViewY(200f),
+                other,
+                toolType = finger,
+                otherToolType = stylus,
+                downTime = down,
+                actionIndex = 1,
+                buttonState = BUTTON,
+            ),
+        )
+        clock += 8
+        send(
+            touch(
+                MotionEvent.ACTION_MOVE,
+                toView(300f) to toViewY(200f),
+                other,
+                toolType = finger,
+                otherToolType = stylus,
+                downTime = down,
+                buttonState = BUTTON,
+            ),
+        )
+        clock += 8
+        send(
+            touch(
+                MotionEvent.ACTION_POINTER_UP,
+                toView(300f) to toViewY(200f),
+                other,
+                toolType = finger,
+                otherToolType = stylus,
+                downTime = down,
+                actionIndex = 1,
+                buttonState = BUTTON,
+            ),
+        )
+        penUp(300f, 200f, down, 0, finger)
+        assertTrue(inkAt(250, 200))
+        undo()
+        assertFalse(session.state.value.canUndo)
+    }
+
+    @Test
+    fun `a hand resting beside the pen does not stop the button working`() {
+        drawLine(300f, 500f, 200f)
+        val down = penDown(100f, 200f)
+        penMove(100f, 200f, 200f, down)
+        val palm = toView(700f) to toViewY(400f)
+        val stylus = MotionEvent.TOOL_TYPE_STYLUS
+        val finger = MotionEvent.TOOL_TYPE_FINGER
+        clock += 8
+        send(
+            touch(
+                MotionEvent.ACTION_POINTER_DOWN,
+                toView(200f) to toViewY(200f),
+                palm,
+                toolType = stylus,
+                otherToolType = finger,
+                downTime = down,
+                actionIndex = 1,
+            ),
+        )
+        var x = 200f
+        while (x < 400f) {
+            x += 5f
+            clock += 8
+            send(
+                touch(
+                    MotionEvent.ACTION_MOVE,
+                    toView(x) to toViewY(200f),
+                    palm,
+                    toolType = stylus,
+                    otherToolType = finger,
+                    downTime = down,
+                    buttonState = BUTTON,
+                ),
+            )
+        }
+        clock += 8
+        send(
+            touch(
+                MotionEvent.ACTION_POINTER_UP,
+                toView(400f) to toViewY(200f),
+                palm,
+                toolType = stylus,
+                otherToolType = finger,
+                downTime = down,
+                actionIndex = 1,
+                buttonState = BUTTON,
+            ),
+        )
+        penUp(400f, 200f, down, BUTTON)
+        assertEquals(0, Color.alpha(saved().getPixel(350, 200)))
+        assertTrue(inkAt(450, 200))
+        assertFalse("the palm must not draw", inkAt(700, 400))
+    }
+
+    @Test
+    fun `touching first and pressing at once leaves no dot and no undo step for it`() {
+        // Wider than the eraser, so that a dot would show around where the eraser went.
+        spec = spec.copy(sizePx = 60f)
+        val down = penDown(200f, 200f)
+        clock += 40
+        send(pen(MotionEvent.ACTION_MOVE, 201f, 200f, down))
+        penMove(201f, 300f, 200f, down, BUTTON)
+        penUp(300f, 200f, down, BUTTON)
+        assertFalse("nothing was drawn before the button went down", inkAt(200, 225))
+        undo()
+        assertFalse("the only step is the erasing", session.state.value.canUndo)
+    }
+
+    @Test
+    fun `letting go of the button just before lifting leaves no dot and no undo step for it`() {
+        val down = penDown(100f, 200f, BUTTON)
+        penMove(100f, 300f, 200f, down, BUTTON)
+        clock += 8
+        send(pen(MotionEvent.ACTION_MOVE, 301f, 200f, down))
+        penUp(302f, 200f, down)
+        assertFalse(inkAt(300, 200))
+        undo()
+        assertFalse("the only step is the erasing", session.state.value.canUndo)
+    }
+
+    @Test
+    fun `a pen that lifts while waiting and lands again beside a resting hand does not join up with where it stopped`() {
+        val stylus = MotionEvent.TOOL_TYPE_STYLUS
+        val finger = MotionEvent.TOOL_TYPE_FINGER
+        val down = penDown(100f, 200f, BUTTON)
+        penMove(100f, 200f, 200f, down, BUTTON)
+        clock += 8
+        val stopped = toView(201f) to toViewY(200f)
+        send(pen(MotionEvent.ACTION_MOVE, 201f, 200f, down))
+        val palm = toView(700f) to toViewY(400f)
+        clock += 8
+        send(
+            touch(
+                MotionEvent.ACTION_POINTER_DOWN,
+                stopped,
+                palm,
+                toolType = stylus,
+                otherToolType = finger,
+                downTime = down,
+                actionIndex = 1,
+            ),
+        )
+        clock += 8
+        send(
+            touch(
+                MotionEvent.ACTION_POINTER_UP,
+                stopped,
+                palm,
+                toolType = stylus,
+                otherToolType = finger,
+                downTime = down,
+                actionIndex = 0,
+            ),
+        )
+        clock += 8
+        send(touch(MotionEvent.ACTION_MOVE, palm, toolType = finger, downTime = down, firstPointerId = 1))
+        clock += 8
+        val landed = toView(400f) to toViewY(100f)
+        send(
+            touch(
+                MotionEvent.ACTION_POINTER_DOWN,
+                landed,
+                palm,
+                toolType = stylus,
+                otherToolType = finger,
+                downTime = down,
+                actionIndex = 0,
+            ),
+        )
+        clock += 8
+        val moved = toView(500f) to toViewY(100f)
+        send(touch(MotionEvent.ACTION_MOVE, moved, palm, toolType = stylus, otherToolType = finger, downTime = down))
+        clock += 8
+        send(touch(MotionEvent.ACTION_POINTER_UP, moved, palm, toolType = stylus, otherToolType = finger, downTime = down, actionIndex = 0))
+        clock += 8
+        send(touch(MotionEvent.ACTION_UP, palm, toolType = finger, downTime = down, firstPointerId = 1))
+        clock += 2000
+        idle()
+        assertTrue("no ink anywhere", snapshot().cels.isEmpty())
+    }
+
+    @Test
+    fun `lifting with the button changing on the very same event just ends the stroke`() {
+        drawLine(100f, 300f, 200f)
+        val down = penDown(120f, 200f, BUTTON)
+        penMove(120f, 200f, 200f, down, BUTTON)
+        penUp(205f, 200f, down, 0)
+        assertFalse(inkAt(160, 200))
+        undo()
+        assertTrue(inkAt(160, 200))
+        undo()
+        assertFalse(session.state.value.canUndo)
+    }
+
+    @Test
+    fun `with the eraser selected the button changes nothing, so there is one undo step`() {
+        drawLine(100f, 500f, 200f)
+        tool = CanvasTool.ERASER
+        val down = penDown(120f, 200f)
+        penMove(120f, 200f, 200f, down)
+        penMove(200f, 300f, 200f, down, BUTTON)
+        penMove(300f, 400f, 200f, down)
+        penUp(400f, 200f, down)
+        val image = saved()
+        for (x in 130..390 step 10) assertEquals("x $x", 0, Color.alpha(image.getPixel(x, 200)))
+        undo()
+        val restored = saved()
+        assertTrue("one undo brings all of it back", Color.alpha(restored.getPixel(200, 200)) > 128)
+        assertTrue(Color.alpha(restored.getPixel(350, 200)) > 128)
+    }
+
+    @Test
+    fun `a pen's eraser end with its button pressed mid-stroke is one stroke of erasing`() {
+        drawLine(100f, 500f, 200f)
+        val eraserEnd = MotionEvent.TOOL_TYPE_ERASER
+        val down = penDown(120f, 200f, toolType = eraserEnd)
+        penMove(120f, 200f, 200f, down, 0, eraserEnd)
+        penMove(200f, 300f, 200f, down, BUTTON, eraserEnd)
+        penMove(300f, 400f, 200f, down, 0, eraserEnd)
+        penUp(400f, 200f, down, 0, eraserEnd)
+        assertFalse(inkAt(350, 200))
+        undo()
+        assertTrue(inkAt(350, 200))
+        assertTrue(inkAt(150, 200))
+    }
+
+    @Test
+    fun `the button keeps every sample of a batched event, and they all go to the eraser`() {
+        drawLine(300f, 700f, 200f)
+        val down = penDown(100f, 200f)
+        penMove(100f, 200f, 200f, down)
+        val vy = toViewY(200f)
+        clock += 8
+        val batch = pen(MotionEvent.ACTION_MOVE, 310f, 200f, down, BUTTON)
+        for (i in 1..30) {
+            val coords = MotionEvent.PointerCoords().apply {
+                x = toView(310f + i * 10f)
+                y = vy
+                pressure = 1f
+                size = 1f
+            }
+            batch.addBatch(clock + i * 2, arrayOf(coords), 0)
+        }
+        send(batch)
+        clock += 100
+        penUp(610f, 200f, down, BUTTON)
+        val image = saved()
+        for (x in 330..600 step 10) assertEquals("a sample was missed near $x", 0, Color.alpha(image.getPixel(x, 200)))
+        assertTrue("past the last sample", Color.alpha(image.getPixel(650, 200)) > 128)
+    }
+
+    @Test
+    fun `a touch taken back after the button changed loses only the part still under way`() {
+        val down = penDown(100f, 200f)
+        penMove(100f, 200f, 200f, down)
+        penMove(200f, 300f, 200f, down, BUTTON)
+        send(pen(MotionEvent.ACTION_CANCEL, 300f, 200f, down, BUTTON))
+        idle()
+        assertTrue("the ink had already ended", inkAt(150, 200))
+        undo()
+        assertFalse(session.state.value.canUndo)
+    }
+
+    @Test
+    fun `playback starting while the button is held drops the stroke, and the next touch works`() {
+        val down = penDown(100f, 100f, BUTTON)
+        penMove(100f, 200f, 100f, down, BUTTON)
+        idle()
+        view.isPlaying = true
+        idle()
+        view.isPlaying = false
+        drawLine(100f, 300f, 100f)
+        assertTrue(inkAt(200, 100))
+    }
+
+    @Test
+    fun `during playback the button does nothing but tap`() {
+        view.isPlaying = true
+        penLine(200f, 200f, 200f, BUTTON)
+        assertEquals(1, playbackTaps)
+        assertTrue(snapshot().cels.isEmpty())
+    }
+
+    @Test
+    fun `a locked or hidden layer refuses the button once, and nothing changes`() {
+        drawLine(100f, 300f, 200f)
+        val layer = session.state.value.layerId
+        session.setLayerLocked(layer, true)
+        idle()
+        penLine(150f, 250f, 200f, BUTTON)
+        assertEquals("touching with the button held", 1, blockedCount)
+        val down = penDown(150f, 200f)
+        assertEquals("touching first", 2, blockedCount)
+        penMove(150f, 250f, 200f, down, BUTTON)
+        penUp(250f, 200f, down, BUTTON)
+        assertEquals("pressing afterwards is the same refused touch", 2, blockedCount)
+        session.setLayerLocked(layer, false)
+        session.setLayerVisible(layer, false)
+        idle()
+        penLine(150f, 250f, 200f, BUTTON)
+        assertEquals(3, blockedCount)
+        session.setLayerVisible(layer, true)
+        idle()
+        assertTrue(inkAt(200, 200))
+    }
+
+    @Test
+    fun `with the fill tool on a locked layer, pressing the button refuses once and does not fill`() {
+        tool = CanvasTool.FILL
+        session.setLayerLocked(session.state.value.layerId, true)
+        idle()
+        val down = penDown(300f, 200f)
+        assertEquals("a fill only asks when it lifts", 0, blockedCount)
+        penMove(300f, 310f, 200f, down, BUTTON)
+        penUp(310f, 200f, down, BUTTON)
+        assertEquals(1, blockedCount)
+        assertTrue(snapshot().cels.isEmpty())
+    }
+
+    @Test
+    fun `with the fill tool, the button erases instead of filling`() {
+        drawLine(100f, 300f, 200f)
+        tool = CanvasTool.FILL
+        penLine(195f, 205f, 200f, BUTTON)
+        val image = saved()
+        assertEquals(0, Color.alpha(image.getPixel(200, 200)))
+        assertEquals("nothing was filled", 0, Color.alpha(image.getPixel(500, 100)))
+    }
+
+    @Test
+    fun `with the fill tool, pressing the button during a touch erases, and letting go does not fill afterwards`() {
+        drawLine(100f, 300f, 200f)
+        tool = CanvasTool.FILL
+        val down = penDown(200f, 200f)
+        penMove(200f, 205f, 200f, down, BUTTON)
+        // Back near where it landed, where a fill would count this as a tap.
+        clock += 8
+        send(pen(MotionEvent.ACTION_MOVE, 200f, 200f, down))
+        penUp(200f, 200f, down)
+        val image = saved()
+        assertEquals(0, Color.alpha(image.getPixel(200, 200)))
+        assertEquals("nothing was filled", 0, Color.alpha(image.getPixel(500, 100)))
+        tap(500f, 100f)
+        assertEquals("the next touch fills as usual", Color.RED, saved().getPixel(500, 100))
+    }
+
+    @Test
+    fun `with the lasso tool, the button erases and selects nothing`() {
+        drawLine(100f, 300f, 200f)
+        tool = CanvasTool.LASSO
+        val down = penDown(150f, 150f, BUTTON)
+        penMove(150f, 250f, 150f, down, BUTTON)
+        clock += 8
+        send(pen(MotionEvent.ACTION_MOVE, 250f, 250f, down, BUTTON))
+        clock += 8
+        send(pen(MotionEvent.ACTION_MOVE, 150f, 250f, down, BUTTON))
+        penUp(150f, 150f, down, BUTTON)
+        assertNull(session.state.value.selection)
+        assertFalse("erased where the pen crossed the line", inkAt(250, 200))
+        assertTrue("and the inside of the loop was not lifted", inkAt(200, 200))
+    }
+
+    @Test
+    fun `pressing the button during a lasso trace abandons the trace and erases, and letting go leaves no selection`() {
+        drawLine(100f, 300f, 200f)
+        tool = CanvasTool.LASSO
+        val down = penDown(50f, 150f)
+        penMove(50f, 195f, 150f, down)
+        clock += 8
+        send(pen(MotionEvent.ACTION_MOVE, 200f, 200f, down, BUTTON))
+        penMove(200f, 250f, 200f, down, BUTTON)
+        // Enough movement afterwards for a new outline, if one were started by mistake.
+        clock += 8
+        send(pen(MotionEvent.ACTION_MOVE, 250f, 350f, down))
+        clock += 8
+        send(pen(MotionEvent.ACTION_MOVE, 50f, 350f, down))
+        penUp(50f, 150f, down)
+        assertNull(session.state.value.selection)
+        assertFalse(inkAt(225, 200))
+        assertTrue("nothing was lifted", inkAt(120, 200))
+        assertFalse("and nothing drawn", inkAt(150, 350))
+    }
+
+    @Test
+    fun `the button can come back during the same touch with the lasso tool, and erases again`() {
+        drawLine(100f, 500f, 200f)
+        tool = CanvasTool.LASSO
+        val down = penDown(100f, 200f, BUTTON)
+        penMove(100f, 150f, 200f, down, BUTTON)
+        penMove(150f, 300f, 200f, down)
+        penMove(300f, 350f, 200f, down, BUTTON)
+        penUp(350f, 200f, down, BUTTON)
+        val image = saved()
+        assertEquals(0, Color.alpha(image.getPixel(120, 200)))
+        assertTrue("nothing between", Color.alpha(image.getPixel(225, 200)) > 128)
+        assertEquals(0, Color.alpha(image.getPixel(330, 200)))
+    }
+
+    @Test
+    fun `a pen's eraser end erases with the fill and lasso tools too`() {
+        drawLine(100f, 300f, 200f)
+        tool = CanvasTool.FILL
+        penLine(120f, 140f, 200f, toolType = MotionEvent.TOOL_TYPE_ERASER)
+        tool = CanvasTool.LASSO
+        penLine(260f, 280f, 200f, toolType = MotionEvent.TOOL_TYPE_ERASER)
+        val image = saved()
+        assertEquals(0, Color.alpha(image.getPixel(130, 200)))
+        assertEquals(0, Color.alpha(image.getPixel(270, 200)))
+        assertEquals(0, Color.alpha(image.getPixel(500, 100)))
+        assertNull(session.state.value.selection)
+    }
+
+    @Test
+    fun `a selection's handles keep the touch, with the button held or pressed`() {
+        drawLine(100f, 300f, 200f)
+        lassoAround(50f, 150f, 350f, 250f)
+        // Dragging from inside with the button held from the start, then pressing and releasing on the way.
+        val down = penDown(200f, 200f, BUTTON)
+        clock += 16
+        send(pen(MotionEvent.ACTION_MOVE, 300f, 250f, down, BUTTON))
+        clock += 16
+        send(pen(MotionEvent.ACTION_MOVE, 350f, 300f, down))
+        clock += 16
+        send(pen(MotionEvent.ACTION_MOVE, 400f, 350f, down, BUTTON))
+        penUp(400f, 350f, down, BUTTON)
+        assertNotNull("still lifted", session.state.value.selection)
+        session.commitSelection()
+        idle()
+        assertTrue("it moved, and was not erased", inkAt(350, 350))
+        assertFalse(inkAt(200, 200))
+    }
+
+    @Test
+    fun `touching outside a selection with the button held puts it down and erases`() {
+        drawLine(100f, 300f, 200f)
+        drawLine(500f, 700f, 400f)
+        lassoAround(50f, 150f, 350f, 250f)
+        penLine(590f, 610f, 400f, BUTTON)
+        assertNull(session.state.value.selection)
+        assertTrue("the selection is back in the layer", inkAt(200, 200))
+        val image = saved()
+        assertEquals(0, Color.alpha(image.getPixel(600, 400)))
+        assertTrue(Color.alpha(image.getPixel(520, 400)) > 128)
+    }
+
+    @Test
+    fun `Samsung's own actions for a pen with its button held erase like any other`() {
+        drawLine(100f, 500f, 200f)
+        val down = clock
+        send(pen(SPEN_ACTION_DOWN, 180f, 200f, down))
+        clock += 8
+        send(pen(SPEN_ACTION_MOVE, 220f, 200f, down))
+        clock += 8
+        send(pen(SPEN_ACTION_UP, 220f, 200f, down))
+        clock += 2000
+        idle()
+        assertFalse(inkAt(200, 200))
+        assertTrue(inkAt(120, 200))
+    }
+
+    @Test
+    fun `Samsung's own actions partway through a stroke switch to erasing, and the lift still ends it`() {
+        drawLine(300f, 500f, 200f)
+        val down = penDown(100f, 200f)
+        penMove(100f, 200f, 200f, down)
+        var x = 200f
+        while (x < 400f) {
+            x += 5f
+            clock += 8
+            send(pen(SPEN_ACTION_MOVE, x, 200f, down))
+        }
+        clock += 8
+        send(pen(SPEN_ACTION_UP, 400f, 200f, down))
+        clock += 2000
+        idle()
+        assertTrue(inkAt(150, 200))
+        assertFalse(inkAt(350, 200))
+        val frames = session.state.value.project.frames.size
+        session.addFrame()
+        idle()
+        assertEquals("a stroke that never ended would have the session ignore this", frames + 1, session.state.value.project.frames.size)
+    }
+
+    @Test
+    fun `Samsung's own down partway through a stroke switches to erasing, and does not start the touch over`() {
+        drawLine(300f, 500f, 200f)
+        val down = penDown(100f, 200f)
+        penMove(100f, 200f, 200f, down)
+        clock += 8
+        send(pen(SPEN_ACTION_DOWN, 205f, 200f, down))
+        var x = 205f
+        while (x < 400f) {
+            x += 5f
+            clock += 8
+            send(pen(SPEN_ACTION_MOVE, x, 200f, down))
+        }
+        clock += 8
+        send(pen(SPEN_ACTION_UP, 400f, 200f, down))
+        clock += 2000
+        idle()
+        assertTrue("an open stroke overwritten by a new one would lose this", inkAt(150, 200))
+        assertFalse(inkAt(350, 200))
+        assertEquals("the first line, the ink and the erasing", 3, undoStepsLeft())
+    }
+
+    @Test
+    fun `Samsung's own up for another pointer leaves the pen's stroke going`() {
+        val stylus = MotionEvent.TOOL_TYPE_STYLUS
+        val finger = MotionEvent.TOOL_TYPE_FINGER
+        val down = penDown(100f, 200f)
+        penMove(100f, 200f, 200f, down)
+        val at = toView(200f) to toViewY(200f)
+        val palm = toView(700f) to toViewY(400f)
+        clock += 8
+        send(touch(MotionEvent.ACTION_POINTER_DOWN, at, palm, toolType = stylus, otherToolType = finger, downTime = down, actionIndex = 1))
+        clock += 8
+        send(touch(SPEN_ACTION_UP, at, palm, toolType = stylus, otherToolType = finger, downTime = down, actionIndex = 1))
+        penMove(200f, 400f, 200f, down, BUTTON)
+        penUp(400f, 200f, down, BUTTON)
+        val image = saved()
+        assertTrue(Color.alpha(image.getPixel(150, 200)) > 128)
+        assertEquals("the ink and the erasing, so the stroke did carry on past that event", 2, undoStepsLeft())
+    }
+
+    @Test
+    fun `Samsung's own action being taken back leaves nothing`() {
+        val down = clock
+        send(pen(SPEN_ACTION_DOWN, 180f, 200f, down))
+        clock += 8
+        send(pen(SPEN_ACTION_MOVE, 220f, 200f, down))
+        send(pen(SPEN_ACTION_CANCEL, 220f, 200f, down))
+        idle()
+        assertFalse(session.state.value.canUndo)
+    }
+
     private companion object {
         const val VIEW_W = 800
         const val VIEW_H = 480
+        const val BUTTON = MotionEvent.BUTTON_STYLUS_PRIMARY
+        const val SPEN_ACTION_DOWN = 211
+        const val SPEN_ACTION_UP = 212
+        const val SPEN_ACTION_MOVE = 213
+        const val SPEN_ACTION_CANCEL = 214
     }
 }

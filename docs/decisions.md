@@ -262,3 +262,45 @@ specification allows either, but then a chart's lines would turn into hairlines 
   can be what fills it. If a save's images do not fit on a full disk, a sweep comes first and the save goes again, because otherwise no save would ever succeed and nothing would ever sweep.
 - **The file picker asks for SVG first and then anything,** because some apps label these files differently, and a file hidden from the picker cannot be
   picked at all. A wrong file gets a friendly message on reading it.
+
+## The stylus button erases
+
+The specification only asks for the eraser end. Phones like the Galaxy S25 Ultra have a pen with a side button and no eraser end, so the button does the same thing.
+
+**What it does.** Holding BUTTON_STYLUS_PRIMARY, BUTTON_STYLUS_SECONDARY or BUTTON_SECONDARY on a stylus erases on the active layer with the eraser's settings and the pen's pressure, whatever tool is selected, and
+the tool shown does not change. BUTTON_SECONDARY is there because that is what a pen's button was before Android 6, and some devices still report it so. A finger is never affected, even in an event
+it shares with a pen, because button state belongs to the event and not to a pointer. The eraser end now follows the same rule, so it erases with the fill and lasso tools as well, which it did not before.
+
+**The button changing with the pen down.** The current stroke ends and the next starts from the same point, as separate undo steps, through the renderers' usual begin and commit. On the low-latency path
+that is a new stroke arriving before the last one's commit, which `WetStrokeSequencer` already holds back. All of an event's samples go to the new mode, because an event has only one button state.
+So the join is accurate to one event and not to one sample, which at worst is a frame's worth of movement. Nothing is lost, and the two parts meet exactly.
+
+**Marks nobody meant.**
+
+- *Touching first and pressing soon after.* This is how people will use it on Samsung phones, where pressing during a hover can open Air Command. If the pen has not left the touch slop when the button goes down, the ink
+  is dropped rather than committed, so the dot leaves no mark and no undo step. Once it has travelled further, it counts as a drawing and stays.
+- *Letting go just before lifting.* Drawing only resumes once the pen moves past the touch slop, and then joins up with where erasing stopped. Starting at once would leave a dot of ink at the end of what was just erased,
+  and an undo step for it. So a very small mark right after letting go is not drawn, and ink starts a touch slop late, though it then reaches all the way back.
+- *The button changing on the event that lifts.* The stroke just ends in the mode it was in.
+
+**The other tools and states.**
+
+- **Eraser selected:** the button changes nothing, so there is no split and one undo step.
+- **Fill and lasso:** the button erases. Pressing it during a touch drops the fill or the lasso trace. After letting go the pen does nothing until it lifts, even if it moves, because those tools take a whole touch and
+  what remains of this one would make a stray fill or selection. Pressing the button again in that touch erases again. The next touch uses the tool as usual.
+- **A selection:** a normal stroke cannot start on a selection's handles or inside it, so the pen drags it, and the button changes nothing during that drag. Touching outside puts the selection down and erases.
+- **A locked or hidden layer:** the usual message, once per touch.
+- **Playback:** a touch only stops playback, with or without the button. A stroke under way when playback starts is dropped, as any other is.
+- **Two or more fingers:** a pinch keeps going, and a hand resting beside a pen does not stop the button working.
+
+**Samsung's private actions.** Actions 211 to 214 are not documented by Android or Samsung. Chromium's `SPenSupport` maps them to down, up, move and cancel, with a note that the values came from Samsung, and Uno Platform's code ties them to the pen's button being held. We map them too, because a view that
+ignored them would not start at all with the button held, and would never hear the pen lift if it was pressed mid-stroke. We do not know whether current phones still send them, and this is a safety net, not the main path, which is `buttonState`. No standard action uses these numbers, so nothing else can reach it.
+We differ in two ways. A down during a touch carries that touch on, and a down or up with another pointer present means that pointer, because a second plain down over an open stroke would leave it unfinished and hold back every stroke after it on the low-latency path.
+
+**What this does not cover.**
+
+- It has been tested on the JVM with synthetic events only, and never on a real pen. The software path ran under Robolectric's Android 14, not on Android 8 or 9, and the low-latency path ran as far as the library with no real surface. The button timing, the look of
+  the join on the front buffer, and what a real S Pen reports are all still to be checked on a device.
+- Air Command belongs to the system and an app cannot stop it, so pressing during a hover may still open it.
+- The button only erases. There is no setting to give it another job, and no sign on screen that it is held.
+- On the software path, erasing shows no prediction, the same as the eraser always has there.

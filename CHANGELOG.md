@@ -11,6 +11,8 @@ The bouncing ball works from start to finish.
 - Editor with low-latency drawing (API 29+) and a software fallback (API 26–28)
 - Pen, Pencil and Marker brushes with pressure, tilt, simulated finger pressure and smoothing
 - Eraser, fill with gap closing, and lasso with move, scale and rotate
+- Holding the stylus button erases, whatever tool is selected, with the pen's pressure, and letting go goes back to that tool. It also works when the pen
+  is already on the screen: the ink ends there and erasing carries on from that point, as a separate undo step. The eraser end of a stylus now erases with the fill and lasso tools too
 - Frames, layers, onion skin, and playback
 - Undo and redo for pixels and structure, with at least 100 steps
 - Crash-safe autosave

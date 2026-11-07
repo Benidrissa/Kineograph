@@ -39,6 +39,11 @@ internal class SoftwareRenderer(
     private var fullRedraw = true
     private val dirty = Rect()
     private var predicted: StampRun = StampRun.EMPTY
+
+    // What the prediction belongs to. The pen's button starts the next stroke before the engine has finished with the last one's
+    // prediction, and painting that with the eraser's spec would show a black mark for a frame.
+    private var predictedSpec: BrushSpec? = null
+    private var predictedColor = 0
     private var released = false
 
     @Volatile
@@ -50,14 +55,9 @@ internal class SoftwareRenderer(
     @Volatile
     private var playbackFrame: Bitmap? = null
 
-    // Set on the main thread and read when drawing a prediction.
-    @Volatile
-    private var wetSpec: BrushSpec? = null
-
-    @Volatile
-    private var wetColor = 0
-
     // Touched only from the main thread.
+    private var wetSpec: BrushSpec? = null
+    private var wetColor = 0
     private val strokeBounds = BoundsAccumulator()
 
     private val matrix = Matrix()
@@ -97,7 +97,8 @@ internal class SoftwareRenderer(
         strokeBounds.add(real)
         // Predicting an erased area would need the layer composited just for the guess, so erasing skips prediction.
         val shown = if (spec.isEraser) StampRun.EMPTY else predicted
-        session.addStamps(real) { invalidate(real, shown) }
+        val color = wetColor
+        session.addStamps(real) { invalidate(real, shown, spec, color) }
     }
 
     override fun commitWet() {
@@ -143,13 +144,15 @@ internal class SoftwareRenderer(
         return replaced
     }
 
-    private fun invalidate(real: StampRun, newPredicted: StampRun) {
+    private fun invalidate(real: StampRun, newPredicted: StampRun, spec: BrushSpec, color: Int) {
         synchronized(lock) {
             addDirty(real.minX, real.minY, real.maxX, real.maxY, real.isEmpty)
             val stale = predicted
             addDirty(stale.minX, stale.minY, stale.maxX, stale.maxY, stale.isEmpty)
             addDirty(newPredicted.minX, newPredicted.minY, newPredicted.maxX, newPredicted.maxY, newPredicted.isEmpty)
             predicted = newPredicted
+            predictedSpec = spec
+            predictedColor = color
         }
         schedule()
     }
@@ -189,12 +192,16 @@ internal class SoftwareRenderer(
         val region = Rect()
         val full: Boolean
         val prediction: StampRun
+        val spec: BrushSpec?
+        val color: Int
         synchronized(lock) {
             drawScheduled = false
             if (released) return
             full = fullRedraw
             region.set(dirty)
             prediction = predicted
+            spec = predictedSpec
+            color = predictedColor
             fullRedraw = false
             dirty.setEmpty()
         }
@@ -208,16 +215,13 @@ internal class SoftwareRenderer(
             val affine = view
             val frame = softwareFrame()
             sceneRenderer.draw(canvas, scene, affine, workspaceColor, frame)
-            if (!prediction.isEmpty && frame == null) {
-                val spec = wetSpec
-                if (spec != null) {
-                    affine.toMatrixValues(values)
-                    matrix.setValues(values)
-                    val checkpoint = canvas.save()
-                    canvas.concat(matrix)
-                    stampPainter.paint(canvas, spec, wetColor, prediction)
-                    canvas.restoreToCount(checkpoint)
-                }
+            if (!prediction.isEmpty && frame == null && spec != null) {
+                affine.toMatrixValues(values)
+                matrix.setValues(values)
+                val checkpoint = canvas.save()
+                canvas.concat(matrix)
+                stampPainter.paint(canvas, spec, color, prediction)
+                canvas.restoreToCount(checkpoint)
             }
         } finally {
             holder.unlockCanvasAndPost(canvas)
