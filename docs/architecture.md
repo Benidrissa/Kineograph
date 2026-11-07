@@ -11,7 +11,7 @@ well on 2–3 GB phones, and code that can be tested. This page explains how tho
 :feature:editor      Canvas view, renderers, tool bar, frame strip, sheets, playback, export UI
 :feature:settings    Settings, About
 :core:ui             Theme, original icon set, shared components, colour picker
-:core:media          GIF encoder, H.264 encoder, export pipeline, background worker, gallery writer, SVG reader
+:core:media          GIF encoder, H.264 encoder, export pipeline, background worker, gallery writer, SVG reader, SVG import
 :core:data           Room index, cel file store, manifest, autosave, sample project, preferences
 :core:engine         Brush engine, flood fill, selection, history, compositor, drawing session
 :core:model          Project data classes, timeline maths, structural edits (pure Kotlin, no Android)
@@ -142,3 +142,29 @@ bytes  ->  XmlInput  ->  XmlReader  ->  tree of SvgElement  ->  SvgModelBuilder 
 - **A real browser is what it is checked against.** `SvgBrowserComparisonTest` compares it with what Chromium drew for several hundred
   moments of the fixtures, and `tools/svg-reference` makes those pictures. See [decisions.md](decisions.md) for where it follows Chromium, and
   for where it knowingly does not.
+
+## SVG import
+
+Bringing a file into a project has three parts, and each knows as little as it can about the others.
+
+```
+:feature:editor   SvgImportSheet, SvgImportController    choices, preview, progress, messages
+:core:media       SvgImporter                            draws the pictures and stores them as cels
+:core:model       ImportEdits                            how the project changes, given the pictures
+```
+
+- **The project changes once, at the very end.** Until then, the importer only writes files. Its last step is
+  `DrawingSession.applyEdit`, one undo step on the engine thread, with an edit from `ImportEdits`. So however an import ends early, by
+  Cancel, by running out of memory or storage, or by the app going away, there is nothing to take back.
+- **A timeline never changes under an import.** Slots are only added after the end. A tick is `1 / fps`, and the new layer's ticks line up with
+  the ticks already on the timeline. A slot held for several ticks can only show one drawing, so it gets the moment it starts at and the
+  animation stays in time with the rest of the project. `ImportEdits.ticksToSample` says which ticks will be seen, so that no others are drawn.
+- **Memory does not grow with the length of an animation.** Two canvas-sized bitmaps are reused for all of it, one to draw on and one to compare
+  with, using a native comparison, and the store's queue limits what waits to reach the disk. Every eighth stored picture also waits for the disk, which
+  is how a full disk ends the import early rather than leaving every picture queued in memory.
+- **The sweep has to be kept off.** Files of an import under way are not in the project yet, so a sweep would delete them. `Autosaver.holdSweeps`
+  stops sweeps until the import is settled. What a cancelled import wrote is left for the next sweep. What one wrote before running out of
+  storage is given up at once with `CelStore.discard`, because that space is needed now, and because a write that keeps failing would make
+  every later save fail as well.
+- **The preview cannot slow the sheet down.** It draws on a background thread into a few reused bitmaps, far smaller than the canvas where the canvas is
+  large, and a change of choices abandons whatever was being drawn. It plays exactly the moments that an import would sample.

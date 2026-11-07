@@ -50,6 +50,9 @@ import org.kineograph.model.PaperKind
 import org.kineograph.ui.ColorPicker
 import org.kineograph.ui.DefaultSwatches
 import org.kineograph.ui.KgIcons
+import org.kineograph.ui.OptionGroupHeading
+import org.kineograph.ui.VisualDropdown
+import org.kineograph.ui.VisualOption
 import java.io.File
 
 /** The form for starting a new project. Every choice here can be changed later in the project's settings. */

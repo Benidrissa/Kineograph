@@ -1,6 +1,9 @@
 package org.kineograph.feature.editor
 
+import android.content.ActivityNotFoundException
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -101,6 +104,7 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
     val playbackController = viewModel.playback
     val playback = playbackController?.state?.collectAsStateWithLifecycle()?.value ?: PlaybackState()
     val thumbnails = viewModel.thumbnails
+    val svgImport = viewModel.svgImport
 
     var sheet by remember { mutableStateOf<EditorSheet?>(null) }
     var canvasView by remember { mutableStateOf<KineographCanvasView?>(null) }
@@ -114,6 +118,19 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
         viewModel.messages.collect { message -> snackbar.showSnackbar(context.getString(message.textRes())) }
     }
     LaunchedEffect(playback.isPlaying, canvasView) { canvasView?.isPlaying = playback.isPlaying }
+
+    val fallbackSvgName = stringResource(R.string.svg_import_default_name)
+    val svgPicker =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) svgImport?.open(uri, context.contentResolver, fallbackSvgName)
+        }
+    val pickSvg = {
+        try {
+            svgPicker.launch(SVG_MIME_TYPES)
+        } catch (_: ActivityNotFoundException) {
+            viewModel.notify(EditorMessage.NO_FILE_PICKER)
+        }
+    }
 
     val startPlayback = {
         val view = canvasView
@@ -204,6 +221,7 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
                     wideLayout = wideLayout,
                     onOpenLayers = { sheet = EditorSheet.LAYERS },
                     onPlay = startPlayback,
+                    onImportSvg = pickSvg,
                 )
             }
         }
@@ -253,7 +271,24 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
     exportState?.let { state ->
         ExportDialog(state = state, onCancel = viewModel::cancelExport, onDismiss = viewModel::dismissExport)
     }
+    if (svgImport != null) {
+        val svgState by svgImport.state.collectAsStateWithLifecycle()
+        SvgImportHost(
+            controller = svgImport,
+            state = svgState,
+            project = sessionState.project,
+            frameId = sessionState.frameId,
+            canDrawOnActiveLayer = sessionState.canDrawOnActiveLayer,
+            backgroundImage = session.scene?.backgroundImage,
+        )
+    }
 }
+
+/**
+ * SVG first, then anything, because some apps and file systems label these files differently. A file that turns out not to be SVG gets a
+ * friendly message when it is read.
+ */
+private val SVG_MIME_TYPES = arrayOf("image/svg+xml", "*/*")
 
 private fun EditorMessage.textRes(): Int =
     when (this) {
@@ -263,4 +298,11 @@ private fun EditorMessage.textRes(): Int =
         EditorMessage.SAVE_FAILED -> R.string.message_save_failed
         EditorMessage.RECOVERED_FROM_BACKUP -> R.string.message_recovered
         EditorMessage.MISSING_DRAWINGS -> R.string.message_missing_drawings
+        EditorMessage.NO_FILE_PICKER -> R.string.message_no_file_picker
+        EditorMessage.SVG_EMPTY -> R.string.svg_problem_empty
+        EditorMessage.SVG_UNREADABLE -> R.string.svg_problem_unreadable
+        EditorMessage.SVG_TOO_LARGE -> R.string.svg_problem_too_large
+        EditorMessage.SVG_DAMAGED -> R.string.svg_problem_damaged
+        EditorMessage.SVG_NOT_SVG -> R.string.svg_problem_not_svg
+        EditorMessage.SVG_IMPORTED_INCOMPLETE -> R.string.svg_problem_incomplete
     }

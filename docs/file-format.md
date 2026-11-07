@@ -54,7 +54,7 @@ Distinguished by `type`:
 |---|---|
 | `paper` | `kind`: `WHITE`, `OFF_WHITE`, `GRID`, `DOTS` or `DARK` |
 | `color` | `argb`: signed 32-bit colour |
-| `image` | `file`: path relative to the project |
+| `image` | `file`: path relative to the project, normally a WebP or PNG under `media/` |
 | `transparent` | none |
 
 ### layers

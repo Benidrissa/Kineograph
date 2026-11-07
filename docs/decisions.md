@@ -84,7 +84,8 @@ model already supported them and each was small. Anything shown in the UI works;
 
 Android has no SVG renderer, `VectorDrawable` covers a small part of the format, and the open source libraries do not animate,
 which is the point of importing animated SVG. A renderer also has to be small and free of dependencies to fit this app, so it
-is ours, in `org.kineograph.media.svg`, on top of `android.util.Xml` and `android.graphics`.
+is ours, in `org.kineograph.media.svg`, on top of `android.util.Xml` and `android.graphics`. It knows nothing about screens or projects,
+because the same code will later display SVG returned by an AI model.
 
 ## SVG behaviour that follows browsers rather than the text of the specification
 
@@ -169,3 +170,23 @@ We keep to the specification where what Chromium does plainly contradicts it, an
 Other differences are choices, or not done yet. Each one has a fixture listed with its reason in
 `core/media/src/test/resources/svg/reference/known-differences.txt`. A font the phone does not have becomes sans-serif, where a browser picks
 serif: it is likelier to be what the author saw.
+
+## SVG import
+
+- **A loop with an intro is sampled from where it starts to repeat.** The moment of tick `i` is `i / fps` for nearly every file. A loop with a delay or an
+  intro gets `loopStartSeconds + i / fps`, because importing its first seconds instead would give a loop that jumps every time it comes round, and being seamless is
+  the point of the suggested duration. The intro itself is not imported. A single image can still pick any moment from zero.
+- **A held slot shows one moment.** An import adds slots and never changes one, so it cannot split a held slot into shorter ones. Showing the moment
+  that slot starts at keeps the animation in time, at the cost of the moments in between. On a timeline with no holds, nothing is lost.
+- **Comparing with the previous frame only.** Identical consecutive frames share a file, which covers a picture sitting still. Finding repeats further
+  back, such as each round of a loop, would save more, but would have to keep or hash every frame for a saving that only ever shows up in storage.
+- **A file with animation that never runs is a still picture.** A file whose only animation waits for a click reports `isAnimated`, and rightly, but offering
+  to import it as zero seconds of animation would only confuse. The sheet offers a single image and the warning explains why.
+- **A picture that draws nothing imports nothing.** A frame that is empty stores no cel, but a new layer and a longer timeline with nothing at all on them would be a
+  strange result to get from Import, so the sheet says so and the project stays as it is.
+- **Background images are lossless.** The picture chosen as a background through project settings is a photo, for which lossy compression is right. A picture drawn from SVG is
+  usually flat colour and sharp edges, where it would show.
+- **A background from an import is not an undo step,** like every other change of background, because undo restores the layers and timeline and leaves project
+  settings as they are.
+- **The file picker asks for SVG first and then anything,** because some apps label these files differently, and a file hidden from the picker cannot be
+  picked at all. A wrong file gets a friendly message on reading it.

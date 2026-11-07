@@ -158,6 +158,15 @@ public class CelFileStore(
         }
     }
 
+    override fun discard(files: Collection<String>) {
+        for (name in files) {
+            failed.remove(name)
+            pending.remove(name)
+            cache.remove(name)
+            resolve(name)?.delete()
+        }
+    }
+
     /** Stops background work. Call after a final [awaitWrites]. */
     public fun close() {
         scope.cancel()

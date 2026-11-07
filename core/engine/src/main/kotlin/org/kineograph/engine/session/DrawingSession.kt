@@ -834,6 +834,20 @@ public class DrawingSession(
         canvas.drawBitmap(image, bounds.left.toFloat(), bounds.top.toFloat(), paint)
     }
 
+    /**
+     * Applies a change worked out elsewhere, such as an import, as one undo step, and returns once it is done. Pending pixels are saved first,
+     * so [edit] sees the project as it stands. [selectLayerId] becomes the active layer if the result has it. Anything thrown, including running
+     * out of memory, comes back to the caller, because whoever made this change has to tell the user whether it happened.
+     */
+    public suspend fun applyEdit(selectLayerId: String? = null, edit: (Project) -> Project) {
+        withContext(dispatcher) {
+            applyStructure { p ->
+                val next = edit(p)
+                next to HistoryCursor(frameId, selectLayerId?.takeIf { next.layer(it) != null } ?: layerId)
+            }
+        }
+    }
+
     private fun updateLayer(id: String, change: (Layer) -> Layer) {
         structureEdit { p -> ProjectEdits.updateLayer(p, id, change) to HistoryCursor(frameId, layerId) }
     }

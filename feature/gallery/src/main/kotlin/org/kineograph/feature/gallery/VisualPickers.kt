@@ -5,25 +5,14 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
-import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -34,7 +23,6 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -42,7 +30,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.kineograph.engine.compositor.BackgroundPainter
 import org.kineograph.model.PaperKind
-import org.kineograph.ui.KgIcons
 import java.io.IOException
 import kotlin.math.max
 import kotlin.math.min
@@ -56,77 +43,6 @@ internal sealed interface BackgroundChoice {
     data class ImageChoice(val uri: Uri) : BackgroundChoice
 
     data object TransparentChoice : BackgroundChoice
-}
-
-/**
- * A drop-down whose closed state shows a picture of the current choice. [menu] holds the options, built with
- * [VisualOption] and [OptionGroupHeading].
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun VisualDropdown(
-    label: String,
-    valueText: String,
-    expanded: Boolean,
-    onExpandedChange: (Boolean) -> Unit,
-    tag: String,
-    leading: @Composable () -> Unit,
-    menu: @Composable ColumnScope.() -> Unit,
-) {
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = onExpandedChange) {
-        OutlinedTextField(
-            value = valueText,
-            onValueChange = {},
-            readOnly = true,
-            singleLine = true,
-            label = { Text(label) },
-            leadingIcon = { Box(Modifier.padding(start = 12.dp, end = 4.dp)) { leading() } },
-            trailingIcon = {
-                Icon(KgIcons.ChevronDown, contentDescription = null, Modifier.rotate(if (expanded) CHEVRON_OPEN_DEGREES else 0f))
-            },
-            modifier =
-                Modifier
-                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                    .fillMaxWidth()
-                    .testTag(tag),
-        )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }, content = menu)
-    }
-}
-
-/** One choice in a [VisualDropdown]: a picture of it, its name, and a few words on what it is for. */
-@Composable
-internal fun VisualOption(
-    title: String,
-    hint: String,
-    selected: Boolean,
-    tag: String,
-    preview: @Composable () -> Unit,
-    onClick: () -> Unit,
-) {
-    DropdownMenuItem(
-        text = {
-            Column(Modifier.padding(vertical = 6.dp)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge)
-                Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        },
-        leadingIcon = { preview() },
-        trailingIcon = { if (selected) Icon(KgIcons.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-        onClick = onClick,
-        modifier = Modifier.testTag(tag),
-    )
-}
-
-/** A label above a group of options. */
-@Composable
-internal fun OptionGroupHeading(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 2.dp),
-    )
 }
 
 /** A small sample of a background, painted the way it will really look. */
@@ -307,4 +223,3 @@ private const val PATTERN_CELLS = 5f
 private const val MIN_PATTERN_SPACING = 5
 private const val CHECKER_CELL = 5
 private const val THUMBNAIL_EDGE = 320
-private const val CHEVRON_OPEN_DEGREES = 180f

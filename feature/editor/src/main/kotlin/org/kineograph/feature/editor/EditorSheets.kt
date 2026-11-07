@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -113,6 +114,7 @@ internal fun LabelledSlider(
     range: ClosedFloatingPointRange<Float> = 0f..1f,
     steps: Int = 0,
     onValueChangeFinished: (() -> Unit)? = null,
+    testTag: String? = null,
     onChange: (Float) -> Unit,
 ) {
     Column {
@@ -120,15 +122,24 @@ internal fun LabelledSlider(
             Text(label, style = MaterialTheme.typography.labelLarge)
             Text(valueText, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Slider(
-            value = value,
-            onValueChange = onChange,
-            valueRange = range,
-            steps = steps,
-            onValueChangeFinished = onValueChangeFinished,
-            colors = kgSliderColors(),
-            modifier = Modifier.semantics { contentDescription = label },
-        )
+        // The slider itself is only 44 dp tall. The box around it keeps its neighbours out of the 48 dp that a touch needs.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .then(if (testTag != null) Modifier.testTag(testTag) else Modifier),
+            contentAlignment = Alignment.Center,
+        ) {
+            Slider(
+                value = value,
+                onValueChange = onChange,
+                valueRange = range,
+                steps = steps,
+                onValueChangeFinished = onValueChangeFinished,
+                colors = kgSliderColors(),
+                modifier = Modifier.semantics { contentDescription = label },
+            )
+        }
     }
 }
 

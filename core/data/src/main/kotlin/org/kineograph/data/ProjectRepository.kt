@@ -118,6 +118,22 @@ public class ProjectRepository(
             }
         }
 
+    /**
+     * Keeps a finished picture as a project's background. Files under `media/` are not cels, so the sweep never touches them. Unlike a
+     * photo, this is usually flat colour with sharp edges, which lossy compression would visibly smear.
+     */
+    @Throws(IOException::class)
+    public suspend fun saveBackgroundImage(projectId: String, image: Bitmap): Background.Image =
+        withContext(io) {
+            val isWebp = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+            val output = ByteArrayOutputStream()
+            val format = if (isWebp) Bitmap.CompressFormat.WEBP_LOSSLESS else Bitmap.CompressFormat.PNG
+            if (!image.compress(format, LOSSLESS_EFFORT, output)) throw IOException("Could not encode the background")
+            val name = "media/background-${newId()}.${if (isWebp) "webp" else "png"}"
+            AtomicFile.write(File(files.projectDirectory(projectId), name), output.toByteArray())
+            Background.Image(name)
+        }
+
     /** Reads a project for editing. Returns null if nothing usable is on disk. */
     public suspend fun open(id: String): OpenedProject? =
         withContext(io) {
@@ -302,6 +318,9 @@ public class ProjectRepository(
         const val THUMBNAIL_EDGE = 480
         const val THUMBNAIL_QUALITY = 80
         const val BACKGROUND_QUALITY = 90
+
+        /** For lossless formats, quality means how hard to try. A background is written once, so it can try a little harder than a cel. */
+        const val LOSSLESS_EFFORT = 50
         const val MIN_STORE_CACHE = 1024L * 1024
         const val TRASH_RETENTION_MS = 30L * 24 * 60 * 60 * 1000
     }

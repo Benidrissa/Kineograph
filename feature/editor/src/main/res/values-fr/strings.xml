@@ -136,4 +136,67 @@
     <string name="export_failed_memory">Pas assez de mémoire pour cette taille. Essayez une taille plus petite.</string>
     <string name="export_failed_no_project">Lecture du projet impossible. Réessayez dans un instant.</string>
     <string name="export_failed_unknown">Un problème est survenu. Veuillez réessayer.</string>
+    <string name="message_no_file_picker">Cet appareil n’a aucune application pour choisir des fichiers.</string>
+    <string name="svg_import_action">Importer un SVG</string>
+    <string name="svg_import_title">Importer un SVG</string>
+    <string name="svg_import_default_name">Image importée</string>
+    <string name="svg_import_reading">Lecture du fichier…</string>
+    <string name="svg_import_running">Importation…</string>
+    <string name="svg_import_progress">Image %1$d sur %2$d</string>
+    <string name="svg_import_preview">Aperçu de l’image sur votre canevas</string>
+    <string name="svg_import_size">%1$d × %2$d · %3$s</string>
+    <string name="svg_import_static">Image fixe</string>
+    <string name="svg_import_animated_loops">Animé, %1$s s, en boucle</string>
+    <string name="svg_import_animated_once">Animé, %1$s s, joué une fois</string>
+    <string name="svg_import_as">Importer comme</string>
+    <string name="svg_import_as_animation">Animation</string>
+    <string name="svg_import_as_animation_hint">Un nouveau dessin sur chaque image</string>
+    <string name="svg_import_as_image">Image unique</string>
+    <string name="svg_import_as_image_hint">Un seul moment de l’animation</string>
+    <string name="svg_import_duration">Durée</string>
+    <string name="svg_import_seconds_unit">s</string>
+    <string name="svg_import_duration_reset">Utiliser %1$s s</string>
+    <string name="svg_import_duration_invalid">Saisissez une durée en secondes, supérieure à 0.</string>
+    <plurals name="svg_import_frames">
+        <item quantity="one">%1$s s à %2$d i/s = %3$d image</item>
+        <item quantity="many">%1$s s à %2$d i/s = %3$d d’images</item>
+        <item quantity="other">%1$s s à %2$d i/s = %3$d images</item>
+    </plurals>
+    <string name="svg_import_large_warning">C’est une grosse importation. Elle peut prendre du temps et occuper environ %1$s de stockage. Vous pouvez l’annuler à tout moment.</string>
+    <string name="svg_import_animation_where">Nouveau calque, à partir de l’image %1$d</string>
+    <string name="svg_import_moment">Moment</string>
+    <string name="svg_import_moment_value">%1$s s</string>
+    <string name="svg_import_where">Emplacement</string>
+    <string name="svg_import_where_new_layer">Nouveau calque</string>
+    <string name="svg_import_where_new_layer_hint">Reste séparé de votre dessin</string>
+    <string name="svg_import_where_current_layer">Calque actuel</string>
+    <string name="svg_import_where_current_layer_hint">S’ajoute par-dessus ce que montre cette image</string>
+    <string name="svg_import_where_background">Arrière-plan</string>
+    <string name="svg_import_where_background_hint">Derrière tous les calques, sur toutes les images</string>
+    <string name="svg_import_fit">Ajustement</string>
+    <string name="svg_import_fit_inside">Ajuster au canevas</string>
+    <string name="svg_import_fit_inside_hint">Tout reste visible, centré</string>
+    <string name="svg_import_fit_fill">Remplir le canevas</string>
+    <string name="svg_import_fit_fill_hint">Couvre le canevas, les bords peuvent être coupés</string>
+    <string name="svg_import_fit_original">Taille d’origine</string>
+    <string name="svg_import_fit_original_hint">Sans mise à l’échelle, centré</string>
+    <string name="svg_import_start">Importer</string>
+    <string name="svg_import_nothing">Cette image ne montre rien à ce moment-là, donc rien n’a été importé.</string>
+    <string name="svg_import_out_of_memory">Il n’y a pas assez de mémoire pour cette importation, donc rien n’a changé. Essayez une durée plus courte ou un canevas plus petit.</string>
+    <string name="svg_import_out_of_storage">Il n’y a pas assez de stockage pour cette importation, donc rien n’a changé. Libérez de l’espace et réessayez.</string>
+    <string name="svg_import_failed">Une erreur s’est produite, donc rien n’a changé. Veuillez réessayer.</string>
+    <string name="svg_warning_script">Les scripts ne sont pas exécutés ici. Si le fichier s’anime avec JavaScript, vous obtenez son image fixe.</string>
+    <string name="svg_warning_external">Les liens vers le Web ou d’autres fichiers ne sont pas suivis, donc ces parties manquent.</string>
+    <string name="svg_warning_foreign_object">Le contenu Web intégré au fichier a été ignoré.</string>
+    <string name="svg_warning_filter">Les effets de filtre, comme les flous et les ombres, ont été ignorés.</string>
+    <string name="svg_warning_event">Les animations qui attendent un clic ou un appui ne démarrent jamais lors d’une importation.</string>
+    <string name="svg_warning_unsupported">Certains effets de ce fichier ne sont pas pris en charge, il peut donc paraître un peu différent.</string>
+    <string name="svg_warning_invalid">Des parties de ce fichier n’ont pas pu être comprises et ont été laissées de côté.</string>
+    <string name="svg_warning_limit">Ce fichier demande plus que ce que cet appareil peut dessiner, donc une partie peut manquer.</string>
+    <string name="svg_problem_empty">Ce fichier est vide.</string>
+    <string name="svg_problem_unreadable">Ce fichier n’a pas pu être ouvert. Essayez de le choisir à nouveau.</string>
+    <string name="svg_problem_too_large">Ce fichier est trop volumineux ou trop complexe pour cet appareil.</string>
+    <string name="svg_problem_damaged">Ce fichier est endommagé, ou ce n’est pas un SVG.</string>
+    <string name="svg_problem_not_svg">Ce fichier n’est pas une image SVG.</string>
+    <string name="svg_problem_incomplete">Importé, mais une partie était trop complexe pour être dessinée entièrement.</string>
 </resources>

@@ -31,6 +31,7 @@ import org.kineograph.feature.editor.canvas.CanvasRenderer
 import org.kineograph.media.export.ExportConfig
 import org.kineograph.media.export.ExportManager
 import org.kineograph.media.export.ExportStatus
+import org.kineograph.media.svgimport.SvgImporter
 import org.kineograph.model.Background
 import org.kineograph.model.PlaybackMode
 import java.io.File
@@ -64,7 +65,21 @@ internal sealed interface EditorLoadState {
 }
 
 /** Short messages for the user. */
-internal enum class EditorMessage { LAYER_LOCKED, LOW_MEMORY, CANNOT_OPEN, SAVE_FAILED, RECOVERED_FROM_BACKUP, MISSING_DRAWINGS }
+internal enum class EditorMessage {
+    LAYER_LOCKED,
+    LOW_MEMORY,
+    CANNOT_OPEN,
+    SAVE_FAILED,
+    RECOVERED_FROM_BACKUP,
+    MISSING_DRAWINGS,
+    NO_FILE_PICKER,
+    SVG_EMPTY,
+    SVG_UNREADABLE,
+    SVG_TOO_LARGE,
+    SVG_DAMAGED,
+    SVG_NOT_SVG,
+    SVG_IMPORTED_INCOMPLETE,
+}
 
 /** An export in progress or just finished, for the export dialog. */
 internal data class ExportUiState(val config: ExportConfig, val status: ExportStatus)
@@ -95,6 +110,8 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
         private set
     internal var thumbnails: ThumbnailLoader? = null
         private set
+    internal var svgImport: SvgImportController? = null
+        private set
 
     init {
         viewModelScope.launch { open() }
@@ -121,6 +138,14 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
         autosaver.start(viewModelScope)
         playback = PlaybackController(viewModelScope, opened.store, budget.playbackCacheBytes, budget.isLowRam)
         thumbnails = ThumbnailLoader(opened.store, THUMBNAIL_CACHE_BYTES)
+        svgImport =
+            SvgImportController(
+                scope = viewModelScope,
+                importer = SvgImporter(session, opened.store, { image -> dependencies.repository.saveBackgroundImage(projectId, image) }),
+                holdFiles = autosaver::holdSweeps,
+                releaseFiles = autosaver::releaseSweeps,
+                onMessage = { _messages.tryEmit(it) },
+            )
 
         viewModelScope.launch {
             session.events.collect { event ->

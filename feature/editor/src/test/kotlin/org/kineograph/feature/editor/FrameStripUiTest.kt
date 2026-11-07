@@ -228,6 +228,44 @@ class FrameStripUiTest {
     }
 
     @Test
+    fun `phones find Import SVG in the menu`() {
+        var imports = 0
+        showImportBar(wide = false) { imports++ }
+        compose.onNodeWithTag("import_svg").assertDoesNotExist()
+        compose.onNode(hasContentDescription("More actions")).performClick()
+        settle()
+        compose.onNodeWithText("Import SVG").assertIsDisplayed().performClick()
+        settle()
+        assertEquals(1, imports)
+    }
+
+    /** The narrowest window that gets the wide layout. */
+    @Test
+    @Config(sdk = [34], qualifiers = "w600dp-h480dp-xhdpi")
+    fun `wide screens find Import SVG in the bottom row, big enough to touch`() {
+        var imports = 0
+        showImportBar(wide = true) { imports++ }
+        compose.onNodeWithTag("import_svg").assertIsDisplayed().performClick()
+        assertEquals(1, imports)
+        val size = compose.onNodeWithTag("import_svg").fetchSemanticsNode().size
+        val minimum = with(compose.density) { 48.dp.roundToPx() }
+        assertEquals(true, size.width >= minimum && size.height >= minimum)
+    }
+
+    private fun showImportBar(wide: Boolean, onImport: () -> Unit) {
+        val thumbnails = ThumbnailLoader(store, 4 * 1024 * 1024)
+        compose.setContent {
+            val state by session.state.collectAsState()
+            KineographTheme(darkTheme = false) {
+                Surface {
+                    EditorBottomBar(state, session, thumbnails, wide, {}, {}, onImportSvg = onImport)
+                }
+            }
+        }
+        settle()
+    }
+
+    @Test
     fun `copy then paste makes a new frame`() {
         showBottomBar(wide = true)
         compose.onNode(hasContentDescription("Copy frame")).performClick()

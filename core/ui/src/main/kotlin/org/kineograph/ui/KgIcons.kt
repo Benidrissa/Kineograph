@@ -38,6 +38,7 @@ public object KgIcons {
         )
     }
     public val Save: ImageVector by lazy { icon("Save", "M12 4v11M7.5 10.5 12 15l4.5-4.5M4 20h16") }
+    public val Import: ImageVector by lazy { icon("Import", "M12 4v11M7.5 10.5 12 15l4.5-4.5M4 14v6h16v-6") }
     public val Open: ImageVector by lazy { icon("Open", "M14 4h6v6M20 4l-9 9M18 14v6H4V6h6") }
     public val Export: ImageVector by lazy { icon("Export", "M12 15V4M7.5 8.5 12 4l4.5 4.5M4 14v6h16v-6") }
     public val Image: ImageVector by lazy { icon("Image", "M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15.5 9v.01") }

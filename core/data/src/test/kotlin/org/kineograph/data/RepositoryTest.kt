@@ -201,6 +201,70 @@ class RepositoryTest {
 
     /** Draws through a real session and checks that it all comes back from disk: the core promise of autosave. */
     @Test
+    fun `a background picture is kept under media, keeps its pixels, and is out of the sweep's reach`() {
+        val project = create()
+        val opened = runBlocking { repository.open(project.id) } ?: error("project did not open")
+        val picture = Bitmap.createBitmap(200, 100, Bitmap.Config.ARGB_8888)
+        picture.eraseColor(Color.RED)
+        Canvas(picture).drawRect(0f, 0f, 100f, 100f, Paint().apply { color = Color.BLUE })
+        val background = runBlocking { repository.saveBackgroundImage(project.id, picture) }
+        assertTrue(background.file.startsWith("media/"))
+        assertTrue(File(files.projectDirectory(project.id), background.file).isFile)
+
+        val session = DrawingSession(project, opened.store, MemoryBudget.forMemoryClass(256, false), temp.newFolder())
+        session.setBackground(background)
+        val autosaver = Autosaver(session, repository, opened.store, project.id)
+        runBlocking {
+            session.awaitIdle()
+            autosaver.finish()
+        }
+        session.close()
+        assertTrue(File(files.projectDirectory(project.id), background.file).isFile)
+
+        val read = opened.store.read(background.file) ?: error("the background could not be read back")
+        assertEquals(Color.BLUE, read.getPixel(10, 50))
+        assertEquals(Color.RED, read.getPixel(190, 50))
+        opened.store.close()
+        val reopened = runBlocking { repository.open(project.id) } ?: error("project did not reopen")
+        assertEquals(background, reopened.loaded.project.background)
+        reopened.store.close()
+    }
+
+    @Test
+    fun `a sweep leaves files alone while they are held, then takes them once nothing refers to them`() {
+        val project = create()
+        val opened = runBlocking { repository.open(project.id) } ?: error("project did not open")
+        val session = DrawingSession(project, opened.store, MemoryBudget.forMemoryClass(256, false), temp.newFolder())
+        val autosaver = Autosaver(session, repository, opened.store, project.id)
+        val onTheWay = opened.store.write(image())
+        runBlocking {
+            opened.store.awaitWrites()
+            autosaver.holdSweeps()
+            autosaver.finish()
+        }
+        assertTrue(opened.store.exists(onTheWay))
+        autosaver.releaseSweeps()
+        runBlocking { autosaver.finish() }
+        assertFalse(opened.store.exists(onTheWay))
+        session.close()
+        opened.store.close()
+    }
+
+    @Test
+    fun `discarded images are gone at once, and no longer make saves fail`() {
+        val project = create()
+        val store = CelFileStore(files.projectDirectory(project.id), 1024 * 1024)
+        val name = store.write(image())
+        runBlocking { store.awaitWrites() }
+        assertTrue(store.exists(name))
+        store.discard(listOf(name))
+        assertFalse(store.exists(name))
+        assertNull(store.read(name))
+        runBlocking { store.awaitWrites() }
+        store.close()
+    }
+
+    @Test
     fun `a session's work survives closing and reopening the project`() {
         val project = create()
         val opened = runBlocking { repository.open(project.id) } ?: error("could not open")

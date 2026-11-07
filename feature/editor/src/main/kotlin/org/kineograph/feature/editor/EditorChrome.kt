@@ -358,6 +358,7 @@ internal fun EditorBottomBar(
     wideLayout: Boolean,
     onOpenLayers: () -> Unit,
     onPlay: () -> Unit,
+    onImportSvg: () -> Unit = {},
 ) {
     val frameActions = rememberFrameActions(session)
     Surface(tonalElevation = 2.dp) {
@@ -384,6 +385,12 @@ internal fun EditorBottomBar(
                 KgIconButton(KgIcons.Copy, stringResource(R.string.frame_copy), { session.copyFrames(listOf(state.frameId)) })
                 KgIconButton(KgIcons.Paste, stringResource(R.string.frame_paste), session::pasteFrames, enabled = state.hasFrameClipboard)
                 KgIconButton(KgIcons.Clear, stringResource(R.string.layer_clear), session::clearActiveCel)
+                KgIconButton(
+                    KgIcons.Import,
+                    stringResource(R.string.svg_import_action),
+                    onImportSvg,
+                    modifier = Modifier.testTag("import_svg"),
+                )
             }
         } else {
             Column {
@@ -417,7 +424,7 @@ internal fun EditorBottomBar(
                     )
                     LayersButton(state, thumbnails, onOpenLayers)
                     KgIconButton(KgIcons.Play, stringResource(R.string.playback_play), onPlay, modifier = Modifier.testTag("play_button"))
-                    OverflowActions(state, session)
+                    OverflowActions(state, session, onImportSvg)
                 }
             }
         }
@@ -425,7 +432,7 @@ internal fun EditorBottomBar(
 }
 
 @Composable
-private fun OverflowActions(state: SessionState, session: DrawingSession) {
+private fun OverflowActions(state: SessionState, session: DrawingSession, onImportSvg: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         KgIconButton(KgIcons.More, stringResource(R.string.editor_more), { open = true })
@@ -441,6 +448,10 @@ private fun OverflowActions(state: SessionState, session: DrawingSession) {
             MenuItem(KgIcons.Clear, stringResource(R.string.layer_clear)) {
                 open = false
                 session.clearActiveCel()
+            }
+            MenuItem(KgIcons.Import, stringResource(R.string.svg_import_action)) {
+                open = false
+                onImportSvg()
             }
         }
     }

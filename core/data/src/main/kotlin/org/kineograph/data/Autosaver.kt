@@ -18,6 +18,7 @@ import kotlinx.coroutines.withContext
 import org.kineograph.data.files.CelFileStore
 import org.kineograph.engine.session.DrawingSession
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Saves an open project about a second after the last change, and whenever [saveNow] is called, such as when
@@ -36,6 +37,7 @@ public class Autosaver(
     private var savesSinceSweep = 0
     private var thumbnailFiles: Set<String>? = null
     private var watcher: Job? = null
+    private val sweepHolds = AtomicInteger()
 
     private val _saveFailed = MutableStateFlow(false)
 
@@ -90,8 +92,22 @@ public class Autosaver(
         }
     }
 
+    /**
+     * Stops image files from being swept until [releaseSweeps]. An import writes many files that nothing refers to until its very end, and a
+     * sweep in the meantime would take them for garbage. A sweep already under way is safe too: it listed its files before these existed.
+     */
+    public fun holdSweeps() {
+        sweepHolds.incrementAndGet()
+    }
+
+    /** Ends a [holdSweeps]. Whatever is still not referred to by then goes in the next sweep. */
+    public fun releaseSweeps() {
+        sweepHolds.decrementAndGet()
+    }
+
     /** Deletes image files that nothing refers to any more. */
     private suspend fun sweep() {
+        if (sweepHolds.get() > 0) return
         val candidates = store.listFiles()
         val keep = session.referencedFiles()
         repository.sweep(projectId, store, candidates, keep)
