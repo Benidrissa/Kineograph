@@ -96,6 +96,8 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.isReturnDefaultValues = true
+        // ReleaseWorkflowTest reads this. Without saying so, a change to the workflow alone would reuse the last result.
+        unitTests.all { it.inputs.file(rootProject.file(".github/workflows/android.yml")) }
     }
 }
 

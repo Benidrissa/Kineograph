@@ -139,7 +139,8 @@ jobs:
 
   publish:
     # A job of its own, because it alone can write to the repository, so it runs nothing from the repository: no checkout and no
-    # Gradle. It only goes ahead once a tag has passed every job above. The bundle stays behind, as it cannot be installed.
+    # Gradle. It only goes ahead once a tag has passed every job above. Only the universal APK goes up, as a split one fails with
+    # just "App not installed" on any other kind of phone, and the bundle cannot be installed at all. See docs/decisions.md.
     name: Publish to Releases
     needs: release
     runs-on: ubuntu-latest
@@ -155,5 +156,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/apk/release/*.apk \
+          gh release create "$GITHUB_REF_NAME" dist/apk/release/*universal*.apk \
             --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes

@@ -25,8 +25,8 @@ A free, open-source, ad-free frame-by-frame animation app for Android. Named aft
 
 ## Install
 
-No signed version has been released yet, so [Releases](https://github.com/Benidrissa/Kineograph/releases) is empty. Signed
-APKs appear there once a version is tagged and has passed every test.
+No signed version has been released yet, so [Releases](https://github.com/Benidrissa/Kineograph/releases) is empty. A signed
+APK appears there once a version is tagged and has passed every test. There is one to download, and it works on every phone.
 
 Until then, you can try a test build. Sign in to GitHub, open the latest successful
 [run on `main`](https://github.com/Benidrissa/Kineograph/actions/workflows/android.yml?query=branch%3Amain+is%3Asuccess), and

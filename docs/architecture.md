@@ -200,7 +200,7 @@ the dialog cannot be closed until it has finished.
   Whether ghosts reach an export is tested on the JVM (`GifExportTest`), pixel for pixel, because a video encoder's noise
   would make that unreliable here. Since a test cannot read the canvas's surface, `PlaybackSlot` gives it the playhead.
 - **`release`**, on a tag, after the jobs above: the signed APKs and bundle, as a workflow artifact.
-- **`publish`**, after `release`: the signed APKs on the Releases page.
+- **`publish`**, after `release`: the signed universal APK on the Releases page. See [decisions.md](decisions.md).
 
 Debug builds are the package `org.kineograph.app.debug`, signed with the key in the repository, so one can update the last. Release
 builds are `org.kineograph.app`, signed with a key from repository secrets. See [decisions.md](decisions.md).
