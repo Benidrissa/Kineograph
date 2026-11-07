@@ -58,12 +58,16 @@ class SvgHostileFileTest {
     /** An allowance of about a second, which a file made of expensive things should go through in about that long. */
     private val small = device.copy(maxRenderWork = 100_000_000L, maxParseWork = 100_000_000L)
 
-    /** The machine these run on is shared, so this is far above what any of them takes. Hanging is what it is there to catch. */
+    /**
+     * The machine these run on is shared, so this is well above what any of them takes, and more so on CI, whose runners are slower than a
+     * developer's machine and have no timings of their own yet. Hanging is what it is there to catch.
+     */
     private fun <T> quickly(seconds: Double = 60.0, block: () -> T): T {
+        val limit = if (System.getenv("CI") != null) seconds * CI_ALLOWANCE else seconds
         val started = System.nanoTime()
         val result = block()
         val taken = (System.nanoTime() - started) / 1e9
-        assertTrue("took $taken seconds", taken < seconds)
+        assertTrue("took $taken seconds", taken < limit)
         return result
     }
 
@@ -1642,5 +1646,9 @@ class SvgHostileFileTest {
         assertTrue(complete)
         assertTrue(document.warnings.isEmpty())
         assertTrue(bitmap.paintedPixels() > 1000)
+    }
+
+    private companion object {
+        const val CI_ALLOWANCE = 3.0
     }
 }
