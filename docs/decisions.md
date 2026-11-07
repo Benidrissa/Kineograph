@@ -364,3 +364,65 @@ which is the work the front buffer is there to avoid. The software path draws th
 A launcher only reads a themed icon's alpha, and every shape in the colour icon is opaque and inside the front page, so reusing that
 gives a plain blob. `ic_launcher_monochrome` cuts the ball and floor out of the front page, and turns the pages behind it into
 slivers so that they do not fill the holes.
+
+## Tweening is back in scope, for in-betweens
+
+The specification listed vector animation and tweening as out of scope for version 1. On 2026-11-07 the owner overrode that for in-betweens:
+frames worked out on the phone where strokes in two frames match, with no model, landing on normal editable frames. The order is vector
+strokes, then in-betweens, then a local model prototype taking and returning SVG, in a separate build with no INTERNET permission. Editing as
+vectors stays out: pixels remain what the user sees, exports and undoes.
+
+## Saved strokes keep the exact floats the engine was fed
+
+A saved stroke has to draw again what it drew, because an in-between that starts from a stroke that does not match its frame is wrong without
+anyone being told. The first plan rounded samples to 1/64 px, 10 bits of pressure and 1/256 rad, which is about 3 bytes a point, and would have
+accepted a mean error under 1/255, a 99.9th percentile under 24/255 and no pixel over 64/255. That missed all three.
+
+These are the worst of 584 single strokes: pen, pencil, marker and eraser at a third, the whole and three times their size, over scripted strokes
+with six seeds. A pixel's difference is the largest of its four premultiplied channels, over every pixel that holds anything in either picture, so
+empty canvas cannot dilute it. `KINEOGRAPH_MEASURE_REPLAY=1 ./gradlew :core:engine:testDebugUnitTest --tests '*StrokeReplayTest*rounding*'` repeats
+it, in about three minutes.
+
+| Samples | Mean | 99.9th percentile | Largest | Strokes over any limit: mean, 99.9th, largest | Bytes a point | With tilt |
+|---|---|---|---|---|---|---|
+| 1/64 px, 10-bit pressure, 1/256 rad | 2.46 | 58 | 117 | 9, 12, 7 | 3.02 | 5.02 |
+| 1/64 px, 12-bit pressure, 1/256 rad | 2.47 | 168 | 184 | 9, 10, 7 | 3.04 | 5.04 |
+| 1/64 px, 16-bit pressure, 1/256 rad | 2.46 | 51 | 117 | 8, 8, 5 | 3.91 | 5.91 |
+| 1/256 px, 16-bit pressure, 1/1024 rad | 0.79 | 80 | 239 | 0, 2, 1 | 4.29 | 6.30 |
+| 1/1024 px, 16-bit pressure, 1/1024 rad | 0.79 | 47 | 51 | 0, 1, 0 | 5.27 | 7.27 |
+| 1/4096 px, 20-bit pressure, 1/65536 rad | 0.09 | 15 | 19 | 0, 0, 0 | 6.02 | 9.58 |
+| Exact floats, as saved now | 0.00 | 0 | 0 | 0, 0, 0 | 7.85 | 13.56 |
+
+Rounding hurts in three places, and more bits only make each rarer:
+
+- A stamp picks the nearest of its tip sizes, which are 19% apart and do not quite match where they meet. Five pen stamps in a row at 2.1871 px
+  and the same five at 2.1884 px came out 89/255 apart in one pixel, and a pressure held near that size flips stamps for as long as it stays there.
+- Rounding lengthens a path a little, which piles up: 0.2 px by the end of a 30-second stroke. Stamps then land elsewhere, and a textured tip's
+  grain goes with them.
+- That can also add or lose the last stamp, and a stamp's spacing is a share of its size, so on a large brush the end of the stroke moves by
+  whole pixels. An eraser gained a stamp this way at 1/256 px, 1.6 px further along, and reached 239/255.
+
+The finest rounding here passes those limits, over these strokes. But it still does all of the above now and then, and it needs a tolerance of
+about 20/255, which a faint tap could go missing under, to save about a quarter of the bytes. So nothing is rounded, and the bits of each float are stored as a difference from the ones before: the second
+difference for x and y, and the first for everything else. Plain floats would take 12 bytes a point, and 20 with tilt. Most of what remains is
+noise in the low bits, and compressing that would not pay. A sample is 25 bytes at worst.
+
+**The tolerance is a mean of 0.25/255, a 99.9th percentile of 2/255 and no pixel over 4/255** (`ReplayDifference`). Over 112 strokes and sizes on the
+JVM with real Skia, the measured worst is a mean of 0.002/255, a 99.9th percentile of 1/255 and a largest of 1/255. On a layer placed exactly as the
+surface was, it is 0 in every pixel. The 1 comes from a layer sitting elsewhere, which changes how a position rounds on its way to the pixels. It is
+also the worst after a canvas resize, after 40 strokes of every brush with erasers among them, and after a round trip through PNG or WebP. The
+tolerance notices each of these going missing or wrong: a tap of a thin pen, a tap at 5% opacity, a thin eraser, the last three samples, a stroke a
+quarter of a pixel away, the wrong seed, a colour 16/255 off, a marker 5% wider, and samples rounded the old way.
+
+**Bytes:** about 7.9 a point, 13.7 with tilt, and 129 for each stroke before its samples, on the scripted strokes. A tap is 15 or 25. These are synthetic:
+hand tremor and digitizer noise are assumed, and real low bits may be better or worse, so this needs a real pen before any budget rests on it.
+
+Neither the tolerance nor these bytes have been measured on a phone. A phone's Skia and arithmetic may differ from this one. That should matter little
+for a cel replayed on the phone that drew it, and is unknown for one moved between phones or across a system update. If the tolerance turns out too
+tight there, a cel gets refused for in-betweens, and nothing happens to its pixels.
+
+**Two more things the same tests answered,** for whoever writes SVG from strokes. A single sample as `M p L p` with a round cap does come out of
+`SvgRenderer` as a dot, with an overlap of 0.96, and with no round cap it leaves nothing. An eraser as a `<mask>` nested per run of erasers runs out long
+before `SvgLimits.maxDepth`, because each one holds two canvas-sized layers: on a 128 MB heap a 720 by 1280 canvas fits 9 runs, and 32 runs come out
+cut off with an overlap of 0.25. The same 32 side by side, each piece of ink with one mask holding the erasers after it, finish with an overlap of 0.87
+in 1.1 s on a desktop.

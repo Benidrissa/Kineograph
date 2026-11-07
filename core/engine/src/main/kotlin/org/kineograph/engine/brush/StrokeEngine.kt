@@ -117,6 +117,12 @@ public class StrokeEngine(private val spec: BrushSpec, seed: Long) {
     public companion object {
         /** Floats per predicted point passed to [predict]. */
         public const val PREDICTED_STRIDE: Int = 5
+
+        /**
+         * Which stamps a stroke's samples turn into. It is saved with each stroke, so this must go up whenever stamp placement or
+         * [TipFactory] changes: a stroke saved before then no longer replays to the pixels it made.
+         */
+        public const val REVISION: Int = 1
     }
 
     /** Walks along the path, dropping a stamp each time it has covered the spacing distance. */

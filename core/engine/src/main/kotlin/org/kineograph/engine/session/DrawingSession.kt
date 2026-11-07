@@ -28,6 +28,7 @@ import org.kineograph.engine.brush.BoundsAccumulator
 import org.kineograph.engine.brush.BrushSpec
 import org.kineograph.engine.brush.StampPainter
 import org.kineograph.engine.brush.StampRun
+import org.kineograph.engine.brush.StrokeMerge
 import org.kineograph.engine.brush.TipCache
 import org.kineograph.engine.compositor.BackgroundPainter
 import org.kineograph.engine.compositor.FlattenOptions
@@ -235,8 +236,7 @@ public class DrawingSession(
 
     private val stampPainter = StampPainter(tips)
     private val clearPaint = Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR) }
-    private val commitPaint = Paint()
-    private val eraseMode = PorterDuffXfermode(PorterDuff.Mode.DST_OUT)
+    private val strokeMerge = StrokeMerge()
     private val filterPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
 
     init {
@@ -307,12 +307,7 @@ public class DrawingSession(
         val rect = surfaceRectOf(current.bounds)
         if (!rect.isEmpty) {
             val before = readPixelsForUndo(target, rect)
-            commitPaint.alpha = (current.spec.opacity.coerceIn(0f, 1f) * 255f + 0.5f).toInt()
-            commitPaint.xfermode = if (current.spec.isEraser) eraseMode else null
-            val checkpoint = targetCanvas.save()
-            targetCanvas.clipRect(rect.left, rect.top, rect.right, rect.bottom)
-            targetCanvas.drawBitmap(buffer, 0f, 0f, commitPaint)
-            targetCanvas.restoreToCount(checkpoint)
+            strokeMerge.merge(targetCanvas, buffer, current.spec, rect)
             clearStrokeBuffer(current)
             if (!current.spec.isEraser) contentBounds = contentBounds.union(rect)
             recordPixelEdit(rect, before)

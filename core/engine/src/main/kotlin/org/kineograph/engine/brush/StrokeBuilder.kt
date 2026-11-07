@@ -20,7 +20,13 @@ public data class StrokeOptions(
  *
  * Runs on the input thread. It does no drawing and creates no per-point objects.
  */
-public class StrokeBuilder(spec: BrushSpec, private val options: StrokeOptions, seed: Long) {
+public class StrokeBuilder(
+    spec: BrushSpec,
+    private val options: StrokeOptions,
+    seed: Long,
+    /** Keeps what the engine is fed, for the vector data saved beside the pixels. Null records nothing. */
+    public val recording: StrokeRecording? = null,
+) {
     private val engine = StrokeEngine(spec, seed)
     private val stabilizer = StrokeStabilizer(options.smoothing, options.stringLengthPx)
     private val smoother = PressureSmoother(options.pressureSmoothing)
@@ -50,6 +56,7 @@ public class StrokeBuilder(spec: BrushSpec, private val options: StrokeOptions, 
         lastOrientation = orientation
         stabilizer.reset(x, y)
         engine.begin(x, y, p, tilt, orientation, stamps)
+        recording?.add(x, y, p, tilt, orientation, timeMs)
     }
 
     /** Adds one real input sample. */
@@ -61,6 +68,7 @@ public class StrokeBuilder(spec: BrushSpec, private val options: StrokeOptions, 
         lastOrientation = orientation
         stabilizer.push(x, y)
         engine.add(stabilizer.x, stabilizer.y, p, tilt, orientation, stamps)
+        recording?.add(stabilizer.x, stabilizer.y, p, tilt, orientation, timeMs)
     }
 
     /** Clears the list of predicted points, ready for [addPredicted]. */
@@ -93,6 +101,7 @@ public class StrokeBuilder(spec: BrushSpec, private val options: StrokeOptions, 
         if (options.smoothing > 0) {
             // Bring the stabilized end point to the real one, so strokes reach where they were aimed.
             engine.add(stabilizer.lastInputX, stabilizer.lastInputY, lastPressure, lastTilt, lastOrientation, stamps)
+            recording?.add(stabilizer.lastInputX, stabilizer.lastInputY, lastPressure, lastTilt, lastOrientation, recording.lastTimeMs)
         }
         engine.finish(stamps)
         predictedStamps.clear()
