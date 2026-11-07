@@ -29,7 +29,7 @@ import org.kineograph.data.files.CelFileStore
 import org.kineograph.engine.session.DrawingSession
 import org.kineograph.engine.session.MemoryBudget
 import org.kineograph.engine.session.SessionEvent
-import org.kineograph.feature.editor.canvas.CanvasRenderer
+import org.kineograph.feature.editor.canvas.PlaybackDisplay
 import org.kineograph.media.export.ExportConfig
 import org.kineograph.media.export.ExportManager
 import org.kineograph.media.export.ExportStatus
@@ -269,7 +269,7 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
         }
     }
 
-    internal fun startPlayback(renderer: CanvasRenderer, displayScale: Float) {
+    internal fun startPlayback(display: PlaybackDisplay, displayScale: Float) {
         val state = ready ?: return
         val controller = playback ?: return
         viewModelScope.launch {
@@ -284,7 +284,7 @@ public class EditorViewModel(private val dependencies: EditorDependencies, priva
                 }
             val session = state.session.state.value
             val start = project.frameIndex(session.frameId).coerceAtLeast(0)
-            controller.start(project, start, project.settings.playbackMode, displayScale, renderer)
+            controller.start(project, start, project.settings.playbackMode, displayScale, display)
         }
     }
 

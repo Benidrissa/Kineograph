@@ -1,28 +1,17 @@
 package org.kineograph.feature.editor.canvas
 
 import android.graphics.Bitmap
-import android.graphics.BitmapShader
 import android.graphics.Canvas
-import android.graphics.Matrix
-import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.RectF
-import android.graphics.Shader
 import android.os.Build
 import android.view.SurfaceView
 import androidx.annotation.RequiresApi
 import androidx.graphics.lowlatency.CanvasFrontBufferedRenderer
 import androidx.graphics.surface.SurfaceControlCompat
 import org.kineograph.engine.brush.BrushSpec
-import org.kineograph.engine.brush.StampBuffer
-import org.kineograph.engine.brush.StampPainter
 import org.kineograph.engine.brush.StampRun
 import org.kineograph.engine.compositor.SceneRenderer
 import org.kineograph.engine.selection.Affine
 import org.kineograph.engine.session.DrawingSession
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * The low-latency path for Android 10 and up.
@@ -43,66 +32,67 @@ import java.util.concurrent.atomic.AtomicBoolean
  *  - **Erasing:** a layer on top cannot remove what is below it, so the eraser paints with an image of everything
  *    except the active layer, which looks identical. The stamps are plain circles rather than the tip's shape
  *    until the stroke merges.
+ *
+ * [WetStrokePainter] does this painting, and [WetStrokeSequencer] decides when all of it reaches the library. Failures on the
+ * render thread go to [onFailure], which is called on that thread. It is how the view knows to fall back to the software path.
  */
 @RequiresApi(Build.VERSION_CODES.Q)
 internal class FrontBufferRenderer(
     surfaceView: SurfaceView,
     private val session: DrawingSession,
     private val workspaceColor: Int,
+    initialView: Affine,
+    private val onFailure: () -> Unit,
 ) : CanvasRenderer {
-    private class WetCommand(val real: StampRun, val predicted: StampRun, val spec: BrushSpec, val colorArgb: Int, val isFirst: Boolean)
-
     private val sceneRenderer = SceneRenderer()
-    private val stampPainter = StampPainter(session.tips)
-    private val eraserPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val redrawQueued = AtomicBoolean(false)
-    private val matrix = Matrix()
-    private val values = FloatArray(9)
-    private val viewRect = RectF()
+    private val painter = WetStrokePainter(session)
 
     @Volatile
-    private var view: Affine = Affine.IDENTITY
+    private var view: Affine = initialView
 
     @Volatile
     private var playbackFrame: Bitmap? = null
 
-    @Volatile
-    private var wetAlpha = 1f
-
-    @Volatile
-    private var pendingCommit: CountDownLatch? = null
-
-    @Volatile
-    private var redrawAfterCommit = false
-
     // Stroke state on the main thread.
-    private var wetSpec: BrushSpec? = null
-    private var wetColor = 0
-    private var wetIsFirst = false
-    private var wetActive = false
+    private var wetStroke: WetStroke? = null
 
-    // Stroke state on the render thread.
-    private val realRuns = ArrayList<StampRun>()
-    private var predictedRun: StampRun = StampRun.EMPTY
-    private var eraserShaderSource: Bitmap? = null
+    private val sequencer: WetStrokeSequencer<WetCommand> =
+        WetStrokeSequencer(
+            object : FrontBufferLayers {
+                override fun requestFrontPaint() {
+                    renderer.renderFrontBufferedLayer(Unit)
+                }
 
-    private val renderer =
+                override fun commit() {
+                    renderer.commit()
+                }
+
+                override fun cancel() {
+                    renderer.cancel()
+                }
+            },
+        )
+
+    // Last, because it starts calling back on the render thread as soon as it exists.
+    private val renderer: CanvasFrontBufferedRenderer<Unit> =
         CanvasFrontBufferedRenderer(
             surfaceView,
-            object : CanvasFrontBufferedRenderer.Callback<WetCommand> {
-                override fun onDrawFrontBufferedLayer(canvas: Canvas, bufferWidth: Int, bufferHeight: Int, param: WetCommand) {
-                    drawFront(canvas, param)
+            object : CanvasFrontBufferedRenderer.Callback<Unit> {
+                override fun onDrawFrontBufferedLayer(canvas: Canvas, bufferWidth: Int, bufferHeight: Int, param: Unit) {
+                    reportingFailure { drawFront(canvas) }
                 }
 
                 override fun onFrontBufferedLayerRenderComplete(
                     frontBufferedLayerSurfaceControl: SurfaceControlCompat,
                     transaction: SurfaceControlCompat.Transaction,
                 ) {
-                    transaction.setAlpha(frontBufferedLayerSurfaceControl, wetAlpha)
+                    transaction.setAlpha(frontBufferedLayerSurfaceControl, painter.layerAlpha)
                 }
 
-                override fun onDrawMultiBufferedLayer(canvas: Canvas, bufferWidth: Int, bufferHeight: Int, params: Collection<WetCommand>) {
-                    drawScene(canvas)
+                override fun onDrawMultiBufferedLayer(canvas: Canvas, bufferWidth: Int, bufferHeight: Int, params: Collection<Unit>) {
+                    sequencer.onSceneDrawStarted()
+                    reportingFailure { drawScene(canvas) }
+                    sequencer.onSceneDrawFinished()
                 }
             },
         )
@@ -124,140 +114,79 @@ internal class FrontBufferRenderer(
     }
 
     override fun requestRedraw() {
-        // A redraw hides the front layer, so while a stroke is on it the redraw waits for the commit, which redraws anyway.
-        if (wetActive) return
-        if (redrawQueued.compareAndSet(false, true)) renderer.renderMultiBufferedLayer(emptyList())
+        sequencer.requestRedraw()
     }
 
     override fun beginWet(spec: BrushSpec, colorArgb: Int, layerOpacity: Float) {
-        wetSpec = spec
-        wetColor = colorArgb
-        wetIsFirst = true
-        wetActive = true
-        wetAlpha = if (spec.isEraser) spec.opacity else spec.opacity * layerOpacity
+        val alpha = if (spec.isEraser) spec.opacity else spec.opacity * layerOpacity
+        wetStroke = WetStroke(sequencer.beginStroke(), spec, colorArgb, alpha)
         session.beginStroke(spec, colorArgb)
     }
 
     override fun drawWet(real: StampRun, predicted: StampRun) {
-        val spec = wetSpec ?: return
-        val command = WetCommand(real, predicted, spec, wetColor, wetIsFirst)
-        wetIsFirst = false
-        if (spec.isEraser) {
+        val stroke = wetStroke ?: return
+        val command = WetCommand(stroke, real, predicted)
+        if (stroke.spec.isEraser) {
             // The eraser's reveal image is built on the engine thread, so stamps must wait until it is ready.
-            session.addStamps(real) { renderer.renderFrontBufferedLayer(command) }
+            session.addStamps(real) { sequencer.add(stroke.id, command) }
         } else {
-            renderer.renderFrontBufferedLayer(command)
+            sequencer.add(stroke.id, command)
             if (!real.isEmpty) session.addStamps(real)
         }
     }
 
     override fun commitWet() {
-        wetSpec = null
-        wetActive = false
-        val done = CountDownLatch(1)
-        pendingCommit = done
+        val stroke = wetStroke ?: return
+        wetStroke = null
         session.endStroke {
-            done.countDown()
-            if (redrawAfterCommit) {
-                redrawAfterCommit = false
-                requestRedraw()
-            }
+            // On the engine thread, so all of the stroke's stamps are in, and the merged pixels are ready for the scene draw. The
+            // finished stroke therefore replaces the wet one in a single frame, without a flicker.
+            sequencer.commitStroke(stroke.id)
+            showResultIfReplaced()
         }
-        // The commit waits on its own thread for the pixels above, so the finished stroke replaces the wet one without a flicker.
-        renderer.commit()
     }
 
     override fun cancelWet() {
-        wetSpec = null
-        wetActive = false
-        session.cancelStroke()
-        renderer.cancel()
+        val stroke = wetStroke ?: return
+        wetStroke = null
+        sequencer.cancelStroke(stroke.id)
+        session.cancelStroke { showResultIfReplaced() }
     }
 
     override fun release() {
+        sequencer.close()
         session.wantsRevealImage = false
         renderer.release(true)
     }
 
-    private fun drawFront(canvas: Canvas, command: WetCommand) {
-        if (command.isFirst) {
-            realRuns.clear()
-            predictedRun = StampRun.EMPTY
-            eraserShaderSource = null
-        }
-        view.toMatrixValues(values)
-        matrix.setValues(values)
-        val scene = session.scene
-        val margin = scene?.let { (it.active?.left ?: 0).toFloat() } ?: 0f
-        val right = (scene?.canvasWidth ?: 0) - margin
-        val bottom = (scene?.canvasHeight ?: 0) - margin
-
-        // Wipe where the last prediction was, then bring back the real stamps that were under it.
-        val stale = predictedRun
-        if (!stale.isEmpty) {
-            viewRect.set(stale.minX, stale.minY, stale.maxX, stale.maxY)
-            matrix.mapRect(viewRect)
-            val checkpoint = canvas.save()
-            canvas.clipRect(viewRect.left - 2f, viewRect.top - 2f, viewRect.right + 2f, viewRect.bottom + 2f)
-            canvas.drawColor(0, PorterDuff.Mode.CLEAR)
-            canvas.concat(matrix)
-            canvas.clipRect(margin, margin, right, bottom)
-            for (run in realRuns) {
-                if (run.intersects(stale.minX, stale.minY, stale.maxX, stale.maxY)) paintRun(canvas, command, run)
-            }
-            canvas.restoreToCount(checkpoint)
-        }
-
-        val checkpoint = canvas.save()
-        canvas.concat(matrix)
-        canvas.clipRect(margin, margin, right, bottom)
-        if (!command.real.isEmpty) {
-            paintRun(canvas, command, command.real)
-            realRuns += command.real
-        }
-        if (!command.predicted.isEmpty) paintRun(canvas, command, command.predicted)
-        canvas.restoreToCount(checkpoint)
-        predictedRun = command.predicted
+    /** A stroke can finish on the engine after the view has moved on to another renderer, which then needs to see the result. */
+    private fun showResultIfReplaced() {
+        if (sequencer.isClosed) session.sceneListener?.invoke()
     }
 
-    private fun paintRun(canvas: Canvas, command: WetCommand, run: StampRun) {
-        if (command.spec.isEraser) {
-            paintEraser(canvas, run)
-        } else {
-            stampPainter.paint(canvas, command.spec, command.colorArgb, run)
+    /** Nothing can catch a failure on the render thread but this, and without it the whole app would go down. */
+    private inline fun reportingFailure(draw: () -> Unit) {
+        try {
+            draw()
+        } catch (_: RuntimeException) {
+            onFailure()
+        } catch (_: OutOfMemoryError) {
+            onFailure()
         }
     }
 
-    private fun paintEraser(canvas: Canvas, run: StampRun) {
-        val reveal = session.revealImage ?: return
-        if (eraserShaderSource !== reveal) {
-            eraserShaderSource = reveal
-            val margin = -(session.scene?.active?.left ?: 0).toFloat()
-            eraserPaint.shader =
-                BitmapShader(reveal, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply {
-                    setLocalMatrix(Matrix().apply { setTranslate(-margin, -margin) })
-                }
-        }
-        val data = run.data
-        var offset = 0
-        for (i in 0 until run.count) {
-            eraserPaint.alpha = (data[offset + 3] * 255f + 0.5f).toInt().coerceIn(0, 255)
-            canvas.drawCircle(data[offset], data[offset + 1], data[offset + 2] * 0.5f, eraserPaint)
-            offset += StampBuffer.STRIDE
-        }
+    private fun drawFront(canvas: Canvas) {
+        for (command in sequencer.takeCommands()) painter.paint(canvas, command, view)
     }
 
     private fun drawScene(canvas: Canvas) {
-        redrawQueued.set(false)
-        pendingCommit?.let { latch ->
-            pendingCommit = null
-            if (!latch.await(COMMIT_WAIT_MS, TimeUnit.MILLISECONDS)) redrawAfterCommit = true
-        }
         val scene = session.scene ?: return
-        sceneRenderer.draw(canvas, scene, view, workspaceColor, playbackFrame)
-    }
-
-    private companion object {
-        const val COMMIT_WAIT_MS = 400L
+        if (fitsHardwareCanvas(scene.canvasWidth, scene.canvasHeight)) {
+            // The stroke being drawn, if any, belongs on the front layer. Drawing it here as well would darken it.
+            sceneRenderer.draw(canvas, scene.withoutWet(), view, workspaceColor, playbackFrame)
+        } else {
+            // The canvas has just been resized past what this path can draw, and the view is about to change to the other one.
+            canvas.drawColor(workspaceColor)
+        }
     }
 }

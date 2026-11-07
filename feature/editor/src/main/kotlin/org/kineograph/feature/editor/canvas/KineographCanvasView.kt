@@ -2,13 +2,17 @@ package org.kineograph.feature.editor.canvas
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PixelFormat
 import android.os.Build
 import android.view.MotionEvent
+import android.view.Surface
+import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
 import android.view.ViewConfiguration
@@ -20,6 +24,7 @@ import org.kineograph.engine.brush.StampRun
 import org.kineograph.engine.brush.StrokeBuilder
 import org.kineograph.engine.brush.StrokeOptions
 import org.kineograph.engine.compositor.SceneRenderer
+import org.kineograph.engine.selection.Affine
 import org.kineograph.engine.selection.SelectionHandle
 import org.kineograph.engine.selection.SelectionTransform
 import org.kineograph.engine.session.DrawingSession
@@ -50,6 +55,31 @@ internal interface CanvasListener {
     fun onPlaybackTapped()
 }
 
+/** Builds the low-latency renderer. A separate step so that tests can stand in for the library, which needs a real device. */
+internal fun interface LowLatencyFactory {
+    fun create(surfaceView: SurfaceView, view: Affine, onFailure: () -> Unit): CanvasRenderer
+}
+
+/**
+ * The surface the canvas draws on. The low-latency library signs up for surface events through [getHolder], and would then rebuild
+ * its buffers by itself when the size changes. A failure there could not be caught, a commit under way would never complete and
+ * so stop all later ones, and it would draw frames of its own during a stroke, which hides the stroke. Instead, the view replaces
+ * the whole renderer on those events, so the holder the library gets ignores its sign-ups. Everything else about it is real.
+ */
+private class CanvasSurfaceView(context: Context) : SurfaceView(context) {
+    /** The holder for the view itself, which really does hear about surface events. */
+    val eventsHolder: SurfaceHolder = super.getHolder()
+
+    private val libraryHolder =
+        object : SurfaceHolder by eventsHolder {
+            override fun addCallback(callback: SurfaceHolder.Callback) = Unit
+
+            override fun removeCallback(callback: SurfaceHolder.Callback) = Unit
+        }
+
+    override fun getHolder(): SurfaceHolder = libraryHolder
+}
+
 /**
  * The drawing surface and everything that touches it. Compose only hosts this view; live drawing never goes through
  * Compose, so a recomposition can never delay a stroke.
@@ -66,8 +96,13 @@ internal class KineographCanvasView(
     private val workspaceColor: Int,
     private val toolConfig: () -> CanvasToolConfig,
     private val listener: CanvasListener,
-) : FrameLayout(context) {
-    private val surfaceView = SurfaceView(context)
+    private val lowLatencyFactory: LowLatencyFactory =
+        LowLatencyFactory { surfaceView, view, onFailure ->
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) throw UnsupportedOperationException("Low latency needs Android 10")
+            FrontBufferRenderer(surfaceView, session, workspaceColor, view, onFailure)
+        },
+) : FrameLayout(context), PlaybackDisplay {
+    private val surfaceView = CanvasSurfaceView(context)
     private val overlay = LassoOverlay(context)
     private val density = resources.displayMetrics.density
     private val tapSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
@@ -75,13 +110,35 @@ internal class KineographCanvasView(
     private val doubleTap = DoubleTapResolver()
     private var pendingUndo: Runnable? = null
 
-    /** The renderer, or null before the view attaches and after it detaches. Readable for tests and for playback. */
+    /** The renderer, or null while there is no surface. Read on the engine thread too. Readable for tests. */
+    @Volatile
     internal var renderer: CanvasRenderer? = null
         private set
+    private var rendererIsLowLatency = false
+    private var rendererGeneration = 0
+    private var lowLatencyFailed = false
+    private var hasSurface = false
+    private var surfaceWidth = 0
+    private var surfaceHeight = 0
+    private var surfaceRotation = Surface.ROTATION_0
+
+    /** The renderer should be replaced, but a stroke is on it. That can wait for the stroke to end. */
+    private var rendererOutOfDate = false
+
+    /** The canvas changed size during a stroke, which keeps the view it started with until it ends. */
+    private var canvasSizeOutOfDate = false
+    private var playbackFrame: Bitmap? = null
     private var predictor: MotionEventPredictor? = null
 
     private var transform = ViewTransform()
     private var userMovedCanvas = false
+
+    /**
+     * The canvas-to-view transform the renderer has. Touches always go through this one, so that they land where the user sees the
+     * canvas, even in the moment after the project changes size and before the view has caught up.
+     */
+    private var publishedView = Affine.IDENTITY
+    private var publishedInverse: Affine? = null
 
     private enum class Mode { IDLE, STROKE, LASSO, FILL_TAP, SELECTION_DRAG, GESTURE, IGNORED }
 
@@ -124,7 +181,37 @@ internal class KineographCanvasView(
     /** Only a touch that began during playback is a tap on it. A finger that was already drawing is just lifting. */
     private var tappingPlayback = false
 
+    private val surfaceEvents =
+        object : SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: SurfaceHolder) {
+                hasSurface = true
+                surfaceWidth = surfaceView.width
+                surfaceHeight = surfaceView.height
+                surfaceRotation = currentRotation()
+                buildRenderer()
+            }
+
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                val rotation = currentRotation()
+                if (width == surfaceWidth && height == surfaceHeight && rotation == surfaceRotation) return
+                surfaceWidth = width
+                surfaceHeight = height
+                surfaceRotation = rotation
+                replaceRenderer()
+            }
+
+            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                hasSurface = false
+                // A touch that never got its ending would leave the session waiting for the stroke, ignoring everything else.
+                onCancel()
+                releaseRenderer()
+            }
+        }
+
     init {
+        // Set once, here, because changing it later recreates the surface. Only the software path uses the surface's own buffers.
+        surfaceView.eventsHolder.setFormat(PixelFormat.RGBA_8888)
+        surfaceView.eventsHolder.addCallback(surfaceEvents)
         addView(surfaceView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(overlay, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         tag = "canvas"
@@ -133,19 +220,17 @@ internal class KineographCanvasView(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        renderer = createRenderer()
         predictor = createPredictor()
         session.sceneListener = { renderer?.requestRedraw() }
         publishView()
-        renderer?.requestRedraw()
     }
 
     override fun onDetachedFromWindow() {
+        hasSurface = false
         // A touch that never got its ending would leave the session waiting for the stroke, ignoring everything else.
         onCancel()
         session.sceneListener = null
-        renderer?.release()
-        renderer = null
+        releaseRenderer()
         predictor = null
         super.onDetachedFromWindow()
     }
@@ -158,21 +243,101 @@ internal class KineographCanvasView(
             null
         }
 
-    /**
-     * Picks the renderer. Bitmaps over 100 MB cannot go through the hardware canvas at all, so giant canvases draw
-     * in software whatever the device supports, and any failure setting up low latency also falls back to software.
-     */
-    private fun createRenderer(): CanvasRenderer {
+    private fun currentRotation(): Int = surfaceView.display?.rotation ?: Surface.ROTATION_0
+
+    /** Bitmaps over 100 MB cannot go through the hardware canvas at all, so giant canvases draw in software whatever the device. */
+    private fun wantsLowLatency(): Boolean {
         val project = session.state.value.project
-        val bytes = project.width.toLong() * project.height * BYTES_PER_PIXEL * OVERSCAN_ALLOWANCE
-        if (lowLatency && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && bytes < HARDWARE_BITMAP_LIMIT) {
+        return lowLatency &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            !lowLatencyFailed &&
+            fitsHardwareCanvas(project.width, project.height)
+    }
+
+    /** Puts a fresh renderer on the surface, if there is one, showing what the old one showed. Never call during a stroke. */
+    private fun buildRenderer() {
+        rendererOutOfDate = false
+        releaseRenderer()
+        if (!hasSurface) return
+        val next = createRenderer()
+        next.setView(publishedView)
+        // In place before the first redraw, so that no later change to the scene can miss both.
+        renderer = next
+        playbackFrame?.let(next::setPlaybackFrame)
+        next.requestRedraw()
+    }
+
+    /** Any failure setting up low latency falls back to software, which works everywhere, and stays there. */
+    private fun createRenderer(): CanvasRenderer {
+        val generation = ++rendererGeneration
+        if (wantsLowLatency()) {
             try {
-                return FrontBufferRenderer(surfaceView, session, workspaceColor)
+                val created = lowLatencyFactory.create(surfaceView, publishedView) { post { onRendererFailed(generation) } }
+                rendererIsLowLatency = true
+                return created
             } catch (_: RuntimeException) {
-                // Some devices lack the required buffer support. The software path works everywhere.
+                lowLatencyFailed = true
+            } catch (_: LinkageError) {
+                // The library's native code could not be loaded on this device.
+                lowLatencyFailed = true
+            } catch (_: OutOfMemoryError) {
+                lowLatencyFailed = true
             }
         }
+        rendererIsLowLatency = false
         return SoftwareRenderer(surfaceView, session, workspaceColor)
+    }
+
+    private fun releaseRenderer() {
+        val old = renderer ?: return
+        renderer = null
+        old.release()
+    }
+
+    /** Failures on the render thread land here. One from a renderer that has since been replaced no longer matters. */
+    private fun onRendererFailed(generation: Int) {
+        if (generation != rendererGeneration || !rendererIsLowLatency) return
+        lowLatencyFailed = true
+        replaceRenderer()
+    }
+
+    private fun replaceRenderer() {
+        if (mode == Mode.STROKE) rendererOutOfDate = true else buildRenderer()
+    }
+
+    /**
+     * Call when the project's canvas size has changed, by project settings, undo or redo. The renderer may no longer suit it, and
+     * its view is out of date. If the user has placed the canvas, it stays where it is, as the artwork stays centred on the canvas.
+     */
+    internal fun onCanvasSizeChanged() {
+        if (mode == Mode.STROKE) {
+            canvasSizeOutOfDate = true
+            return
+        }
+        if (userMovedCanvas) {
+            publishView()
+            renderer?.requestRedraw()
+        } else {
+            fitToScreen()
+        }
+        if (hasSurface && wantsLowLatency() != rendererIsLowLatency) buildRenderer()
+    }
+
+    /** Catches up on what had to wait for a stroke to end. */
+    private fun afterStroke() {
+        if (canvasSizeOutOfDate) {
+            canvasSizeOutOfDate = false
+            onCanvasSizeChanged()
+        }
+        if (rendererOutOfDate) buildRenderer()
+    }
+
+    override val supportsHardwareBitmaps: Boolean get() = renderer?.supportsHardwareBitmaps == true
+
+    /** Renderers come and go during playback, for example with the surface, so the frame is kept here for the next one. */
+    override fun setPlaybackFrame(frame: Bitmap?) {
+        playbackFrame = frame
+        renderer?.setPlaybackFrame(frame)
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -206,7 +371,10 @@ internal class KineographCanvasView(
 
     private fun publishView() {
         val project = session.state.value.project
-        renderer?.setView(transform.toAffine(project.width, project.height))
+        val view = transform.toAffine(project.width, project.height)
+        publishedView = view
+        publishedInverse = view.inverse()
+        renderer?.setView(view)
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -342,6 +510,7 @@ internal class KineographCanvasView(
                     renderer?.cancelWet()
                     stroke = null
                     beginGesture(event)
+                    afterStroke()
                 }
             }
 
@@ -566,6 +735,7 @@ internal class KineographCanvasView(
             // The system decided this touch was accidental, such as a palm.
             renderer?.cancelWet()
             mode = Mode.IDLE
+            afterStroke()
             return
         }
         val isFinger = event.getToolType(pointerIndex) == MotionEvent.TOOL_TYPE_FINGER
@@ -588,6 +758,7 @@ internal class KineographCanvasView(
         renderer?.drawWet(real, StampRun.EMPTY)
         renderer?.commitWet()
         mode = Mode.IDLE
+        afterStroke()
     }
 
     private fun finishLasso() {
@@ -674,11 +845,11 @@ internal class KineographCanvasView(
         selectionHandle = null
         mode = Mode.IDLE
         activePointerId = MotionEvent.INVALID_POINTER_ID
+        afterStroke()
     }
 
     private fun toCanvas(viewX: Float, viewY: Float) {
-        val project = session.state.value.project
-        val inverse = transform.toAffine(project.width, project.height).inverse()
+        val inverse = publishedInverse
         coordinates[0] = inverse?.mapX(viewX, viewY) ?: viewX
         coordinates[1] = inverse?.mapY(viewX, viewY) ?: viewY
     }
@@ -740,9 +911,6 @@ internal class KineographCanvasView(
     }
 
     private companion object {
-        const val BYTES_PER_PIXEL = 4L
-        const val OVERSCAN_ALLOWANCE = 2L
-        const val HARDWARE_BITMAP_LIMIT = 100L * 1024 * 1024
         const val FIT_PADDING_DP = 12f
         const val TOUCH_RADIUS_DP = 28f
         const val STRING_LENGTH_DP = 28f

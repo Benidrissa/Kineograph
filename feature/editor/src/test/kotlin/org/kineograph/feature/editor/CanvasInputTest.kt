@@ -8,6 +8,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.MotionEvent
+import android.view.SurfaceView
 import android.view.View
 import android.widget.FrameLayout
 import kotlinx.coroutines.runBlocking
@@ -105,6 +106,9 @@ class CanvasInputTest {
             View.MeasureSpec.makeMeasureSpec(VIEW_H, View.MeasureSpec.EXACTLY),
         )
         view.layout(0, 0, VIEW_W, VIEW_H)
+        val surface = view.getChildAt(0) as SurfaceView
+        val holder = shadowOf(surface).fakeSurfaceHolder
+        holder.callbacks.toList().forEach { it.surfaceCreated(holder) }
         idle()
     }
 
@@ -510,6 +514,76 @@ class CanvasInputTest {
         val expected = (200f - 100f / zoom).toInt()
         assertTrue("x near $expected", inkAt(expected, 200))
         assertFalse(inkAt(200, 200))
+    }
+
+    @Test
+    fun `after the canvas is resized, strokes land where the finger is on the refitted canvas`() {
+        session.resizeCanvas(VIEW_W * 2, VIEW_H * 2)
+        idle()
+        view.onCanvasSizeChanged()
+        idle()
+        // Fitted again, so the middle of the view is the middle of the new canvas.
+        val down = clock
+        send(touch(MotionEvent.ACTION_DOWN, VIEW_W / 2f to VIEW_H / 2f, downTime = down))
+        clock += 20
+        send(touch(MotionEvent.ACTION_UP, VIEW_W / 2f to VIEW_H / 2f, downTime = down))
+        clock += 2000
+        idle()
+        assertTrue(inkAt(VIEW_W, VIEW_H))
+    }
+
+    @Test
+    fun `after undoing a resize, strokes land where the finger is again`() {
+        session.resizeCanvas(VIEW_W * 2, VIEW_H * 2)
+        idle()
+        view.onCanvasSizeChanged()
+        idle()
+        session.undo()
+        idle()
+        view.onCanvasSizeChanged()
+        idle()
+        tap(200f, 150f)
+        assertTrue(inkAt(200, 150))
+    }
+
+    @Test
+    fun `in the moment before the view catches up with a resize, a touch still lands where the canvas is shown`() {
+        session.resizeCanvas(VIEW_W * 2, VIEW_H * 2)
+        idle()
+        // The renderer is still using the old view, so that is what the user sees and aims at.
+        tap(100f, 80f)
+        assertTrue(inkAt(100, 80))
+    }
+
+    @Test
+    fun `a canvas the user has placed stays where it is through a resize, and strokes land under the finger`() {
+        val down = clock
+        send(touch(MotionEvent.ACTION_DOWN, 300f to 300f, downTime = down))
+        clock += 30
+        send(touch(MotionEvent.ACTION_POINTER_DOWN, 300f to 300f, 400f to 300f, downTime = down, actionIndex = 1))
+        clock += 200
+        send(touch(MotionEvent.ACTION_MOVE, 400f to 300f, 500f to 300f, downTime = down))
+        send(touch(MotionEvent.ACTION_POINTER_UP, 400f to 300f, 500f to 300f, downTime = down, actionIndex = 1))
+        send(touch(MotionEvent.ACTION_UP, 400f to 300f, downTime = down))
+        clock += 2000
+        idle()
+
+        val grownBy = 200
+        session.resizeCanvas(VIEW_W + grownBy, VIEW_H + grownBy)
+        idle()
+        view.onCanvasSizeChanged()
+        idle()
+        // The artwork keeps its place on screen, and in the larger canvas every point has moved by half the growth.
+        val vy = toViewY(200f)
+        val vx = toView(200f)
+        val strokeDown = clock
+        send(touch(MotionEvent.ACTION_DOWN, vx to vy, downTime = strokeDown))
+        clock += 20
+        send(touch(MotionEvent.ACTION_UP, vx to vy, downTime = strokeDown))
+        clock += 2000
+        idle()
+        val expectedX = (200f - 100f / zoom).toInt() + grownBy / 2
+        assertTrue("x near $expectedX", inkAt(expectedX, 200 + grownBy / 2))
     }
 
     @Test

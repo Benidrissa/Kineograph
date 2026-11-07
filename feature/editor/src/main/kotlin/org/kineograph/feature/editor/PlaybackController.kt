@@ -14,7 +14,7 @@ import kotlinx.coroutines.launch
 import org.kineograph.engine.compositor.FlattenOptions
 import org.kineograph.engine.compositor.FrameFlattener
 import org.kineograph.engine.session.CelStore
-import org.kineograph.feature.editor.canvas.CanvasRenderer
+import org.kineograph.feature.editor.canvas.PlaybackDisplay
 import org.kineograph.model.Background
 import org.kineograph.model.PlaybackMode
 import org.kineograph.model.Project
@@ -50,7 +50,7 @@ internal class PlaybackController(
     private val inFlight = ConcurrentHashMap.newKeySet<Int>()
     private val jobs = ArrayList<Job>()
 
-    private var renderer: CanvasRenderer? = null
+    private var display: PlaybackDisplay? = null
     private var project: Project? = null
     private var index: TimelineIndex? = null
     private var mode = PlaybackMode.LOOP
@@ -75,12 +75,12 @@ internal class PlaybackController(
         }
 
     /** Starts playing [target] from [startSlot], with frames scaled by [displayScale]. Call on the main thread. */
-    fun start(target: Project, startSlot: Int, playbackMode: PlaybackMode, displayScale: Float, targetRenderer: CanvasRenderer) {
+    fun start(target: Project, startSlot: Int, playbackMode: PlaybackMode, displayScale: Float, targetDisplay: PlaybackDisplay) {
         stop()
         val timeline = TimelineIndex(target.frames)
         project = target
         index = timeline
-        renderer = targetRenderer
+        display = targetDisplay
         mode = playbackMode
         fps = target.fps
         startTick = timeline.startTick(startSlot)
@@ -101,7 +101,7 @@ internal class PlaybackController(
             jobs +=
                 scope.launch(
                     Dispatchers.Default,
-                ) { decodeLoop(target, timeline, width, height, scale, targetRenderer.supportsHardwareBitmaps) }
+                ) { decodeLoop(target, timeline, width, height, scale, targetDisplay.supportsHardwareBitmaps) }
         }
         _state.value = PlaybackState(isPlaying = true, isPreparing = true, slotIndex = startSlot)
         jobs +=
@@ -143,8 +143,8 @@ internal class PlaybackController(
         choreographer.removeFrameCallback(frameCallback)
         jobs.forEach { it.cancel() }
         jobs.clear()
-        renderer?.setPlaybackFrame(null)
-        renderer = null
+        display?.setPlaybackFrame(null)
+        display = null
         cache.clear()
         inFlight.clear()
         project = null
@@ -166,7 +166,7 @@ internal class PlaybackController(
             val frame = cache[slot]
             if (frame != null) {
                 shownSlot = slot
-                renderer?.setPlaybackFrame(frame)
+                display?.setPlaybackFrame(frame)
                 _state.value = _state.value.copy(slotIndex = slot)
             }
         }

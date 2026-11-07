@@ -53,4 +53,26 @@ public class Scene(
     public val floating: FloatingDraw?,
     public val grid: GridSettings,
     public val generation: Long,
-)
+) {
+    /** The same scene without the stroke under way, for a renderer that shows that stroke on a layer of its own. */
+    public fun withoutWet(): Scene =
+        if (wet == null) {
+            this
+        } else {
+            Scene(
+                canvasWidth,
+                canvasHeight,
+                background,
+                backgroundImage,
+                ghosts,
+                below,
+                active,
+                activeOverflows,
+                above,
+                null,
+                floating,
+                grid,
+                generation,
+            )
+        }
+}

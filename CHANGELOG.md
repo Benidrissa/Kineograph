@@ -39,6 +39,18 @@ The bouncing ball works from start to finish.
 - An interrupted Duplicate can no longer overwrite the original project
 - An interrupted first launch no longer loses the sample project
 - Clear now respects hidden and locked layers, and layers of different visibility can no longer be merged
+- Resizing the canvas, or undoing a resize, no longer leaves strokes landing away from the finger
+- Resizing the canvas to a very large size no longer crashes the app, and low-latency drawing comes back when it shrinks again
+- A device that cannot do low-latency drawing, or that fails at it later on, now falls back to the slower drawing path instead
+  of crashing
+- Drawing right after a stroke, a frame change or a redraw no longer loses the start of the stroke, and a stroke can no longer
+  pick up a stub of the last one
+- The eraser no longer leaves circles on the canvas after a stroke, or makes an area look erased after a cancelled touch
+- Strokes on a rotated canvas no longer get holes in them while they are being drawn
+- A change that arrives during a cancelled stroke, such as onion-skin ghosts, now shows straight away
+- Strokes stay visible after the app has been in the background
+- Strokes started near the bottom of a side edge of the screen, and the tool bar's handle, are no longer taken as the system's
+  Back gesture
 - A lifted selection now shows at its layer's opacity and in its layer's place
 - Fill with gap closing now reaches into sharp corners
 - Saved and recovered-project messages now always appear, and the canvas no longer keeps old onion-skin ghosts or a dead

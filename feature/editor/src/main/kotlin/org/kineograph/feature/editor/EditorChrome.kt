@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -51,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -70,6 +72,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -168,6 +171,24 @@ private fun OnionButton(enabled: Boolean, onToggle: () -> Unit, onSettings: () -
     }
 }
 
+/**
+ * Keeps strokes that start at a side edge of the screen from being taken as the system's Back gesture. Android only grants this
+ * for 200 dp of each edge, counted up from the bottom, so the bands stay at the bottom and leave room for the tool bar's handle,
+ * which can dock to either side and is 32 dp tall. The rest of each edge goes on working as Back, as does the top bar's button.
+ */
+internal fun Modifier.canvasEdgeBands(density: Density): Modifier {
+    val bandWidth = with(density) { 48.dp.toPx() }
+    val bandHeight = with(density) { 160.dp.toPx() }
+    return systemGestureExclusion { box ->
+        val height = box.size.height.toFloat()
+        Rect(0f, (height - bandHeight).coerceAtLeast(0f), bandWidth, height)
+    }.systemGestureExclusion { box ->
+        val width = box.size.width.toFloat()
+        val height = box.size.height.toFloat()
+        Rect(width - bandWidth, (height - bandHeight).coerceAtLeast(0f), width, height)
+    }
+}
+
 /** The vertical tool bar. It docks to either edge, collapses out of the way, and its handle drags it across. */
 @Composable
 internal fun BoxScope.EditorToolBar(
@@ -196,6 +217,8 @@ internal fun BoxScope.EditorToolBar(
             Box(
                 Modifier
                     .size(48.dp, 32.dp)
+                    // Dragging this away from the edge is the very motion of the system's Back gesture.
+                    .systemGestureExclusion()
                     .pointerInput(Unit) {
                         detectHorizontalDragGestures(
                             onDragEnd = {

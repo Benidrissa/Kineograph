@@ -13,6 +13,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -124,6 +125,26 @@ class DrawingSessionTest {
         assertTrue(isInked(50, 50))
         assertFalse(isInked(50, 20))
         assertTrue(state.canUndo)
+    }
+
+    @Test
+    fun `a scene can leave out the stroke under way, for a renderer that shows it elsewhere`() {
+        val out = StampBuffer()
+        out.add(50f, 50f, 8f, 1f, 0f)
+        session.beginStroke(pen, black)
+        session.addStamps(out.snapshot())
+        await()
+        val scene = checkNotNull(session.scene)
+        assertNotNull(scene.wet)
+        val without = scene.withoutWet()
+        assertNull(without.wet)
+        assertSame(scene.active, without.active)
+        assertEquals(scene.generation, without.generation)
+        session.cancelStroke()
+        await()
+        val after = checkNotNull(session.scene)
+        assertNull(after.wet)
+        assertSame("with nothing to leave out, it is the same scene", after, after.withoutWet())
     }
 
     @Test

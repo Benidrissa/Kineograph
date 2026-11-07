@@ -3,6 +3,9 @@ package org.kineograph.feature.editor
 import android.content.Context
 import android.graphics.Color
 import android.os.Looper
+import android.view.MotionEvent
+import android.view.SurfaceView
+import android.view.View
 import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -10,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsDisplayed
@@ -61,6 +65,7 @@ import org.kineograph.engine.brush.StampBuffer
 import org.kineograph.engine.brush.StrokeEngine
 import org.kineograph.engine.session.DrawingSession
 import org.kineograph.engine.session.MemoryBudget
+import org.kineograph.feature.editor.canvas.KineographCanvasView
 import org.kineograph.media.export.ExportManager
 import org.kineograph.model.Background
 import org.kineograph.model.Project
@@ -366,6 +371,44 @@ class EditorViewModelTest {
         assertEquals(200, ready.session.state.value.project.width)
         assertEquals(ToolState().scaledForCanvas(200, 100).sizes, viewModel.tools.value.sizes)
         assertNull(ready.session.scene?.floating)
+    }
+
+    @Test
+    fun `resizing the canvas in the editor fits the new size, so strokes land under the finger`() {
+        val project = create(width = 200, height = 100)
+        val viewModel = viewModelFor(project.id)
+        val session = viewModel.awaitReady().session
+        lateinit var root: View
+        compose.setContent {
+            root = LocalView.current
+            KineographTheme(darkTheme = false) { EditorRoute(viewModel, wideLayout = false) { } }
+        }
+        compose.waitUntil(WAIT_MS) { compose.onAllNodesWithTag("canvas_host").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitForIdle()
+        val canvas = root.findViewWithTag<KineographCanvasView>("canvas")
+        val holder = shadowOf(canvas.getChildAt(0) as SurfaceView).fakeSurfaceHolder
+        compose.runOnIdle { holder.callbacks.toList().forEach { it.surfaceCreated(holder) } }
+
+        session.resizeCanvas(400, 200)
+        waitUntil("the resize") { session.state.value.project.width == 400 }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            val x = canvas.width / 2f
+            val y = canvas.height / 2f
+            for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
+                val event = MotionEvent.obtain(0L, 0L, action, x, y, 0)
+                canvas.dispatchTouchEvent(event)
+                event.recycle()
+            }
+        }
+        val bounds = checkNotNull(
+            runBlocking { session.snapshot() }
+                .cels.values
+                .single()
+                .bounds,
+        )
+        assertTrue("the middle of the view is the middle of the new canvas: $bounds", 200 in bounds.left..bounds.right)
+        assertTrue("the middle of the view is the middle of the new canvas: $bounds", 100 in bounds.top..bounds.bottom)
     }
 
     @Test

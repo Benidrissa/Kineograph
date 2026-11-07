@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -154,11 +155,11 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
         viewModel.messages.collect { message -> snackbar.showSnackbar(context.getString(message.textRes())) }
     }
     LaunchedEffect(playback.isPlaying, canvasView) { canvasView?.isPlaying = playback.isPlaying }
+    // Project settings, undo and redo can all change this, and nothing about them changes the size of the view.
+    LaunchedEffect(sessionState.project.width, sessionState.project.height, canvasView) { canvasView?.onCanvasSizeChanged() }
 
-    val startPlayback = {
-        val view = canvasView
-        val renderer = view?.renderer
-        if (view != null && renderer != null) viewModel.startPlayback(renderer, view.fitScale())
+    val startPlayback: () -> Unit = {
+        canvasView?.let { view -> viewModel.startPlayback(view, view.fitScale()) }
     }
 
     Column(
@@ -198,7 +199,12 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
                             },
                     ).also { canvasView = it }
                 },
-                modifier = Modifier.fillMaxSize().testTag("canvas_host"),
+                // During playback, Back stops it from anywhere along the edge.
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .then(if (playback.isPlaying) Modifier else Modifier.canvasEdgeBands(LocalDensity.current))
+                        .testTag("canvas_host"),
             )
             if (!playback.isPlaying) {
                 EditorToolBar(

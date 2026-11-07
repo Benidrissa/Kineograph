@@ -2,11 +2,9 @@ package org.kineograph.feature.editor.canvas
 
 import android.graphics.Bitmap
 import android.graphics.Matrix
-import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Handler
 import android.os.HandlerThread
-import android.view.SurfaceHolder
 import android.view.SurfaceView
 import org.kineograph.engine.brush.BoundsAccumulator
 import org.kineograph.engine.brush.BrushSpec
@@ -15,6 +13,8 @@ import org.kineograph.engine.brush.StampRun
 import org.kineograph.engine.compositor.SceneRenderer
 import org.kineograph.engine.selection.Affine
 import org.kineograph.engine.session.DrawingSession
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * The fallback path, for Android 8 and 9 and any device where the low-latency path is unavailable. It draws
@@ -27,7 +27,7 @@ internal class SoftwareRenderer(
     private val surfaceView: SurfaceView,
     private val session: DrawingSession,
     private val workspaceColor: Int,
-) : CanvasRenderer, SurfaceHolder.Callback {
+) : CanvasRenderer {
     private val thread = HandlerThread("kg-render").apply { start() }
     private val handler = Handler(thread.looper)
     private val sceneRenderer = SceneRenderer()
@@ -39,7 +39,7 @@ internal class SoftwareRenderer(
     private var fullRedraw = true
     private val dirty = Rect()
     private var predicted: StampRun = StampRun.EMPTY
-    private var surfaceReady = false
+    private var released = false
 
     @Volatile
     private var view: Affine = Affine.IDENTITY
@@ -47,20 +47,19 @@ internal class SoftwareRenderer(
     @Volatile
     private var playbackFrame: Bitmap? = null
 
-    // Touched only from the main thread.
+    // Set on the main thread and read when drawing a prediction.
+    @Volatile
     private var wetSpec: BrushSpec? = null
+
+    @Volatile
     private var wetColor = 0
+
+    // Touched only from the main thread.
     private val strokeBounds = BoundsAccumulator()
 
     private val matrix = Matrix()
     private val values = FloatArray(9)
     private val drawRunnable = Runnable { drawNow() }
-
-    init {
-        surfaceView.holder.setFormat(PixelFormat.RGBA_8888)
-        surfaceView.holder.addCallback(this)
-        surfaceReady = surfaceView.holder.surface?.isValid == true
-    }
 
     override val supportsHardwareBitmaps: Boolean get() = false
 
@@ -99,6 +98,7 @@ internal class SoftwareRenderer(
             if (!strokeBounds.isEmpty) copy.add(strokeBounds.left, strokeBounds.top, strokeBounds.right, strokeBounds.bottom)
         }
         session.endStroke {
+            if (showResultIfReplaced()) return@endStroke
             synchronized(lock) {
                 addDirty(bounds.left, bounds.top, bounds.right, bounds.bottom, isEmpty = bounds.isEmpty)
                 val stale = predicted
@@ -112,33 +112,27 @@ internal class SoftwareRenderer(
     override fun cancelWet() {
         wetSpec = null
         session.cancelStroke {
+            if (showResultIfReplaced()) return@cancelStroke
             synchronized(lock) { predicted = StampRun.EMPTY }
             requestRedraw()
         }
     }
 
     override fun release() {
-        surfaceView.holder.removeCallback(this)
+        synchronized(lock) { released = true }
         handler.removeCallbacksAndMessages(null)
+        // The surface may be going away and must not be touched after this returns, so wait out any drawing in progress.
+        val finished = CountDownLatch(1)
+        handler.post { finished.countDown() }
+        finished.await(SURFACE_TEARDOWN_WAIT_MS, TimeUnit.MILLISECONDS)
         thread.quitSafely()
     }
 
-    override fun surfaceCreated(holder: SurfaceHolder) {
-        synchronized(lock) { surfaceReady = true }
-        requestRedraw()
-    }
-
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-        requestRedraw()
-    }
-
-    override fun surfaceDestroyed(holder: SurfaceHolder) {
-        synchronized(lock) { surfaceReady = false }
-        // The surface must not be touched after this returns, so wait out any drawing in progress.
-        handler.removeCallbacks(drawRunnable)
-        val finished = java.util.concurrent.CountDownLatch(1)
-        handler.post { finished.countDown() }
-        finished.await(SURFACE_TEARDOWN_WAIT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+    /** A stroke can finish on the engine after the view has moved on to another renderer, which then needs to see the result. */
+    private fun showResultIfReplaced(): Boolean {
+        val replaced = synchronized(lock) { released }
+        if (replaced) session.sceneListener?.invoke()
+        return replaced
     }
 
     private fun invalidate(real: StampRun, newPredicted: StampRun) {
@@ -176,7 +170,7 @@ internal class SoftwareRenderer(
 
     private fun schedule() {
         synchronized(lock) {
-            if (drawScheduled || !surfaceReady) return
+            if (drawScheduled || released) return
             drawScheduled = true
         }
         handler.post(drawRunnable)
@@ -189,7 +183,7 @@ internal class SoftwareRenderer(
         val prediction: StampRun
         synchronized(lock) {
             drawScheduled = false
-            if (!surfaceReady) return
+            if (released) return
             full = fullRedraw
             region.set(dirty)
             prediction = predicted
@@ -204,8 +198,9 @@ internal class SoftwareRenderer(
                 ?: return
         try {
             val affine = view
-            sceneRenderer.draw(canvas, scene, affine, workspaceColor, playbackFrame)
-            if (!prediction.isEmpty && playbackFrame == null) {
+            val frame = softwareFrame()
+            sceneRenderer.draw(canvas, scene, affine, workspaceColor, frame)
+            if (!prediction.isEmpty && frame == null) {
                 val spec = wetSpec
                 if (spec != null) {
                     affine.toMatrixValues(values)
@@ -220,6 +215,12 @@ internal class SoftwareRenderer(
             holder.unlockCanvasAndPost(canvas)
         }
     }
+
+    /** Playback may have begun on the low-latency path, with hardware bitmaps a software canvas refuses, before the view fell back. */
+    private fun softwareFrame(): Bitmap? =
+        playbackFrame?.let { frame ->
+            if (frame.config == Bitmap.Config.HARDWARE) frame.copy(Bitmap.Config.ARGB_8888, false) else frame
+        }
 
     private companion object {
         const val DIRTY_MARGIN = 3

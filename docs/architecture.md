@@ -56,11 +56,42 @@ and the stroke being drawn goes to a single-buffered layer above it, whose buffe
   The whole layer is never re-uploaded mid-stroke, which is what would cost most on a budget phone.
 - The front layer's `SurfaceControl` alpha is the stroke's opacity, so overlapping stamps within a stroke cannot exceed it,
   exactly as when it merges.
-- Predicted stamps are removed by clearing their bounds and redrawing the real stamps inside.
+- Predicted stamps are removed by clearing an upright rectangle around them on screen and redrawing the real stamps inside.
+  On a rotated canvas that rectangle reaches past the prediction's own bounds, so the stamps to redraw are found from the
+  rectangle's bounds on the canvas.
 - The eraser cannot remove what is beneath a layer on top, so it paints with an image of everything except the active
   layer, which looks identical. While wet it shows as circles; the merged result uses the true tip.
-- On pen-up, the render thread waits briefly for the engine to finish merging, so the finished stroke replaces the wet
-  one in a single frame without flicker.
+- On pen-up, the commit is issued from the engine thread once the stroke has merged, so the finished stroke replaces the
+  wet one in a single frame without flicker.
+
+`WetStrokeSequencer` decides what reaches the library and when, because the library is easy to misuse. Its rules, which
+the tests check against a model of how the library queues work:
+
+- Stamps wait in the sequencer, and the library only gets requests to come and fetch them. A commit throws away whatever
+  the library has queued, including when it has had to wait behind another commit, so stamps in that queue could be lost.
+- Every redraw is a `commit()`, because only that holds new stamps back until it is done. A redraw under way when the pen
+  lands therefore cannot hide the start of the stroke.
+- A commit hides the front layer, so a redraw asked for during a stroke waits for its end. The stroke's commit covers it,
+  and a cancel issues one if a redraw has been waiting.
+- A new stroke arriving before the last one's commit is held back until it has been issued. What it painted any earlier
+  would vanish with the old stroke.
+- Each stroke has an id, and anything for a finished stroke is dropped. The library can replay what it had queued, and the
+  engine reports eraser stamps late.
+
+**Choosing the renderer.** A renderer lasts for one surface at one size. `KineographCanvasView` creates it once the surface
+exists, replaces it when the surface changes shape, and releases it before the surface goes, which also calls off a stroke
+under way. It re-chooses when the canvas size crosses the hardware limit in either direction, waiting for a stroke under
+way to end. The library would otherwise handle surface events itself, but it can fail where nothing can catch it, and its
+commit count never recovers from a commit that straddles a change of surface. So the holder it is given ignores its
+sign-ups, and every failure, in setting up or on the render thread, stays inside the fallback to `SoftwareRenderer`.
+Playback talks to the view, which hands its current frame to each new renderer.
+
+Touches go through the same canvas-to-view transform the renderer has, so they land where the canvas is shown, even in the
+moment after the project changes size and before the view has caught up.
+
+**Screen edges.** With gesture navigation, a stroke starting at a side edge could be taken as Back. The tool bar's handle and
+a band at the bottom of each edge are excluded from that gesture. Android grants 200 dp per edge, so the rest of each edge
+goes on working as Back. During playback the bands are off, so that Back stops it from anywhere along the edge.
 
 **`SoftwareRenderer`** (API 26–28, or any device where low latency cannot be set up, or canvases too large for the
 hardware canvas's 100 MB bitmap limit). It uses `lockCanvas(dirty)` on a `SurfaceView` and redraws only the changed
