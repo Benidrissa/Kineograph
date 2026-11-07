@@ -93,7 +93,8 @@ jobs:
           heap-size: 256M
           disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect
-          script: ./gradlew :app:connectedDebugAndroidTest :core:data:connectedDebugAndroidTest
+          # One after the other, on one device. Installing and removing one task's test package disturbs a test running from the other.
+          script: ./gradlew :core:data:connectedDebugAndroidTest :app:connectedDebugAndroidTest --no-parallel
       - name: Upload the reports
         if: always()
         uses: actions/upload-artifact@v7

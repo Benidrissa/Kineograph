@@ -11,6 +11,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.isSelected
@@ -133,11 +134,28 @@ class BouncingBallEndToEndTest {
             compose.onAllNodes(hasTestTag("onion_button") and isSelected()).fetchSemanticsNodes().isNotEmpty()
         }
         SystemClock.sleep(SETTLE_MS)
-        compose.onNodeWithTag("play_button").performClick()
-        waitForTag("stop_button", LONG_WAIT_MS)
+        tapPlayUntilPlaying()
         assertPlaybackMoves()
         compose.onNodeWithTag("stop_button").performClick()
         waitForTag("play_button", LONG_WAIT_MS)
+    }
+
+    /**
+     * The system can recreate the activity at any moment on a freshly booted emulator, as it did to this test once on API 34. That stops
+     * playback, as leaving the screen should, and the play button comes back. A person would tap it again, so this does too.
+     */
+    private fun tapPlayUntilPlaying() {
+        var tries = 0
+        while (true) {
+            waitForTag("play_button", LONG_WAIT_MS)
+            compose.onNodeWithTag("play_button").performClick()
+            try {
+                waitForTag("stop_button", PLAY_WAIT_MS)
+                return
+            } catch (e: ComposeTimeoutException) {
+                if (++tries == PLAY_TRIES) throw e
+            }
+        }
     }
 
     /**
@@ -374,6 +392,8 @@ class BouncingBallEndToEndTest {
         const val FRAME_STEP_TOLERANCE_US = 2_000L
         const val DEFAULT_WAIT_MS = 15_000L
         const val LONG_WAIT_MS = 60_000L
+        const val PLAY_WAIT_MS = 20_000L
+        const val PLAY_TRIES = 3
         const val EXPORT_WAIT_MS = 300_000L
         const val SETTLE_MS = 300L
         const val SLOTS_TO_SEE = 3
