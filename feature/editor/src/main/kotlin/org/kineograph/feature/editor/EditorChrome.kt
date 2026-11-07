@@ -520,8 +520,9 @@ internal fun EditorBottomBar(
     onOpenLayers: () -> Unit,
     onPlay: () -> Unit,
     onImportSvg: () -> Unit = {},
+    onInBetweens: (String) -> Unit = {},
 ) {
-    val frameActions = rememberFrameActions(session)
+    val frameActions = rememberFrameActions(session, onInBetweens)
     Surface(tonalElevation = 2.dp) {
         if (wideLayout) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -666,11 +667,12 @@ internal class FrameActions(
     val onClear: (String) -> Unit,
     val onDelete: (String) -> Unit,
     val onMove: (Int, Int) -> Unit,
+    val onInBetweens: (String) -> Unit = {},
 )
 
 @Composable
-private fun rememberFrameActions(session: DrawingSession): FrameActions =
-    remember(session) {
+private fun rememberFrameActions(session: DrawingSession, onInBetweens: (String) -> Unit): FrameActions =
+    remember(session, onInBetweens) {
         FrameActions(
             onSelect = session::selectFrame,
             onDuplicate = session::duplicateFrame,
@@ -683,6 +685,7 @@ private fun rememberFrameActions(session: DrawingSession): FrameActions =
             onClear = session::clearFrame,
             onDelete = session::deleteFrame,
             onMove = session::moveFrame,
+            onInBetweens = onInBetweens,
         )
     }
 
@@ -961,6 +964,16 @@ private fun FrameCell(
             MenuItem(KgIcons.Paste, stringResource(R.string.frame_paste), enabled = state.hasFrameClipboard) {
                 menuOpen = false
                 actions.onPaste(frameId)
+            }
+            MenuItem(
+                KgIcons.InsertBefore,
+                stringResource(R.string.frame_in_betweens),
+                enabled = state.project.frames
+                    .lastOrNull()
+                    ?.id != frameId,
+            ) {
+                menuOpen = false
+                actions.onInBetweens(frameId)
             }
             MenuItem(KgIcons.Clear, stringResource(R.string.frame_clear)) {
                 menuOpen = false

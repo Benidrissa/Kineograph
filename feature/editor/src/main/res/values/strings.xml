@@ -252,4 +252,21 @@
     <string name="svg_problem_damaged">This file is damaged, or it isn\'t an SVG.</string>
     <string name="svg_problem_not_svg">This file isn\'t an SVG picture.</string>
     <string name="svg_problem_incomplete">Imported, but some of it was too complicated to draw completely.</string>
+    <string name="frame_in_betweens">Add in-betweens…</string>
+    <string name="in_betweens_title">Add in-betweens</string>
+    <string name="in_betweens_count">Frames to add between frame %1$d and frame %2$d</string>
+    <string name="in_betweens_fewer">Fewer</string>
+    <string name="in_betweens_more">More</string>
+    <string name="in_betweens_add">Add</string>
+    <string name="in_betweens_hint">Made from the strokes on the current layer. Both frames need the same number of strokes, drawn in the same order with the same brushes. Other layers keep frame %1$d\'s drawing.</string>
+    <string name="in_betweens_running">Drawing %1$d of %2$d…</string>
+    <string name="in_betweens_no_next_frame">Frame %1$d is the last one, so there is no frame to go towards.</string>
+    <string name="in_betweens_not_recorded">The strokes of frame %1$d aren\'t known. It was drawn before this project was opened, or came from a paste, a merge or an import. Draw it again to use it here.</string>
+    <string name="in_betweens_drawn_otherwise">Frame %1$d was changed by something other than strokes, such as a fill or the lasso, so its strokes no longer match it.</string>
+    <string name="in_betweens_nothing_drawn">Neither frame has anything drawn on this layer.</string>
+    <string name="in_betweens_stroke_counts">The two frames have different numbers of strokes (%1$d and %2$d). They need the same number, drawn in the same order.</string>
+    <string name="in_betweens_brush_differs">Stroke %1$d uses a different brush in each frame, or erases in only one of them.</string>
+    <string name="in_betweens_out_of_memory">There isn\'t enough memory. Try fewer in-betweens, or close other apps.</string>
+    <string name="in_betweens_out_of_storage">There isn\'t enough storage space.</string>
+    <string name="in_betweens_failed">The in-betweens could not be made.</string>
 </resources>

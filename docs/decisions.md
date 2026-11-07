@@ -426,3 +426,17 @@ tight there, a cel gets refused for in-betweens, and nothing happens to its pixe
 before `SvgLimits.maxDepth`, because each one holds two canvas-sized layers: on a 128 MB heap a 720 by 1280 canvas fits 9 runs, and 32 runs come out
 cut off with an overlap of 0.25. The same 32 side by side, each piece of ink with one mask holding the erasers after it, finish with an overlap of 0.87
 in 1.1 s on a desktop.
+
+## In-betweens check a frame's strokes against its pixels before using them
+
+The session keeps the strokes behind each saved drawing in memory, by file, through undo and redo. A fill, the lasso, a paste, a merge or an
+import changes pixels without strokes, and following each of those exactly would be easy to get wrong. So the log is not trusted on its own:
+before making in-betweens, both frames are drawn again from their strokes and compared with the saved drawing, within the replay tolerance
+above. A frame that does not match is refused, with the reason. Undoing the fill makes it usable again.
+
+Strokes pair up in the order they were drawn, so both frames need the same number of strokes with the same brushes. Each pair is resampled
+by distance along the stroke and blended, and the result is drawn with the first frame's seed, so a pencil's grain does not flicker. A stroke
+drawn the other way round is turned first. Other layers hold the first frame's drawing, which suits a still background.
+
+For now the logs are not saved, so only strokes drawn since the project was opened can be used. Saving them beside the drawings is the next
+step.

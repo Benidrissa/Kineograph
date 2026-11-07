@@ -31,6 +31,7 @@ import org.kineograph.data.files.CelFileStore
 import org.kineograph.engine.session.DrawingSession
 import org.kineograph.engine.session.MemoryBudget
 import org.kineograph.engine.session.SessionEvent
+import org.kineograph.engine.vector.InBetweenMaker
 import org.kineograph.feature.editor.canvas.PlaybackDisplay
 import org.kineograph.media.export.ExportConfig
 import org.kineograph.media.export.ExportFormat
@@ -164,6 +165,8 @@ public class EditorViewModel(
         private set
     internal var svgImport: SvgImportController? = null
         private set
+    internal var inBetweens: InBetweenController? = null
+        private set
 
     init {
         viewModelScope.launch { open() }
@@ -236,6 +239,18 @@ public class EditorViewModel(
                     retryFailedSave()
                 },
                 onMessage = { _messages.trySend(it) },
+            )
+        inBetweens =
+            InBetweenController(
+                scope = viewModelScope,
+                maker = InBetweenMaker(session, opened.store),
+                activeLayer = { session.state.value.layerId },
+                makeRoom = autosaver::makeRoom,
+                holdFiles = autosaver::holdSweeps,
+                releaseFiles = {
+                    autosaver.releaseSweeps()
+                    retryFailedSave()
+                },
             )
         viewModelScope.launch {
             autosaver.saveFailed.collect { failed -> if (failed) _messages.trySend(EditorMessage.SAVE_FAILED) }

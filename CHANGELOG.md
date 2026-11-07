@@ -6,6 +6,11 @@ The bouncing ball works from start to finish.
 
 ### Added
 
+- In-betweens: long-press a frame and choose Add in-betweens to make frames between it and the next one, worked out from the strokes on the
+  current layer with no AI. Both frames need the same number of strokes, drawn in the same order with the same brushes. Before making
+  anything, the app draws both frames again from their strokes and checks the result against the saved drawings, so a frame changed by
+  a fill or the lasso is refused with the reason, not given wrong frames. For now this only works for strokes drawn since the project was
+  opened. One undo takes all the new frames back
 - Project gallery with search, sort, trash with undo, and a sample project
 - New Project sheet with canvas presets, papers, solid colours, image and camera backgrounds, and an FPS wheel
 - Editor with low-latency drawing (API 29+) and a software fallback (API 26–28)

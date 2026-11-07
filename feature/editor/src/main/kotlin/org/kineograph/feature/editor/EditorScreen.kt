@@ -162,6 +162,18 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
     val playback = playbackController?.state?.collectAsStateWithLifecycle()?.value ?: PlaybackState()
     val thumbnails = viewModel.thumbnails
     val svgImport = viewModel.svgImport
+    val inBetweens = viewModel.inBetweens
+    val inBetweenState = inBetweens?.state?.collectAsStateWithLifecycle()?.value ?: InBetweenState.Idle
+    val openInBetweens: (String) -> Unit =
+        remember(inBetweens, session) {
+            { id ->
+                inBetweens?.open(
+                    id,
+                    session.state.value.project
+                        .frameIndex(id) + 1,
+                )
+            }
+        }
     val svgState = svgImport?.state?.collectAsStateWithLifecycle()?.value ?: SvgImportState.Idle
 
     var sheet by remember { mutableStateOf<EditorSheet?>(null) }
@@ -302,6 +314,7 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
                     onOpenLayers = { sheet = EditorSheet.LAYERS },
                     onPlay = startPlayback,
                     onImportSvg = pickSvg,
+                    onInBetweens = openInBetweens,
                 )
             }
         }
@@ -350,6 +363,7 @@ private fun EditorContent(viewModel: EditorViewModel, ready: EditorLoadState.Rea
                 Unit
             }
         }
+        if (inBetweens != null) InBetweenDialog(inBetweens, inBetweenState)
         if (svgImport != null) {
             SvgImportHost(
                 controller = svgImport,

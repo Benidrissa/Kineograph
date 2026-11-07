@@ -253,4 +253,21 @@
     <string name="svg_problem_damaged">Ce fichier est endommagé, ou ce n’est pas un SVG.</string>
     <string name="svg_problem_not_svg">Ce fichier n’est pas une image SVG.</string>
     <string name="svg_problem_incomplete">Importé, mais une partie était trop complexe pour être dessinée entièrement.</string>
+    <string name="frame_in_betweens">Ajouter des intervalles…</string>
+    <string name="in_betweens_title">Ajouter des intervalles</string>
+    <string name="in_betweens_count">Images à ajouter entre l\'image %1$d et l\'image %2$d</string>
+    <string name="in_betweens_fewer">Moins</string>
+    <string name="in_betweens_more">Plus</string>
+    <string name="in_betweens_add">Ajouter</string>
+    <string name="in_betweens_hint">Créées à partir des traits du calque actif. Les deux images doivent avoir le même nombre de traits, tracés dans le même ordre avec les mêmes pinceaux. Les autres calques gardent le dessin de l\'image %1$d.</string>
+    <string name="in_betweens_running">Dessin %1$d sur %2$d…</string>
+    <string name="in_betweens_no_next_frame">L\'image %1$d est la dernière : il n\'y a pas d\'image vers laquelle aller.</string>
+    <string name="in_betweens_not_recorded">Les traits de l\'image %1$d ne sont pas connus. Elle a été dessinée avant l\'ouverture de ce projet, ou vient d\'un collage, d\'une fusion ou d\'une importation. Redessinez-la pour l\'utiliser ici.</string>
+    <string name="in_betweens_drawn_otherwise">L\'image %1$d a été modifiée autrement que par des traits, par exemple avec le remplissage ou le lasso : ses traits ne correspondent plus.</string>
+    <string name="in_betweens_nothing_drawn">Aucune des deux images n\'a de dessin sur ce calque.</string>
+    <string name="in_betweens_stroke_counts">Les deux images n\'ont pas le même nombre de traits (%1$d et %2$d). Il leur faut le même nombre, tracés dans le même ordre.</string>
+    <string name="in_betweens_brush_differs">Le trait %1$d utilise un pinceau différent dans chaque image, ou gomme dans une seule des deux.</string>
+    <string name="in_betweens_out_of_memory">Pas assez de mémoire. Essayez moins d\'intervalles, ou fermez d\'autres applications.</string>
+    <string name="in_betweens_out_of_storage">Pas assez d\'espace de stockage.</string>
+    <string name="in_betweens_failed">Les intervalles n\'ont pas pu être créés.</string>
 </resources>
