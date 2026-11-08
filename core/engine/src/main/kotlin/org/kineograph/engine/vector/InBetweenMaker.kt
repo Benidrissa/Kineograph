@@ -44,6 +44,19 @@ public enum class InBetweenOutcome {
  */
 public data class InBetweenResult(val outcome: InBetweenOutcome, val frame: Int = 0, val first: Int = 0, val second: Int = 0)
 
+/** A frame and the next one, checked against their strokes and paired, or why they cannot have in-betweens. See [InBetweenMaker.prepare]. */
+public class InBetweenPlan internal constructor(
+    public val layerId: String,
+    public val frameId: String,
+    /** Why there can be no in-betweens, or null if there can. */
+    public val problem: InBetweenResult?,
+    internal val pairs: List<Pair<RecordedStroke, RecordedStroke>>,
+    internal val cels: List<Cel?>,
+) {
+    /** The strokes' middle lines, for showing the in-betweens before they are made, or null if there can be none. */
+    public val sketch: InBetweenSketch? = if (problem == null) InBetweens.sketch(pairs) else null
+}
+
 /**
  * Makes drawings between a frame and the next one on one layer, as new frames between them, from the strokes both were drawn with. Each new
  * frame keeps the first frame's drawings on every other layer.
@@ -65,36 +78,23 @@ public class InBetweenMaker(
         var applied = false
     }
 
+    /** Checks [frameId] and the frame after it on [layerId], and pairs their strokes, without changing anything. */
+    public suspend fun prepare(layerId: String, frameId: String): InBetweenPlan =
+        withContext(dispatcher) {
+            guarded(Run(), { InBetweenPlan(layerId, frameId, it, emptyList(), emptyList()) }) { planNow(layerId, frameId) }
+        }
+
+    /** Makes [count] in-betweens from [plan], checking again first if either drawing has changed since. */
     public suspend fun make(
-        layerId: String,
-        frameId: String,
+        plan: InBetweenPlan,
         count: Int,
+        spacing: InBetweenSpacing = InBetweenSpacing.EVEN,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
     ): InBetweenResult {
+        plan.problem?.let { return it }
         val run = Run()
         return try {
-            withContext(dispatcher) {
-                try {
-                    makeNow(layerId, frameId, count.coerceAtLeast(1), run, onProgress)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: OutOfMemoryError) {
-                    session.trimMemory()
-                    giveUp(run)
-                    InBetweenResult(InBetweenOutcome.OUT_OF_MEMORY)
-                } catch (e: IOException) {
-                    giveUp(run)
-                    val memory = generateSequence<Throwable>(e) { it.cause }.any { it is OutOfMemoryError }
-                    InBetweenResult(if (memory) InBetweenOutcome.OUT_OF_MEMORY else InBetweenOutcome.OUT_OF_STORAGE)
-                } catch (_: IllegalArgumentException) {
-                    // A bitmap refuses a size past what the platform can address, which comes to the same thing for the person using the app.
-                    giveUp(run)
-                    InBetweenResult(InBetweenOutcome.OUT_OF_MEMORY)
-                } catch (_: RuntimeException) {
-                    giveUp(run)
-                    InBetweenResult(InBetweenOutcome.FAILED)
-                }
-            }
+            withContext(dispatcher) { guarded(run, { it }) { makeNow(plan, count.coerceAtLeast(1), spacing, run, onProgress) } }
         } catch (e: CancellationException) {
             if (run.applied) return InBetweenResult(InBetweenOutcome.DONE)
             giveUp(run)
@@ -102,42 +102,81 @@ public class InBetweenMaker(
         }
     }
 
+    /** [prepare] and [make] in one go. */
+    public suspend fun make(
+        layerId: String,
+        frameId: String,
+        count: Int,
+        spacing: InBetweenSpacing = InBetweenSpacing.EVEN,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+    ): InBetweenResult = make(prepare(layerId, frameId), count, spacing, onProgress)
+
+    /** Runs [block], turning what can go wrong into an outcome for [failed] and taking back what was written. */
+    private suspend fun <T> guarded(run: Run, failed: (InBetweenResult) -> T, block: suspend () -> T): T =
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: OutOfMemoryError) {
+            session.trimMemory()
+            giveUp(run)
+            failed(InBetweenResult(InBetweenOutcome.OUT_OF_MEMORY))
+        } catch (e: IOException) {
+            giveUp(run)
+            val memory = generateSequence<Throwable>(e) { it.cause }.any { it is OutOfMemoryError }
+            failed(InBetweenResult(if (memory) InBetweenOutcome.OUT_OF_MEMORY else InBetweenOutcome.OUT_OF_STORAGE))
+        } catch (_: IllegalArgumentException) {
+            // A bitmap refuses a size past what the platform can address, which comes to the same thing for the person using the app.
+            giveUp(run)
+            failed(InBetweenResult(InBetweenOutcome.OUT_OF_MEMORY))
+        } catch (_: RuntimeException) {
+            giveUp(run)
+            failed(InBetweenResult(InBetweenOutcome.FAILED))
+        }
+
     private suspend fun giveUp(run: Run) {
         if (run.written.isEmpty()) return
         withContext(dispatcher + NonCancellable) { store.discard(run.written) }
     }
 
-    private suspend fun makeNow(
-        layerId: String,
-        frameId: String,
-        count: Int,
-        run: Run,
-        onProgress: (Int, Int) -> Unit,
-    ): InBetweenResult {
+    private suspend fun planNow(layerId: String, frameId: String): InBetweenPlan {
         val source = session.strokesFor(layerId, frameId)
-        val project = source.project
-        val index = project.frameIndex(frameId)
-        if (source.cels.size < 2 || index < 0) return InBetweenResult(InBetweenOutcome.NO_NEXT_FRAME)
+        fun refused(result: InBetweenResult) = InBetweenPlan(layerId, frameId, result, emptyList(), source.cels)
+        val index = source.project.frameIndex(frameId)
+        if (source.cels.size < 2 || index < 0) return refused(InBetweenResult(InBetweenOutcome.NO_NEXT_FRAME))
         val numbers = intArrayOf(index + 1, index + 2)
         val strokes = ArrayList<List<RecordedStroke>>(2)
         for (side in 0..1) {
-            val log = source.logs[side] ?: return InBetweenResult(InBetweenOutcome.NOT_RECORDED, numbers[side])
+            val log = source.logs[side] ?: return refused(InBetweenResult(InBetweenOutcome.NOT_RECORDED, numbers[side]))
             val list = log.toList()
-            if (!matches(source.cels[side], list)) return InBetweenResult(InBetweenOutcome.DRAWN_OTHERWISE, numbers[side])
+            if (!matches(source.cels[side], list)) return refused(InBetweenResult(InBetweenOutcome.DRAWN_OTHERWISE, numbers[side]))
             strokes += list
         }
-        val pairs =
-            when (val pairing = InBetweens.pair(strokes[0], strokes[1])) {
-                is StrokePairing.Refused -> return refusal(pairing, numbers)
-                is StrokePairing.Paired -> pairing.pairs
-            }
+        return when (val pairing = InBetweens.pair(strokes[0], strokes[1])) {
+            is StrokePairing.Refused -> refused(refusal(pairing, numbers))
+            is StrokePairing.Paired -> InBetweenPlan(layerId, frameId, null, pairing.pairs, source.cels)
+        }
+    }
+
+    private suspend fun makeNow(
+        plan: InBetweenPlan,
+        count: Int,
+        spacing: InBetweenSpacing,
+        run: Run,
+        onProgress: (Int, Int) -> Unit,
+    ): InBetweenResult {
+        // Drawing files never change once written, so the same cels mean the same drawings and the plan's check still holds.
+        val now = session.strokesFor(plan.layerId, plan.frameId).cels
+        val checked = if (now == plan.cels) plan else planNow(plan.layerId, plan.frameId)
+        checked.problem?.let { return it }
+        val pairs = checked.pairs
         onProgress(0, count)
 
         val images = ArrayList<PlacedFrame>(count)
         val region = pairs.fold(IntRect.EMPTY) { area, (a, b) -> area.union(a.clip).union(b.clip) }
         for (k in 1..count) {
             coroutineContext.ensureActive()
-            val t = InBetweens.position(k, count)
+            val t = InBetweens.position(k, count, spacing)
             val mixed = pairs.map { (a, b) -> InBetweens.mix(a, b, t) }
             images += draw(mixed, region, run)
             if (k % WRITE_CHECK_INTERVAL == 0) store.awaitWrites()
@@ -146,7 +185,7 @@ public class InBetweenMaker(
         store.awaitWrites()
         coroutineContext.ensureActive()
         val logs = images.mapNotNull { frame -> frame.file?.let { it to frame.log } }.toMap()
-        session.applyEdit(strokes = logs) { current -> insertAfter(current, frameId, layerId, images) }
+        session.applyEdit(strokes = logs) { current -> insertAfter(current, plan.frameId, plan.layerId, images) }
         run.applied = true
         return InBetweenResult(InBetweenOutcome.DONE)
     }

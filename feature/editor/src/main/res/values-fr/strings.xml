@@ -270,4 +270,15 @@
     <string name="in_betweens_out_of_memory">Pas assez de mémoire. Essayez moins d\'intervalles, ou fermez d\'autres applications.</string>
     <string name="in_betweens_out_of_storage">Pas assez d\'espace de stockage.</string>
     <string name="in_betweens_failed">Les intervalles n\'ont pas pu être créés.</string>
+    <string name="in_betweens_checking">Vérification des deux dessins…</string>
+    <string name="in_betweens_spacing">Espacement</string>
+    <string name="in_betweens_spacing_even">Régulier</string>
+    <string name="in_betweens_spacing_even_hint">Le même écart d\'une image à l\'autre</string>
+    <string name="in_betweens_spacing_slow_start">Départ lent</string>
+    <string name="in_betweens_spacing_slow_start_hint">Démarre doucement, puis accélère</string>
+    <string name="in_betweens_spacing_slow_end">Arrivée lente</string>
+    <string name="in_betweens_spacing_slow_end_hint">Ralentit en arrivant</string>
+    <string name="in_betweens_spacing_slow_both">Départ et arrivée lents</string>
+    <string name="in_betweens_spacing_slow_both_hint">Démarre et s\'arrête en douceur</string>
+    <string name="in_betweens_preview">Aperçu des intervalles de l\'image %1$d à l\'image %2$d</string>
 </resources>

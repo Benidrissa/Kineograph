@@ -18,6 +18,21 @@ public enum class PairingProblem {
     BRUSH_DIFFERS,
 }
 
+/** How in-betweens are spread out between the two drawings. */
+public enum class InBetweenSpacing {
+    /** The same distance from each frame to the next. */
+    EVEN,
+
+    /** Close together near the first drawing, so the movement starts slowly and speeds up. */
+    SLOW_START,
+
+    /** Close together near the second drawing, so the movement slows down as it arrives. */
+    SLOW_END,
+
+    /** Close together near both drawings, so the movement starts and stops gently. */
+    SLOW_BOTH,
+}
+
 /** Strokes of two drawings matched one to one, or why they could not be. */
 public sealed interface StrokePairing {
     public class Paired(public val pairs: List<Pair<RecordedStroke, RecordedStroke>>) : StrokePairing
@@ -43,8 +58,31 @@ public object InBetweens {
         return StrokePairing.Paired(first.zip(second))
     }
 
-    /** Where the [index]th of [count] in-betweens sits between the two drawings, from 0 to 1, evenly spaced. */
-    public fun position(index: Int, count: Int): Float = index.toFloat() / (count + 1)
+    /** Where the [index]th, from 1, of [count] in-betweens sits between the two drawings, from 0 to 1. */
+    public fun position(index: Int, count: Int, spacing: InBetweenSpacing = InBetweenSpacing.EVEN): Float {
+        val u = index.toFloat() / (count + 1)
+        return when (spacing) {
+            InBetweenSpacing.EVEN -> u
+            InBetweenSpacing.SLOW_START -> u * u
+            InBetweenSpacing.SLOW_END -> 1f - (1f - u) * (1f - u)
+            InBetweenSpacing.SLOW_BOTH -> u * u * (3f - 2f * u)
+        }
+    }
+
+    /** The middle lines of [pairs], [points] points each, for showing in-betweens before they are made. */
+    public fun sketch(pairs: List<Pair<RecordedStroke, RecordedStroke>>, points: Int = SKETCH_POINTS): InBetweenSketch {
+        val first = ArrayList<FloatArray>(pairs.size)
+        val second = ArrayList<FloatArray>(pairs.size)
+        val sizes = FloatArray(pairs.size * 2)
+        for ((i, pair) in pairs.withIndex()) {
+            val (a, b) = pair
+            first += resample(a, points, 2, reverse = false)
+            second += resample(b, points, 2, reverse = isReversed(a, b))
+            sizes[i * 2] = a.spec.sizePx
+            sizes[i * 2 + 1] = b.spec.sizePx
+        }
+        return InBetweenSketch(first, second, sizes, points)
+    }
 
     /**
      * A stroke [t] of the way from [a] to [b]. Both are walked by distance along them, so a stroke drawn slowly in one place and quickly in
@@ -163,10 +201,49 @@ public object InBetweens {
         return result
     }
 
+    private const val SKETCH_POINTS = 24
     private const val STRIDE_PLAIN = 3
     private const val ORIENTATION = 4
     private const val TWO_PI = (2 * PI).toFloat()
 
     /** Turning a stroke round has to be clearly better, so that a closed loop is left as it was drawn. */
     private const val REVERSE_MARGIN = 0.7f
+}
+
+/** Paired strokes' middle lines, light enough to work out again each time the number of in-betweens or their spacing changes. */
+public class InBetweenSketch internal constructor(
+    private val first: List<FloatArray>,
+    private val second: List<FloatArray>,
+    private val sizes: FloatArray,
+    /** How many points each line has. */
+    public val points: Int,
+) {
+    public val strokeCount: Int get() = first.size
+
+    /** The area every line falls in, with room for the brush, in canvas pixels, as left, top, right and bottom. */
+    public val area: FloatArray =
+        floatArrayOf(Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE).also { area ->
+            for (stroke in first.indices) {
+                val room = max(sizes[stroke * 2], sizes[stroke * 2 + 1]) / 2
+                for (line in listOf(first[stroke], second[stroke])) {
+                    for (p in 0 until points) {
+                        area[0] = minOf(area[0], line[p * 2] - room)
+                        area[1] = minOf(area[1], line[p * 2 + 1] - room)
+                        area[2] = max(area[2], line[p * 2] + room)
+                        area[3] = max(area[3], line[p * 2 + 1] + room)
+                    }
+                }
+            }
+            if (first.isEmpty()) area.fill(0f)
+        }
+
+    /** Stroke [stroke]'s middle line [t] of the way from the first drawing to the second, as x and y pairs, into [out]. */
+    public fun line(stroke: Int, t: Float, out: FloatArray) {
+        val a = first[stroke]
+        val b = second[stroke]
+        for (i in 0 until points * 2) out[i] = a[i] + (b[i] - a[i]) * t
+    }
+
+    /** Stroke [stroke]'s brush size [t] of the way, in canvas pixels. */
+    public fun size(stroke: Int, t: Float): Float = sizes[stroke * 2] + (sizes[stroke * 2 + 1] - sizes[stroke * 2]) * t
 }

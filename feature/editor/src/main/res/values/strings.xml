@@ -269,4 +269,15 @@
     <string name="in_betweens_out_of_memory">There isn\'t enough memory. Try fewer in-betweens, or close other apps.</string>
     <string name="in_betweens_out_of_storage">There isn\'t enough storage space.</string>
     <string name="in_betweens_failed">The in-betweens could not be made.</string>
+    <string name="in_betweens_checking">Checking the two drawings…</string>
+    <string name="in_betweens_spacing">Spacing</string>
+    <string name="in_betweens_spacing_even">Even</string>
+    <string name="in_betweens_spacing_even_hint">The same step from one frame to the next</string>
+    <string name="in_betweens_spacing_slow_start">Slow start</string>
+    <string name="in_betweens_spacing_slow_start_hint">Starts gently, then speeds up</string>
+    <string name="in_betweens_spacing_slow_end">Slow end</string>
+    <string name="in_betweens_spacing_slow_end_hint">Slows down as it arrives</string>
+    <string name="in_betweens_spacing_slow_both">Slow start and end</string>
+    <string name="in_betweens_spacing_slow_both_hint">Starts and stops gently</string>
+    <string name="in_betweens_preview">Preview of the in-betweens from frame %1$d to frame %2$d</string>
 </resources>

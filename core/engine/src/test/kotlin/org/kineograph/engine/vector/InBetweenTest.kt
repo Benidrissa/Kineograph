@@ -88,8 +88,12 @@ class InBetweenTest {
         await()
     }
 
-    private fun make(frameNumber: Int = 1, count: Int = 1): InBetweenResult =
-        runBlocking { InBetweenMaker(session, store).make(layerId, frame(frameNumber), count) }
+    private fun make(frameNumber: Int = 1, count: Int = 1, spacing: InBetweenSpacing = InBetweenSpacing.EVEN): InBetweenResult =
+        runBlocking { InBetweenMaker(session, store).make(layerId, frame(frameNumber), count, spacing) }
+
+    private fun prepare(frameNumber: Int = 1): InBetweenPlan = runBlocking {
+        InBetweenMaker(session, store).prepare(layerId, frame(frameNumber))
+    }
 
     private fun picture(frameNumber: Int): Pair<Bitmap, IntRect>? {
         val cel = project.cel(layerId, frame(frameNumber)) ?: return null
@@ -358,6 +362,97 @@ class InBetweenTest {
 
         assertEquals(InBetweenOutcome.NOT_RECORDED, result.outcome)
         assertEquals(1, result.frame)
+    }
+
+    @Test
+    fun `a slow start puts the in-betweens close to the first drawing`() {
+        line(20f, 180f, 10f)
+        session.addFrame()
+        line(20f, 180f, 90f)
+
+        assertEquals(InBetweenOutcome.DONE, make(count = 3, spacing = InBetweenSpacing.SLOW_START).outcome)
+
+        // A quarter, half and three quarters of the way in time are a sixteenth, a quarter and nine sixteenths of the way in space.
+        assertTrue(inked(2, 100, 15))
+        assertTrue(inked(3, 100, 30))
+        assertTrue(inked(4, 100, 55))
+        assertTrue(!inked(4, 100, 70))
+    }
+
+    @Test
+    fun `a slow end puts the in-betweens close to the second drawing`() {
+        line(20f, 180f, 10f)
+        session.addFrame()
+        line(20f, 180f, 90f)
+
+        assertEquals(InBetweenOutcome.DONE, make(count = 3, spacing = InBetweenSpacing.SLOW_END).outcome)
+
+        assertTrue(inked(2, 100, 45))
+        assertTrue(inked(3, 100, 70))
+        assertTrue(inked(4, 100, 85))
+    }
+
+    @Test
+    fun `checking finds the problem before anything is made`() {
+        line(20f, 180f, 20f)
+        session.addFrame()
+        line(20f, 180f, 60f)
+        line(20f, 180f, 80f)
+
+        val plan = prepare()
+
+        assertEquals(InBetweenOutcome.STROKE_COUNTS_DIFFER, plan.problem?.outcome)
+        assertNull(plan.sketch)
+        assertEquals(2, project.frames.size)
+    }
+
+    @Test
+    fun `the sketch shows each stroke's path where the in-between will be`() {
+        line(20f, 180f, 20f)
+        session.addFrame()
+        line(20f, 180f, 80f)
+
+        val sketch = prepare().sketch ?: error("no sketch")
+
+        assertEquals(1, sketch.strokeCount)
+        val halfway = FloatArray(sketch.points * 2)
+        sketch.line(0, 0.5f, halfway)
+        for (i in 0 until sketch.points) assertEquals(50f, halfway[i * 2 + 1], 0.5f)
+        assertEquals(20f, halfway[0], 1f)
+        assertEquals(180f, halfway[(sketch.points - 1) * 2], 1f)
+        assertTrue(sketch.area[1] < 20f && sketch.area[3] > 80f)
+        assertEquals(2, project.frames.size)
+    }
+
+    @Test
+    fun `a drawing changed after the check is checked again before anything is made`() {
+        line(20f, 180f, 20f)
+        session.addFrame()
+        line(20f, 180f, 80f)
+        val maker = InBetweenMaker(session, store)
+        val plan = runBlocking { maker.prepare(layerId, frame(1)) }
+        assertNull(plan.problem)
+        session.fill(100, 40, Color.RED, tolerance = 0, gapClose = 0, sampleAllLayers = false)
+        await()
+
+        val result = runBlocking { maker.make(plan, 1) }
+
+        assertEquals(InBetweenOutcome.DRAWN_OTHERWISE, result.outcome)
+        assertEquals(2, result.frame)
+        assertEquals(2, project.frames.size)
+    }
+
+    @Test
+    fun `a plan whose drawings are unchanged makes its in-betweens`() {
+        line(20f, 180f, 20f)
+        session.addFrame()
+        line(20f, 180f, 80f)
+        val maker = InBetweenMaker(session, store)
+        val plan = runBlocking { maker.prepare(layerId, frame(1)) }
+
+        assertEquals(InBetweenOutcome.DONE, runBlocking { maker.make(plan, 2, InBetweenSpacing.SLOW_BOTH) }.outcome)
+
+        assertEquals(4, project.frames.size)
     }
 
     private companion object {

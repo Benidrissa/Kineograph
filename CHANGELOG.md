@@ -12,6 +12,9 @@ The bouncing ball works from start to finish.
   a fill or the lasso is refused with the reason, not given wrong frames. One undo takes all the new frames back
 - The strokes behind each drawing are now kept beside it, in `vectors/`, so in-betweens also work for frames drawn in earlier sessions,
   and on in-betweens themselves. A missing or damaged stroke file only means that frame cannot be used for in-betweens
+- In-between spacing: even, slow start, slow end, or slow start and end, picked from a drop-down that shows where each frame falls. The
+  dialog checks both frames as it opens, so a problem shows straight away, and otherwise previews the strokes' paths in every new frame
+  as the number and spacing change
 - Project gallery with search, sort, trash with undo, and a sample project
 - New Project sheet with canvas presets, papers, solid colours, image and camera backgrounds, and an FPS wheel
 - Editor with low-latency drawing (API 29+) and a software fallback (API 26–28)
