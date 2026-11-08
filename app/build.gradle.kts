@@ -28,6 +28,10 @@ android {
             .toInt()
         versionCode = 1
         versionName = if (withAi) "0.1.0-ai" else "0.1.0"
+        // The AI build is an app of its own, "Kineograph AI", beside the standard one: it installs whatever key the standard one has,
+        // and its model and projects go when it is uninstalled.
+        if (withAi) applicationIdSuffix = ".ai"
+        manifestPlaceholders["appLabel"] = if (withAi) "@string/app_name_ai" else "@string/app_name"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

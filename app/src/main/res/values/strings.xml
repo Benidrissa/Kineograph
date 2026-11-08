@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">Kineograph</string>
+    <string name="app_name_ai" tools:ignore="UnusedResources">Kineograph AI</string>
     <string name="sample_project_name">Bouncing Ball</string>
     <string name="sample_layer_name">Ball</string>
     <string name="default_layer_name">Layer 1</string>

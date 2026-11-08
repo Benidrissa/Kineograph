@@ -463,5 +463,6 @@ app learns whether it has AI. A product flavour would do the same but rename eve
 Both builds hold no INTERNET permission, and CI checks the AI build's manifest too. The person downloads the model themselves and imports
 it with the file picker. The app copies it into storage that is not backed up, checking the `LITERTLM` header first and the free space,
 and the copy only replaces the old model once it is whole. LiteRT-LM ships no shrinker rules, and its native code looks classes up by name,
-so `:feature:ai` keeps the whole package. The AI build keeps the standard build's application ID, so it installs over it and keeps the
-person's projects.
+so `:feature:ai` keeps the whole package. The AI build is an app of its own, `org.kineograph.app.ai`, shown as
+"Kineograph AI". It installs beside the standard app whatever key that was signed with, which matters while early test builds
+signed with other keys are about, and uninstalling it takes the 2.6 GB model with it.
