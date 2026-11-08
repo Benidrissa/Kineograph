@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ai_title">IA sur ce téléphone</string>
+    <string name="ai_back">Retour</string>
+    <string name="ai_intro">Kineograph peut exécuter le modèle Gemma 4 de Google sur ce téléphone, sans connexion internet. Téléchargez un modèle Gemma 4 au format LiteRT-LM (un fichier qui se termine par .litertlm, environ 2,6 Go) avec votre navigateur, puis importez-le ici. L\'application garde sa propre copie : vous pouvez ensuite supprimer le téléchargement.</string>
+    <string name="ai_section_model">Modèle</string>
+    <string name="ai_no_model">Aucun modèle pour l\'instant.</string>
+    <string name="ai_import">Importer un fichier de modèle…</string>
+    <string name="ai_replace">Remplacer…</string>
+    <string name="ai_delete">Supprimer</string>
+    <string name="ai_cancel">Annuler</string>
+    <string name="ai_delete_title">Supprimer le modèle ?</string>
+    <string name="ai_delete_text">Cela libère %1$s. Pour utiliser l\'IA à nouveau, il faudra réimporter le fichier.</string>
+    <string name="ai_copying">Copie de %1$s sur %2$s…</string>
+    <string name="ai_copying_unknown">Copie… %1$s pour l\'instant</string>
+    <string name="ai_not_a_model">Ce n\'est pas un fichier de modèle LiteRT-LM. Cherchez un fichier qui se termine par .litertlm.</string>
+    <string name="ai_not_enough_space">Pas assez d\'espace : le modèle a besoin de %1$s, et %2$s est libre.</string>
+    <string name="ai_import_failed">Le fichier n\'a pas pu être copié.</string>
+    <string name="ai_section_try">Essayer</string>
+    <string name="ai_backend">S\'exécute sur</string>
+    <string name="ai_backend_cpu">Processeur (CPU)</string>
+    <string name="ai_backend_cpu_hint">Fonctionne sur tous les téléphones. Plus lent, et utilise plus de mémoire</string>
+    <string name="ai_backend_gpu">Puce graphique (GPU)</string>
+    <string name="ai_backend_gpu_hint">Plus rapide sur la plupart des téléphones récents. Le premier démarrage est plus long</string>
+    <string name="ai_prompt">Demandez quelque chose</string>
+    <string name="ai_prompt_default">Décrivez l\'animation d\'une balle qui rebondit en trois courtes étapes.</string>
+    <string name="ai_ask">Demander</string>
+    <string name="ai_stop">Arrêter</string>
+    <string name="ai_loading">Chargement du modèle… La première fois, cela peut prendre un moment.</string>
+    <string name="ai_replying">Rédaction…</string>
+    <string name="ai_timing_load">Chargé en %1$.1f s</string>
+    <string name="ai_timing_first">premiers mots après %1$.1f s</string>
+    <string name="ai_timing_speed">%1$.1f jetons par seconde</string>
+    <string name="ai_unsupported">Le processeur de ce téléphone ne peut pas exécuter le modèle. Il faut un processeur 64 bits.</string>
+    <string name="ai_out_of_memory">Pas assez de mémoire pour exécuter le modèle. Fermez d\'autres applications et réessayez, ou essayez le GPU.</string>
+    <string name="ai_load_failed">Le modèle n\'a pas pu être chargé. Le fichier est peut-être endommagé, ou prévu pour un autre type de téléphone.</string>
+    <string name="ai_reply_failed">Le modèle s\'est arrêté sur une erreur.</string>
+</resources>

@@ -452,3 +452,16 @@ discards remove a drawing's strokes with it, and strokes left without a drawing.
 
 What this does not cover yet: a drawing that has moved on the canvas keeps its strokes for reading, but loses them at its next change, as the
 format cannot store a moved stroke's samples. Duplicating a project copies the files along with everything else.
+
+## The AI build is a switch, not a flavour
+
+Gemma runs on the phone through LiteRT-LM, which comes as a prebuilt native library of about 22 MB for each 64-bit ABI, with no 32-bit ARM
+build. F-Droid does not take prebuilt binaries, and the standard APK should stay small, so the library lives in `:feature:ai`, which only
+the AI build links: `./gradlew -Pkineograph.ai=true`. The switch picks `app/src/ai` or `app/src/standard` for `AiEntry`, the one place the
+app learns whether it has AI. A product flavour would do the same but rename every task, APK path and CI step for both builds.
+
+Both builds hold no INTERNET permission, and CI checks the AI build's manifest too. The person downloads the model themselves and imports
+it with the file picker. The app copies it into storage that is not backed up, checking the `LITERTLM` header first and the free space,
+and the copy only replaces the old model once it is whole. LiteRT-LM ships no shrinker rules, and its native code looks classes up by name,
+so `:feature:ai` keeps the whole package. The AI build keeps the standard build's application ID, so it installs over it and keeps the
+person's projects.

@@ -18,6 +18,7 @@
     <string name="settings_default_smoothing">Lissage par défaut</string>
     <string name="settings_low_latency">Dessin à faible latence</string>
     <string name="settings_low_latency_help">Les traits apparaissent plus vite sur Android 10 et versions ultérieures. Désactivez cette option si les traits scintillent ou disparaissent sur votre appareil. Prend effet à la prochaine ouverture d’un projet.</string>
+    <string name="settings_ai">IA sur ce téléphone</string>
     <string name="settings_about">À propos de Kineograph</string>
     <string name="about_title">À propos</string>
     <string name="about_app_name">Kineograph</string>

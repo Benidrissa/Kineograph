@@ -176,7 +176,11 @@ private fun KineographNavHost(app: KineographApp, settings: AppSettings, wideLay
                 app.settings,
                 onBack = dropUnlessResumed { nav.popBackStack() },
                 onOpenAbout = dropUnlessResumed { nav.navigate(ROUTE_ABOUT) },
+                onOpenAi = if (AiEntry.AVAILABLE) dropUnlessResumed { nav.navigate(ROUTE_AI) } else null,
             )
+        }
+        if (AiEntry.AVAILABLE) {
+            composable(ROUTE_AI) { AiEntry.Screen(app, onBack = dropUnlessResumed { nav.popBackStack() }) }
         }
         composable(ROUTE_ABOUT) {
             AboutScreen(BuildConfig.VERSION_NAME, onBack = dropUnlessResumed { nav.popBackStack() })
@@ -230,6 +234,7 @@ private const val ARGUMENT_BACKGROUND_FAILED = "backgroundFailed"
 private const val ROUTE_EDITOR = "editor/{$ARGUMENT_ID}?$ARGUMENT_BACKGROUND_FAILED={$ARGUMENT_BACKGROUND_FAILED}"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_ABOUT = "about"
+private const val ROUTE_AI = "ai"
 
 /** What the library uses by default, so that the navigation bar looks as it does in other apps. */
 private val NAVIGATION_SCRIM_LIGHT = Color.argb(230, 255, 255, 255)

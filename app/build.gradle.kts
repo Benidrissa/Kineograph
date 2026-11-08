@@ -8,6 +8,10 @@ plugins {
 // Release signing comes from the environment, so keys never live in the repository. See .github/workflows/android.yml.
 val releaseKeystore: String? = System.getenv("KINEOGRAPH_KEYSTORE_PATH")
 
+// The AI build: ./gradlew -Pkineograph.ai=true. It adds Gemma through LiteRT-LM, whose native library is a prebuilt binary, so the
+// standard build leaves it out. Both hold no INTERNET permission. See docs/decisions.md.
+val withAi: Boolean = providers.gradleProperty("kineograph.ai").map(String::toBoolean).getOrElse(false)
+
 android {
     namespace = "org.kineograph.app"
     compileSdk = libs.versions.compileSdk
@@ -23,7 +27,7 @@ android {
             .get()
             .toInt()
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = if (withAi) "0.1.0-ai" else "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -73,6 +77,9 @@ android {
         includeInApk = false
         includeInBundle = false
     }
+
+    // AiEntry comes from one of these two, so nothing else in the app knows which build it is.
+    sourceSets.getByName("main").kotlin.directories += if (withAi) "src/ai/kotlin" else "src/standard/kotlin"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -130,6 +137,7 @@ dependencies {
     implementation(project(":feature:gallery"))
     implementation(project(":feature:editor"))
     implementation(project(":feature:settings"))
+    if (withAi) implementation(project(":feature:ai"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

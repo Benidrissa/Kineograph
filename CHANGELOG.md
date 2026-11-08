@@ -12,6 +12,9 @@ The bouncing ball works from start to finish.
   a fill or the lasso is refused with the reason, not given wrong frames. One undo takes all the new frames back
 - The strokes behind each drawing are now kept beside it, in `vectors/`, so in-betweens also work for frames drawn in earlier sessions,
   and on in-betweens themselves. A missing or damaged stroke file only means that frame cannot be used for in-betweens
+- AI build, a prototype: built with `-Pkineograph.ai=true`, it adds Settings > AI on this phone. Import a Gemma 4 model file
+  (`.litertlm`) with the file picker, choose the CPU or the GPU, and try it with a prompt, which shows the reply and how fast it came.
+  Everything runs on the phone, and the AI build holds no INTERNET permission either
 - In-between spacing: even, slow start, slow end, or slow start and end, picked from a drop-down that shows where each frame falls. The
   dialog checks both frames as it opens, so a problem shows straight away, and otherwise previews the strokes' paths in every new frame
   as the number and spacing change

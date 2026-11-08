@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -53,7 +54,14 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-public fun SettingsScreen(settings: AppSettings, repository: SettingsRepository, onBack: () -> Unit, onOpenAbout: () -> Unit) {
+public fun SettingsScreen(
+    settings: AppSettings,
+    repository: SettingsRepository,
+    onBack: () -> Unit,
+    onOpenAbout: () -> Unit,
+    /** Opens the AI screen, in the AI build only. */
+    onOpenAi: (() -> Unit)? = null,
+) {
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     val notSaved = stringResource(R.string.settings_not_saved)
@@ -132,6 +140,18 @@ public fun SettingsScreen(settings: AppSettings, repository: SettingsRepository,
             )
             HorizontalDivider()
 
+            if (onOpenAi != null) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .clickable(role = Role.Button, onClick = onOpenAi)
+                        .testTag("settings_ai"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(stringResource(R.string.settings_ai), style = MaterialTheme.typography.bodyLarge)
+                }
+            }
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onOpenAbout),
                 verticalAlignment = Alignment.CenterVertically,

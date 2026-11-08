@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ai_title">AI on this phone</string>
+    <string name="ai_back">Back</string>
+    <string name="ai_intro">Kineograph can run Google\'s Gemma 4 model on this phone, with no internet connection. Download a Gemma 4 model in LiteRT-LM format (a file ending in .litertlm, about 2.6 GB) with your browser, then import it here. The app keeps its own copy, so you can delete the download afterwards.</string>
+    <string name="ai_section_model">Model</string>
+    <string name="ai_no_model">No model yet.</string>
+    <string name="ai_import">Import a model file…</string>
+    <string name="ai_replace">Replace…</string>
+    <string name="ai_delete">Delete</string>
+    <string name="ai_cancel">Cancel</string>
+    <string name="ai_delete_title">Delete the model?</string>
+    <string name="ai_delete_text">This frees %1$s. To use AI again, you will need to import the file again.</string>
+    <string name="ai_copying">Copying %1$s of %2$s…</string>
+    <string name="ai_copying_unknown">Copying… %1$s so far</string>
+    <string name="ai_not_a_model">This is not a LiteRT-LM model file. Look for a file ending in .litertlm.</string>
+    <string name="ai_not_enough_space">Not enough space: the model needs %1$s, and %2$s is free.</string>
+    <string name="ai_import_failed">The file could not be copied.</string>
+    <string name="ai_section_try">Try it</string>
+    <string name="ai_backend">Runs on</string>
+    <string name="ai_backend_cpu">Processor (CPU)</string>
+    <string name="ai_backend_cpu_hint">Works on every phone. Slower, and uses more memory</string>
+    <string name="ai_backend_gpu">Graphics chip (GPU)</string>
+    <string name="ai_backend_gpu_hint">Faster on most recent phones. The first start takes longer</string>
+    <string name="ai_prompt">Ask something</string>
+    <string name="ai_prompt_default">Describe a bouncing ball animation in three short steps.</string>
+    <string name="ai_ask">Ask</string>
+    <string name="ai_stop">Stop</string>
+    <string name="ai_loading">Loading the model… The first time can take a while.</string>
+    <string name="ai_replying">Writing…</string>
+    <string name="ai_timing_load">Loaded in %1$.1f s</string>
+    <string name="ai_timing_first">first words after %1$.1f s</string>
+    <string name="ai_timing_speed">%1$.1f tokens per second</string>
+    <string name="ai_unsupported">This phone\'s processor cannot run the model. It needs a 64-bit processor.</string>
+    <string name="ai_out_of_memory">There is not enough memory to run the model. Close other apps and try again, or try the GPU.</string>
+    <string name="ai_load_failed">The model could not be loaded. The file may be damaged, or made for another kind of phone.</string>
+    <string name="ai_reply_failed">The model stopped with an error.</string>
+</resources>

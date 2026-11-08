@@ -34,6 +34,9 @@ jobs:
         run: ./gradlew :app:lintDebug :app:checkDebugPermissions
       - name: Build the debug APK
         run: ./gradlew :app:assembleDebug
+      - name: Build the AI variant and check its permissions
+        # The AI build adds Gemma through LiteRT-LM and must still hold no INTERNET permission. See docs/decisions.md.
+        run: ./gradlew -Pkineograph.ai=true :app:assembleDebug :app:checkDebugPermissions
       - name: Check the debug APK has the repository's debug key
         # With any other key, this APK could not update the one from the run before. See docs/decisions.md.
         run: |

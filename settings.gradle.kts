@@ -32,4 +32,6 @@ include(
     ":feature:gallery",
     ":feature:editor",
     ":feature:settings",
+    // Only linked into the app by the AI build: ./gradlew -Pkineograph.ai=true. See docs/decisions.md.
+    ":feature:ai",
 )
