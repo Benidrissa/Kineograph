@@ -176,7 +176,17 @@ public class InBetweenMaker(
         val replay = StrokeReplay(region)
         try {
             strokes.forEach { stroke ->
-                replay.replay(stroke.spec, stroke.seed, stroke.colorArgb, stroke.samples, stroke.count, stroke.stride, stroke.clip)
+                replay.replay(
+                    stroke.spec,
+                    stroke.seed,
+                    stroke.colorArgb,
+                    stroke.samples,
+                    stroke.count,
+                    stroke.stride,
+                    stroke.clip,
+                    stroke.offsetX,
+                    stroke.offsetY,
+                )
             }
             return ReplayDifference.between(image, bounds.left, bounds.top, replay.layer, region.left, region.top).isWithinTolerance
         } finally {
@@ -189,13 +199,25 @@ public class InBetweenMaker(
         val replay = StrokeReplay(region)
         try {
             strokes.forEach { stroke ->
-                replay.replay(stroke.spec, stroke.seed, stroke.colorArgb, stroke.samples, stroke.count, stroke.stride, stroke.clip)
+                replay.replay(
+                    stroke.spec,
+                    stroke.seed,
+                    stroke.colorArgb,
+                    stroke.samples,
+                    stroke.count,
+                    stroke.stride,
+                    stroke.clip,
+                    stroke.offsetX,
+                    stroke.offsetY,
+                )
             }
             val covered = coveredArea(replay.layer) ?: return PlacedFrame(null, null, StrokeLog.of(strokes))
             val crop = Bitmap.createBitmap(replay.layer, covered.left, covered.top, covered.width, covered.height)
             val file = store.write(crop)
             run.written += file
-            return PlacedFrame(file, covered.translated(region.left, region.top), StrokeLog.of(strokes))
+            val bounds = covered.translated(region.left, region.top)
+            store.keepStrokes(file, bounds, strokes)
+            return PlacedFrame(file, bounds, StrokeLog.of(strokes))
         } finally {
             replay.release()
         }

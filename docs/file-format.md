@@ -8,6 +8,7 @@ manifest.json          The project, as described below
 manifest.prev.json     The previous revision, kept for crash recovery (not part of a .kgraph)
 manifest.tmp           A revision being saved. When manifest.json is missing, this is the newest complete copy (not part of a .kgraph)
 cels/<uuid>.webp|png   One image per drawing
+vectors/<uuid>.kgv     Optional. The strokes that drew cels/<uuid>.*, used for in-betweens. Readers may ignore this directory
 media/                 Background images
 audio/                 Audio (from Phase 2)
 thumb.webp             Gallery thumbnail (not part of a .kgraph)

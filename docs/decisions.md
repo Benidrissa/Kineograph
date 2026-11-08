@@ -438,5 +438,17 @@ Strokes pair up in the order they were drawn, so both frames need the same numbe
 by distance along the stroke and blended, and the result is drawn with the first frame's seed, so a pencil's grain does not flicker. A stroke
 drawn the other way round is turned first. Other layers hold the first frame's drawing, which suits a still background.
 
-For now the logs are not saved, so only strokes drawn since the project was opened can be used. Saving them beside the drawings is the next
-step.
+## A drawing's strokes are kept in a file named after it
+
+Each drawing `cels/<name>.<ext>` may have `vectors/<name>.kgv` beside it, in the format `VectorCodec` describes, written after the drawing
+and never changed. The name binds the two: a new drawing always gets a new name, so whatever writes a drawing without knowing about strokes,
+such as a merge or an import, leaves it with none rather than with someone else's. The manifest and the Room schema do not change, and an
+older app simply ignores the directory.
+
+Strokes give way first. They are written whole, in the background, without flushing to storage, and nothing waits for them or reports
+failure: a drawing without its strokes only cannot be used for in-betweens. A file that is missing, damaged, larger than 32 MiB, for a
+drawing of another size, or holding anything but strokes reads as no strokes. The check against pixels still runs before any use. Sweeps and
+discards remove a drawing's strokes with it, and strokes left without a drawing.
+
+What this does not cover yet: a drawing that has moved on the canvas keeps its strokes for reading, but loses them at its next change, as the
+format cannot store a moved stroke's samples. Duplicating a project copies the files along with everything else.

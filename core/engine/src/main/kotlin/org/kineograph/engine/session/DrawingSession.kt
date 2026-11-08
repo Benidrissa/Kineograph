@@ -382,6 +382,17 @@ public class DrawingSession(
         }
     }
 
+    /** The strokes behind [file]'s drawing, from memory or from beside the drawing on disk, or null if they are not known. */
+    private fun logFor(file: String, celBounds: IntRect?): StrokeLog? {
+        strokeLogs[file]?.let { return it }
+        if (!isRecordingStrokes || celBounds == null) return null
+        val kept = store.keptStrokes(file, celBounds) ?: return null
+        val bytes = kept.sumOf { it.bytes }
+        if (recordedBytes + bytes > budget.historyMemoryBytes) return null
+        recordedBytes += bytes
+        return StrokeLog.of(kept).also { strokeLogs[file] = it }
+    }
+
     private fun stopRecordingStrokes() {
         isRecordingStrokes = false
         strokeLogs.clear()
@@ -1530,8 +1541,8 @@ public class DrawingSession(
                     project,
                     cels,
                     cels.map { cel ->
-                        cel?.file?.let { strokeLogs[it] }
-                            ?: if (cel?.file == null) StrokeLog.EMPTY else null
+                        val file = cel?.file
+                        if (file == null) StrokeLog.EMPTY else logFor(file, cel.bounds)
                     },
                 )
             } catch (e: OutOfMemoryError) {
@@ -1785,7 +1796,7 @@ public class DrawingSession(
         contentBounds = bounds
         loadedKey = key
         loadedFile = file
-        activeLog = if (file == null) StrokeLog.EMPTY else strokeLogs[file]
+        activeLog = if (file == null) StrokeLog.EMPTY else logFor(file, celBounds)
         activeDirty = false
     }
 
@@ -1813,7 +1824,11 @@ public class DrawingSession(
         val cel = pixels?.let { Cel(key.layerId, key.frameId, store.write(it.image), it.bounds) }
         val log = activeLog
         val file = cel?.file
-        if (file != null && log != null) strokeLogs[file] = log
+        val bounds = cel?.bounds
+        if (file != null && bounds != null && log != null) {
+            strokeLogs[file] = log
+            store.keepStrokes(file, bounds, log.toList())
+        }
         project = ProjectEdits.withCel(project, key, cel)
         contentBounds = tight
         loadedFile = cel?.file

@@ -14,6 +14,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import org.kineograph.engine.session.CelStore
+import org.kineograph.engine.vector.RecordedStroke
+import org.kineograph.engine.vector.StrokeFiles
+import org.kineograph.model.IntRect
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
@@ -42,6 +45,7 @@ public class CelFileStore(
     private val pending = ConcurrentHashMap<String, Bitmap>()
     private val jobs = ConcurrentHashMap<String, Job>()
     private val failed = ConcurrentHashMap<String, FailedWrite>()
+    private val strokeJobs: MutableSet<Job> = ConcurrentHashMap.newKeySet()
 
     /** Images given up on while still being written, for the write to clear away behind itself when it ends. */
     private val givenUp = HashSet<String>()
@@ -218,8 +222,83 @@ public class CelFileStore(
         for (name in candidates) {
             if (name in keep || pending.containsKey(name)) continue
             resolve(name)?.delete()
+            sidecarOf(name)?.delete()
             cache.remove(name)
         }
+        deleteOrphanSidecars()
+    }
+
+    /**
+     * A drawing's strokes are written apart from it, so a drawing that never reached the disk, or was deleted while its strokes were on the
+     * way, can leave them behind. Nothing reads strokes without their drawing, so these are only taking space.
+     */
+    private fun deleteOrphanSidecars() {
+        val drawings =
+            File(projectDirectory, CEL_DIRECTORY)
+                .list()
+                .orEmpty()
+                .mapTo(HashSet()) { it.substringBeforeLast('.') }
+        pending.keys.mapTo(drawings) { File(it).name.substringBeforeLast('.') }
+        val sidecars = File(projectDirectory, VECTOR_DIRECTORY).listFiles() ?: return
+        for (sidecar in sidecars) {
+            if (sidecar.isFile && sidecar.name.removeSuffix(VECTOR_SUFFIX) !in drawings && !sidecar.name.startsWith(".")) sidecar.delete()
+        }
+    }
+
+    override fun keepStrokes(file: String, celBounds: IntRect, strokes: List<RecordedStroke>) {
+        if (closed) return
+        val target = sidecarOf(file) ?: return
+        val job =
+            scope.launch {
+                try {
+                    val bytes = StrokeFiles.encode(strokes, celBounds) ?: return@launch
+                    if (bytes.size > MAX_SIDECAR_BYTES) return@launch
+                    target.parentFile?.mkdirs()
+                    // Not flushed to storage: losing strokes in a power cut costs only in-betweens, and these are written often.
+                    val temporary = File(target.parentFile, ".${target.name}.tmp")
+                    try {
+                        temporary.writeBytes(bytes)
+                        AtomicFile.move(temporary, target)
+                    } finally {
+                        temporary.delete()
+                    }
+                } catch (_: IOException) {
+                    // Strokes give way first: the drawing is safe either way.
+                } catch (_: OutOfMemoryError) {
+                    cache.evictAll()
+                } catch (_: RuntimeException) {
+                    // Nothing here may end the app over strokes.
+                }
+            }
+        strokeJobs += job
+        job.invokeOnCompletion { strokeJobs.remove(job) }
+    }
+
+    override fun keptStrokes(file: String, celBounds: IntRect): List<RecordedStroke>? =
+        try {
+            sidecarOf(file)
+                ?.takeIf { it.isFile && it.length() <= MAX_SIDECAR_BYTES }
+                ?.readBytes()
+                ?.let { StrokeFiles.decode(it, celBounds) }
+        } catch (_: IOException) {
+            null
+        } catch (_: OutOfMemoryError) {
+            cache.evictAll()
+            null
+        } catch (_: RuntimeException) {
+            null
+        }
+
+    /** Waits until the strokes asked for so far have been written, or given up on. For tests, and for leaving cleanly. */
+    public suspend fun awaitKeptStrokes() {
+        strokeJobs.toTypedArray().toList().joinAll()
+    }
+
+    /** Where [file]'s strokes are kept: `vectors/<name>.kgv` beside `cels/<name>.<ext>`. */
+    private fun sidecarOf(file: String): File? {
+        val stem = File(file).name.substringBeforeLast('.')
+        if (stem.isEmpty()) return null
+        return resolve("$VECTOR_DIRECTORY/$stem$VECTOR_SUFFIX")
     }
 
     override suspend fun discard(files: Collection<String>) {
@@ -243,6 +322,7 @@ public class CelFileStore(
         pending.remove(name)
         cache.remove(name)
         try {
+            sidecarOf(name)?.delete()
             resolve(name)?.delete()
         } catch (_: IOException) {
             // The next sweep gets another go at it. Nobody is waiting to hear about this, and an error on this path would end the app.
@@ -265,6 +345,11 @@ public class CelFileStore(
 
     private companion object {
         const val CEL_DIRECTORY = "cels"
+        const val VECTOR_DIRECTORY = "vectors"
+        const val VECTOR_SUFFIX = ".kgv"
+
+        /** Far more than a drawing's strokes come to. Anything larger is not read, so a damaged or hostile file cannot fill memory. */
+        const val MAX_SIDECAR_BYTES = 32L * 1024 * 1024
         const val MAX_CONCURRENT_WRITES = 2
         const val MAX_QUEUED_IMAGES = 8
 

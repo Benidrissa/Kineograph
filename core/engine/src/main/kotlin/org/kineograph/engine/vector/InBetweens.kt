@@ -83,8 +83,20 @@ public object InBetweens {
         return otherWay < sameWay * REVERSE_MARGIN
     }
 
-    private fun distance(a: RecordedStroke, i: Int, b: RecordedStroke, j: Int): Float =
-        hypot(a.samples[i * a.stride] - b.samples[j * b.stride], a.samples[i * a.stride + 1] - b.samples[j * b.stride + 1])
+    private fun distance(a: RecordedStroke, i: Int, b: RecordedStroke, j: Int): Float = hypot(
+        a.at(i, 0) - b.at(j, 0),
+        a.at(i, 1) - b.at(j, 1),
+    )
+
+    /** Channel [channel] of sample [i], with positions where they land on today's canvas. */
+    private fun RecordedStroke.at(i: Int, channel: Int): Float {
+        val value = samples[i * stride + channel]
+        return when (channel) {
+            0 -> value + offsetX
+            1 -> value + offsetY
+            else -> value
+        }
+    }
 
     /** [count] samples evenly spaced along [stroke], [stride] floats each. */
     private fun resample(stroke: RecordedStroke, count: Int, stride: Int, reverse: Boolean): FloatArray {
@@ -92,7 +104,7 @@ public object InBetweens {
         val out = FloatArray(count * stride)
         fun sample(i: Int, channel: Int): Float {
             val index = if (reverse) n - 1 - i else i
-            return stroke.samples[index * stroke.stride + channel]
+            return stroke.at(index, channel)
         }
         if (n == 1 || count == 1) {
             for (k in 0 until count) for (c in 0 until stride) out[k * stride + c] = sample(0, c)

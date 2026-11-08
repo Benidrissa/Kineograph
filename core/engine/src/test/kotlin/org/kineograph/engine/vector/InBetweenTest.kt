@@ -296,6 +296,70 @@ class InBetweenTest {
         assertNull(project.cel(background, frame(3)))
     }
 
+    /** Saves everything, closes the session, and opens the saved project again in a new one, as reopening the project does. */
+    private fun reopen() {
+        val saved = runBlocking { session.snapshot() }
+        session.close()
+        open(saved)
+    }
+
+    @Test
+    fun `frames drawn before the project was reopened still work, from their kept strokes`() {
+        line(20f, 180f, 20f)
+        session.addFrame()
+        line(20f, 180f, 80f)
+        reopen()
+
+        assertEquals(InBetweenOutcome.DONE, make().outcome)
+
+        assertTrue(inked(2, 100, 50))
+    }
+
+    @Test
+    fun `drawing more on a reopened frame carries on from its kept strokes`() {
+        line(20f, 180f, 20f)
+        session.addFrame()
+        line(20f, 180f, 80f)
+        reopen()
+        session.selectFrame(frame(1))
+        await()
+        line(20f, 180f, 30f)
+        session.selectFrame(frame(2))
+        await()
+        line(20f, 180f, 90f)
+
+        assertEquals(InBetweenOutcome.DONE, make().outcome)
+    }
+
+    @Test
+    fun `in-betweens keep their strokes too, so they work as key frames after reopening`() {
+        line(20f, 180f, 20f)
+        session.addFrame()
+        line(20f, 180f, 80f)
+        assertEquals(InBetweenOutcome.DONE, make().outcome)
+        reopen()
+
+        assertEquals(InBetweenOutcome.DONE, make(frameNumber = 2).outcome)
+    }
+
+    @Test
+    fun `a damaged stroke file means the strokes are not known`() {
+        line(20f, 180f, 20f)
+        session.addFrame()
+        line(20f, 180f, 80f)
+        val saved = runBlocking { session.snapshot() }
+        val file = saved.cel(layerId, saved.frames[0].id)?.file ?: error("no drawing")
+        val bytes = store.kept[file] ?: error("nothing kept")
+        bytes[bytes.size / 2] = (bytes[bytes.size / 2] + 1).toByte()
+        session.close()
+        open(saved)
+
+        val result = make()
+
+        assertEquals(InBetweenOutcome.NOT_RECORDED, result.outcome)
+        assertEquals(1, result.frame)
+    }
+
     private companion object {
         const val INK = 64
     }

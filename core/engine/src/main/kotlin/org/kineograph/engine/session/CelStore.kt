@@ -1,6 +1,8 @@
 package org.kineograph.engine.session
 
 import android.graphics.Bitmap
+import org.kineograph.engine.vector.RecordedStroke
+import org.kineograph.model.IntRect
 
 /**
  * Where cel images live. The engine knows nothing about paths or file formats. Names returned by
@@ -39,4 +41,13 @@ public interface CelStore {
      * a write, and one delete for each file, so it does not belong on the main thread.
      */
     public suspend fun discard(files: Collection<String>) {}
+
+    /**
+     * Keeps [strokes] beside [file]'s drawing, which sits at [celBounds], so they outlive the session. Best effort: it never throws or blocks,
+     * and whether it worked is not reported, because a drawing without its strokes only loses what in-betweens can use.
+     */
+    public fun keepStrokes(file: String, celBounds: IntRect, strokes: List<RecordedStroke>) {}
+
+    /** The strokes kept beside [file]'s drawing, now at [celBounds], or null if there are none that can be read. Never throws. */
+    public fun keptStrokes(file: String, celBounds: IntRect): List<RecordedStroke>? = null
 }

@@ -2,6 +2,9 @@ package org.kineograph.engine
 
 import android.graphics.Bitmap
 import org.kineograph.engine.session.CelStore
+import org.kineograph.engine.vector.RecordedStroke
+import org.kineograph.engine.vector.StrokeFiles
+import org.kineograph.model.IntRect
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -32,6 +35,20 @@ class FakeCelStore : CelStore {
     override suspend fun awaitWrites() = Unit
 
     override fun trimMemory() = Unit
+
+    /** Kept strokes, as the bytes of their files, so they go through the real format. */
+    val kept = ConcurrentHashMap<String, ByteArray>()
+
+    override fun keepStrokes(file: String, celBounds: IntRect, strokes: List<RecordedStroke>) {
+        StrokeFiles.encode(strokes, celBounds)?.let { kept[file] = it }
+    }
+
+    override fun keptStrokes(file: String, celBounds: IntRect): List<RecordedStroke>? = kept[file]?.let {
+        StrokeFiles.decode(
+            it,
+            celBounds,
+        )
+    }
 }
 
 /** A [CelStore] that runs out of memory, or fails to find images, whenever a test asks it to. */

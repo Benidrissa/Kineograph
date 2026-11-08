@@ -17,6 +17,9 @@ public class RecordedStroke(
     public val count: Int,
     public val stride: Int,
     public val clip: IntRect,
+    /** How far the stamps land from where the samples say, after the drawing moved on the canvas. Kept apart, as adding it would round them. */
+    public val offsetX: Int = 0,
+    public val offsetY: Int = 0,
 ) {
     /** Roughly what this holds in memory. */
     public val bytes: Long get() = samples.size.toLong() * Float.SIZE_BYTES + OVERHEAD_BYTES
